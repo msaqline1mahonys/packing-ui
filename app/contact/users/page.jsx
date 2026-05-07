@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
+import { Grid } from "@/components/clutch-table";
 import { CONTACT_USER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
-const filterInputClass =
-  "w-full rounded-md border border-slate-200/90 bg-white px-2 py-1 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand/35 focus:ring-1 focus:ring-brand/25";
 
 const columns = [
   { key: "name", label: "Name" },
@@ -17,6 +16,16 @@ const columns = [
   { key: "role", label: "Role" },
   { key: "status", label: "Status" },
 ];
+
+// Column definitions for clutch-table Grid
+const gridColumns = columns.map((col) => ({
+  key: col.key,
+  header: col.label,
+  type: "text",
+  sortable: true,
+  filterable: true,
+  resizable: true,
+}));
 
 const initialRows = CONTACT_USER_ROWS;
 
@@ -50,8 +59,6 @@ function buildFormData(row) {
 
 export default function ContactUsersPage() {
   const [rows, setRows] = useState(() => initialRows.map(toDisplayRow));
-  const [search, setSearch] = useState("");
-  const [colFilters, setColFilters] = useState(() => Object.fromEntries(columns.map((column) => [column.key, ""])));
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -75,25 +82,7 @@ export default function ContactUsersPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [isMobile]);
 
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      const query = search.trim().toLowerCase();
-      if (query) {
-        const blob = `${row.name} ${row.email} ${row.role} ${row.status}`.toLowerCase();
-        if (!blob.includes(query)) return false;
-      }
-
-      for (const column of columns) {
-        const value = (colFilters[column.key] || "").trim().toLowerCase();
-        if (!value) continue;
-        if (!String(row[column.key] ?? "").toLowerCase().includes(value)) return false;
-      }
-
-      return true;
-    });
-  }, [rows, search, colFilters]);
-
-  const selected = selectedId != null ? filteredRows.find((row) => row.id === selectedId) ?? null : null;
+  const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
 
   function openCreateModal() {
     setEditMode(false);
@@ -160,100 +149,28 @@ export default function ContactUsersPage() {
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage users: name, email, role, and status.</p> : null}
       </div>
 
-      <div className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-          <input
-            className={cn(inputClass, "lg:min-w-[240px] lg:flex-1", isMobile && "w-full")}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search users..."
-            aria-label="Search users"
-          />
-          <div className={cn("flex flex-wrap gap-2 lg:ms-auto", isMobile && "w-full")}>
-            <BtnPrimary type="button" onClick={openCreateModal}>
-              + Add
-            </BtnPrimary>
-            {isMobile && selected ? (
-              <BtnPrimary type="button" disabled={!selected} onClick={openEditModal}>
-                View / Edit
-              </BtnPrimary>
-            ) : (
-              <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>
-                Edit
-              </BtnSecondary>
-            )}
-            <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>
-              Delete
-            </BtnDanger>
-          </div>
-        </div>
-      </div>
-
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
-        <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList rows={filteredRows} selectedId={selectedId} onSelect={setSelectedId} search={search} />
+            <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/95">
-                    {columns.map((column) => (
-                      <th key={column.key} className="whitespace-nowrap px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-200 bg-white">
-                    {columns.map((column) => (
-                      <th key={`filter-${column.key}`} className="px-2 py-1.5">
-                        <input
-                          className={filterInputClass}
-                          placeholder="Filter..."
-                          value={colFilters[column.key]}
-                          onChange={(event) => setColFilters((prev) => ({ ...prev, [column.key]: event.target.value }))}
-                          aria-label={`Filter ${column.label}`}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={columns.length} className="px-3 py-14 text-center text-sm text-slate-400">
-                        No users found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredRows.map((row) => {
-                      const isSelected = selectedId === row.id;
-                      return (
-                        <tr
-                          key={row.id}
-                          onClick={() => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-                          className={cn("cursor-pointer border-b border-slate-100 transition-colors last:border-0", isSelected ? "bg-brand/[0.07]" : "hover:bg-slate-50/90")}
-                        >
-                          <td className="px-3 py-2.5 font-semibold text-slate-900">{row.name || "—"}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{row.email || "—"}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{row.role || "—"}</td>
-                          <td className="px-3 py-2.5">
-                            <span
-                              className={cn(
-                                "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1",
-                                row.active ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-rose-50 text-rose-800 ring-rose-200"
-                              )}
-                            >
-                              {row.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <Grid
+              columns={gridColumns}
+              rows={rows}
+              getRowId={(row) => row.id}
+              theme="light"
+              density="standard"
+              fileName="Users"
+              visibleRows={12}
+              onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              toolbarActions={
+                <div className="flex flex-wrap gap-2">
+                  <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>
+                  <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>Edit</BtnSecondary>
+                  <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>Delete</BtnDanger>
+                </div>
+              }
+            />
           )}
         </div>
 

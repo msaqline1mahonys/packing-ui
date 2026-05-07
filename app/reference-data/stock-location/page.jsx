@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { REFERENCE_STOCK_LOCATION_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -18,10 +19,7 @@ const config = {
     { key: "status", label: "Status" },
     { key: "capacity", label: "Capacity (T)", numeric: true },
   ],
-  rows: [
-    { id: 1, name: "Bay 12", site: "Melbourne", locationType: "Bay", status: "Active", capacity: "420" },
-    { id: 2, name: "Shed C", site: "Melbourne", locationType: "Shed", status: "Active", capacity: "800" },
-  ],
+  rows: REFERENCE_STOCK_LOCATION_ROWS,
   formFields: [
     { key: "name", label: "Location Name", required: true },
     { key: "site", label: "Site", type: "select", options: ["Melbourne", "Sydney", "Brisbane"] },

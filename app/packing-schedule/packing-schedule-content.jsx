@@ -4,16 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-
-const PACK_STATUSES = [
-  "Pending",
-  "Inprogress",
-  "Awaiting Approval",
-  "Pending Fumigation",
-  "Approved",
-  "Invoiced",
-  "Completed",
-];
+import { PACK_SCHEDULE_ROWS, PACK_STATUSES } from "@/lib/Data";
 
 const inputClass =
   "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -29,38 +20,7 @@ const TABLE_COLUMNS = [
   { id: "mtTotal", label: "MT", accessor: (pack) => String(pack.mtTotal) },
 ];
 
-const DEMO_PACKS = [
-  {
-    id: 10442,
-    importExport: "Export",
-    customer: "Riverina Co-op",
-    commodity: "Feed barley",
-    status: "Pending",
-    jobReference: "JOB-88921",
-    containersRequired: 4,
-    mtTotal: 102.4,
-    exporter: "AusGrain Pty Ltd",
-    destinationCountry: "Vietnam",
-    vessel: "Pacific Trader",
-    jobNotes: "Docs pending PEM signature.",
-    date: "2026-05-04",
-  },
-  {
-    id: 10441,
-    importExport: "Import",
-    customer: "GrainCorp Trading",
-    commodity: "Canola",
-    status: "Pending Fumigation",
-    jobReference: "JOB-88902",
-    containersRequired: 2,
-    mtTotal: 58.0,
-    exporter: "—",
-    destinationCountry: "Australia",
-    vessel: "Southern Reef",
-    jobNotes: "Awaiting fumigation clearance.",
-    date: "2026-05-05",
-  },
-];
+const DEMO_PACKS = PACK_SCHEDULE_ROWS;
 
 export default function PackingScheduleContent({ queueLabel }) {
   const router = useRouter();

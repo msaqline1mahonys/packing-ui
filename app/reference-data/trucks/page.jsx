@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { REFERENCE_TRUCK_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -20,10 +21,7 @@ const config = {
     { key: "combination", label: "Combination" },
     { key: "tare", label: "Tare (T)", numeric: true },
   ],
-  rows: [
-    { id: 1, name: "MHY-104", driver: "Alex Nguyen", combination: "B-Double", tare: "8.20" },
-    { id: 2, name: "MHY-227", driver: "Jamie Cole", combination: "Semi Trailer", tare: "8.45" },
-  ],
+  rows: REFERENCE_TRUCK_ROWS,
   formFields: [
     { key: "name", label: "Rego", required: true, placeholder: "e.g. MHY-104" },
     { key: "driver", label: "Driver", placeholder: "Driver name" },

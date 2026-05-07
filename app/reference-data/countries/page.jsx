@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 import countriesData from "./countries-data.json";

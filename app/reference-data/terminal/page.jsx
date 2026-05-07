@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { REFERENCE_TERMINAL_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -20,20 +21,7 @@ const config = {
     { key: "revenuePrice", label: "Revenue Price", numeric: true },
     { key: "expensePrice", label: "Expense Price", numeric: true },
   ],
-  rows: [
-    {
-      id: 1,
-      terminalCode: "APT",
-      terminalName: "Appleton Terminal",
-      terminalContacts: [
-        { contactName: "Ops Desk", contactEmail: "ops@appleton.example", contactPhone: "+61 3 9000 1111" },
-        { contactName: "Gate Control", contactEmail: "gate@appleton.example", contactPhone: "+61 3 9000 2222" },
-      ],
-      notes: "Primary export terminal.",
-      revenuePrice: "185.00",
-      expensePrice: "132.50",
-    },
-  ],
+  rows: REFERENCE_TERMINAL_ROWS,
   formFields: [
     { key: "terminalCode", label: "Terminal Code", required: true, placeholder: "e.g., TRM-01" },
     { key: "terminalName", label: "Terminal Name", required: true, placeholder: "e.g., North Terminal" },

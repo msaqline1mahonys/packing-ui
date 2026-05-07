@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { COMMODITY_MASTER_ROWS, COMMODITY_TEST_DEFINITIONS, COMMODITY_TYPE_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -20,31 +21,17 @@ const config = {
         { key: "status", label: "STATUS" },
         { key: "shrinkAmount", label: "SHRINK" },
     ],
-    rows: [
-        {
-            id: 1,
-            commodityCode: "COM-001",
-            description: "Australian Hard Wheat",
-            commodityType: "Wheat",
-            status: "Active",
-            shrinkAmount: "2%",
-        },
-        {
-            id: 2,
-            commodityCode: "COM-002",
-            description: "Premium Malt Barley",
-            commodityType: "Barley",
-            status: "Active",
-            shrinkAmount: "1.5%",
-        },
-    ],
+    rows: COMMODITY_MASTER_ROWS.map((row) => ({
+        ...row,
+        commodityType: row.commodityTypeName,
+    })),
     formFields: [
         {
             key: "commodityType",
             label: "COMMODITY TYPE",
             required: true,
             type: "select",
-            options: ["Wheat", "Barley", "Canola", "Oats"],
+            options: COMMODITY_TYPE_MASTER_ROWS.map((row) => row.name),
         },
         { key: "commodityCode", label: "COMMODITY CODE", required: true, placeholder: "e.g., COM-001" },
         { key: "description", label: "DESCRIPTION", required: true, placeholder: "e.g., Australian Hard Wheat" },
@@ -287,9 +274,11 @@ function FormField({ field, value, onChange }) {
                                         }}
                                     >
                                         <option value="">Select test</option>
-                                        <option value="Protein">Protein</option>
-                                        <option value="Moisture">Moisture</option>
-                                        <option value="Test Weight">Test Weight</option>
+                                        {COMMODITY_TEST_DEFINITIONS.map((test) => (
+                                            <option key={test.id} value={test.name}>
+                                                {test.name}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="w-20 space-y-1">

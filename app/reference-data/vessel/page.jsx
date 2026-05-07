@@ -2,15 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { REFERENCE_SHIPPING_LINE_ROWS, REFERENCE_VESSEL_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
 const inputClass = "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 const filterInputClass = "w-full rounded-md border border-slate-200/90 bg-white px-2 py-1 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand/35 focus:ring-1 focus:ring-brand/25";
-const SHIPPING_LINE_BASE_ROWS = [
-  { id: 1, shippingLineCode: "BSL", shippingLineName: "BlueStar Line" },
-];
-const SHIPPING_LINE_OPTIONS = SHIPPING_LINE_BASE_ROWS.map((line) => line.shippingLineName);
+const SHIPPING_LINE_OPTIONS = REFERENCE_SHIPPING_LINE_ROWS.map((line) => line.shippingLineName);
 
 const config = {
   title: "Vessel",
@@ -25,19 +23,7 @@ const config = {
     { key: "vesselFreeDays", label: "Free Days" },
     { key: "shippingLine", label: "Shipping Line" },
   ],
-  rows: [
-    {
-      id: 1,
-      vessel: "Pacific Trader",
-      voyageNumber: "PT0426",
-      vesselCutoffDate: "2026-05-02T14:00",
-      vesselReceivalsOpenDate: "2026-04-28T06:00",
-      vesselEta: "2026-05-05T08:00",
-      vesselEtd: "2026-05-06T16:00",
-      vesselFreeDays: "7",
-      shippingLine: "BlueStar Line",
-    },
-  ],
+  rows: REFERENCE_VESSEL_ROWS,
   formFields: [
     { key: "vessel", label: "Vessel", required: true },
     { key: "voyageNumber", label: "Voyage Number", required: true },

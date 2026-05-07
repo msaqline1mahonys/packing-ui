@@ -4,66 +4,19 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { PACK_FORM_LOOKUPS, PACK_STATUSES, PACK_TEMPLATE, SAMPLE_STATUSES } from "@/lib/Data";
 
-const PACK_STATUSES = [
-  "Pending",
-  "Inprogress",
-  "Awaiting Approval",
-  "Pending Fumigation",
-  "Approved",
-  "Invoiced",
-  "Completed",
-];
-
-const SAMPLE_STATUSES = ["Pending", "Sent", "In Lab", "Passed", "Failed"];
-
-const SITES = [
-  { id: 1, name: "Sydney" },
-  { id: 2, name: "Melbourne" },
-  { id: 3, name: "Brisbane" },
-];
-
-const customers = [
-  { id: 1, name: "Riverina Co-op" },
-  { id: 2, name: "GrainCorp Trading" },
-];
-
-const commodityTypes = [
-  { id: 1, name: "Grains" },
-  { id: 2, name: "Pulses" },
-];
-
-const commodities = [
-  { id: 1, commodityTypeId: 1, description: "Feed barley" },
-  { id: 2, commodityTypeId: 1, description: "Canola" },
-  { id: 3, commodityTypeId: 2, description: "Lentils" },
-];
-
-const shippingLines = [
-  { id: 1, name: "Maersk", code: "MSK" },
-  { id: 2, name: "MSC", code: "MSC" },
-];
-
-const containerParks = [
-  { id: 1, name: "Park A" },
-  { id: 2, name: "Park B" },
-];
-
-const transporters = [
-  { id: 1, name: "Trans One" },
-  { id: 2, name: "Trans Two" },
-];
-
-const packers = [
-  { id: 1, name: "Alex", status: "active" },
-  { id: 2, name: "Jordan", status: "active" },
-  { id: 3, name: "Casey", status: "inactive" },
-];
-
-const vesselSchedule = [
-  { shipName: "Pacific Trader", voyageOut: "VOY-111", cargoCutoffDate: "2026-06-10" },
-  { shipName: "Southern Reef", voyageOut: "VOY-222", cargoCutoffDate: "2026-06-13" },
-];
+const {
+  sites: SITES,
+  customers,
+  commodityTypes,
+  commodities,
+  shippingLines,
+  containerParks,
+  transporters,
+  packers,
+  vesselScheduleCsvRows: vesselSchedule,
+} = PACK_FORM_LOOKUPS;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -72,51 +25,20 @@ const gridClass = "grid gap-4 md:grid-cols-2";
 const sectionClass = "rounded-xl border border-slate-200/95 bg-white p-5 shadow-sm";
 
 const blankPack = (siteId) => ({
-  packType: "container",
-  importExport: "Export",
-  customerId: "",
-  exporter: "",
-  commodityTypeId: "",
-  commodityId: "",
-  status: "Pending",
-  jobReference: "",
-  fumigation: "",
-  containersRequired: "",
+  ...PACK_TEMPLATE,
+  siteId,
   releaseIds: [],
   releaseDetails: [],
   emptyContainerParkIds: [],
   transporterIds: [],
   assignedPackerIds: [],
-  siteId,
-  quantityPerContainer: "",
-  maxQtyPerContainer: "",
-  mtTotal: "",
-  destinationCountry: "",
-  destinationPort: "",
-  transshipmentPort: "",
-  transshipmentPortCode: "",
-  shippingLineId: "",
-  vesselDepartureId: null,
-  importPermitRequired: false,
-  importPermitNumber: "",
-  importPermitDate: "",
   importPermitFiles: [],
-  rfp: "",
-  rfpAdditionalDeclarationRequired: false,
   additionalDeclarationFiles: [],
   rfpFiles: [],
-  rfpComment: "",
-  rfpExpiry: "",
-  rfpCommodityCode: "",
-  sampleRequired: false,
   sampleLocations: [],
   sampleSentDates: [],
   sampleStatuses: [],
   packingInstructionFiles: [],
-  jobNotes: "",
-  date: new Date().toISOString().split("T")[0],
-  testRequired: false,
-  shrinkTaken: false,
 });
 
 function parseList(str) {

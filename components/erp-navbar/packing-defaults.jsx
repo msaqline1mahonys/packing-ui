@@ -5,6 +5,7 @@
  */
 
 import {
+  CircleDollarSign,
   FlaskConical,
   HelpCircle,
   LayoutDashboard,
@@ -14,13 +15,10 @@ import {
   Users,
   Waypoints,
 } from "lucide-react";
+import { DEFAULT_SITE_OPTIONS } from "@/lib/site-data";
 
 /** Default sites for the packing shell — override via `SiteProvider` props. */
-export const PACKING_SITES = [
-  { id: "melbourne", label: "Melbourne" },
-  { id: "sydney", label: "Sydney" },
-  { id: "brisbane", label: "Brisbane" },
-];
+export const PACKING_SITES = DEFAULT_SITE_OPTIONS;
 
 export const PACKING_NAV_DEFAULT_UI = {
   brandTitle: "Clutch.",
@@ -30,7 +28,7 @@ export const PACKING_NAV_DEFAULT_UI = {
   userEmail: "ops@packing.local",
   userInitials: "AS",
   avatarSrc: "",
-  accountSettingsHref: "/system-settings",
+  accountSettingsHref: "/contact",
 };
 
 export const PACKING_NAV_MODULES = [
@@ -41,17 +39,13 @@ export const PACKING_NAV_MODULES = [
     children: [
       { name: "Overview", href: "/" },
       { name: "Reference data", href: "/reference-data" },
+      { name: "Contacts", href: "/contact" },
       { name: "Product settings", href: "/product-settings" },
     ],
   },
   {
     name: "Packing schedule",
     href: "/packing-schedule",
-    icon: <Package className="size-5" strokeWidth={1.5} />,
-  },
-  {
-    name: "System settings",
-    href: "/system-settings",
     icon: <Package className="size-5" strokeWidth={1.5} />,
   },
   {
@@ -70,6 +64,11 @@ export const PACKING_NAV_MODULES = [
     icon: <Waypoints className="size-5" strokeWidth={1.5} />,
   },
   {
+    name: "Accounting",
+    href: "/accounting",
+    icon: <CircleDollarSign className="size-5" strokeWidth={1.5} />,
+  },
+  {
     name: "Fumigation",
     href: "/fumigation",
     icon: <FlaskConical className="size-5" strokeWidth={1.5} />,
@@ -83,8 +82,8 @@ export const PACKING_NAV_FOOTER = [
     icon: <HelpCircle className="size-5" strokeWidth={1.5} />,
   },
   {
-    name: "Settings",
-    href: "/system-settings",
+    name: "System settings",
+    href: "/more-settings/site",
     icon: <Settings2 className="size-5" strokeWidth={1.5} />,
   },
 ];

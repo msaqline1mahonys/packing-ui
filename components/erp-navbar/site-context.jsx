@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { PACKING_SITES } from "./packing-defaults";
+import { readSiteOptions, SITES_UPDATED_EVENT } from "@/lib/site-data";
 
 const SiteContext = createContext(null);
 
@@ -23,18 +24,42 @@ function parseStoredId(raw, sites) {
 
 export function SiteProvider({
   children,
-  sites = PACKING_SITES,
+  sites,
   /** First matching site id when nothing valid is stored. */
   defaultSiteId,
   storageKey = DEFAULT_STORAGE_KEY,
 }) {
-  const sitesRef = useRef(sites);
-  sitesRef.current = sites;
+  const [resolvedSites, setResolvedSites] = useState(() => {
+    if (sites?.length) return sites;
+    return PACKING_SITES;
+  });
+  const sitesRef = useRef(resolvedSites);
+  sitesRef.current = resolvedSites;
+
+  useEffect(() => {
+    if (sites?.length) {
+      setResolvedSites(sites);
+      return;
+    }
+
+    const syncSites = () => {
+      const next = readSiteOptions();
+      setResolvedSites(next.length ? next : PACKING_SITES);
+    };
+
+    syncSites();
+    window.addEventListener("storage", syncSites);
+    window.addEventListener(SITES_UPDATED_EVENT, syncSites);
+    return () => {
+      window.removeEventListener("storage", syncSites);
+      window.removeEventListener(SITES_UPDATED_EVENT, syncSites);
+    };
+  }, [sites]);
 
   const initialId =
-    defaultSiteId && sites.some((s) => s.id === defaultSiteId)
+    defaultSiteId && resolvedSites.some((s) => s.id === defaultSiteId)
       ? defaultSiteId
-      : (sites[0]?.id ?? "");
+      : (resolvedSites[0]?.id ?? "");
 
   const [siteId, setSiteIdState] = useState(initialId);
 
@@ -52,13 +77,13 @@ export function SiteProvider({
   }, [storageKey, defaultSiteId]);
 
   useEffect(() => {
-    if (!siteId || !sites.length) return;
-    if (!sites.some((s) => s.id === siteId)) {
-      const next = sites[0]?.id ?? "";
+    if (!siteId || !resolvedSites.length) return;
+    if (!resolvedSites.some((s) => s.id === siteId)) {
+      const next = resolvedSites[0]?.id ?? "";
       setSiteIdState(next);
       if (next) localStorage.setItem(storageKey, next);
     }
-  }, [sites, siteId, storageKey]);
+  }, [resolvedSites, siteId, storageKey]);
 
   const storageKeyRef = useRef(storageKey);
   storageKeyRef.current = storageKey;
@@ -70,14 +95,14 @@ export function SiteProvider({
   }, []);
 
   const value = useMemo(() => {
-    const site = sites.find((s) => s.id === siteId) ?? sites[0] ?? null;
+    const site = resolvedSites.find((s) => s.id === siteId) ?? resolvedSites[0] ?? null;
     return {
-      sites,
+      sites: resolvedSites,
       siteId: site?.id ?? "",
       site,
       setSiteId,
     };
-  }, [sites, siteId, setSiteId]);
+  }, [resolvedSites, siteId, setSiteId]);
 
   return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>;
 }

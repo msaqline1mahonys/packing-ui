@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { REFERENCE_SHIPPING_LINE_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -18,16 +19,7 @@ const config = {
     { key: "shippingLineContactEmail", label: "Contact Email" },
     { key: "shippingLineContactPhoneNumber", label: "Contact Phone Number" },
   ],
-  rows: [
-    {
-      id: 1,
-      shippingLineCode: "BSL",
-      shippingLineName: "BlueStar Line",
-      website: "https://example.com/bluestar",
-      shippingLineContactEmail: "schedules@example.com",
-      shippingLineContactPhoneNumber: "+61 3 9000 1111",
-    },
-  ],
+  rows: REFERENCE_SHIPPING_LINE_ROWS,
   formFields: [
     { key: "shippingLineCode", label: "Shipping Line Code", required: true, placeholder: "e.g., MSC, MAEU" },
     { key: "shippingLineName", label: "Shipping Line Name", required: true, placeholder: "e.g., MSC Mediterranean Shipping" },

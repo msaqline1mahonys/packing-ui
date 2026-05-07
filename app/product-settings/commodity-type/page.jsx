@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { COMMODITY_TYPE_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -19,20 +20,12 @@ const config = {
         { key: "acosCode", label: "ACOS CODE" },
         { key: "testRequired", label: "TEST REQUIRED" },
     ],
-    rows: [
-        {
-            id: 1,
-            name: "Wheat",
-            acosCode: "WHT001",
-            testRequired: "No",
-        },
-        {
-            id: 2,
-            name: "Barley",
-            acosCode: "BAR002",
-            testRequired: "Yes",
-        },
-    ],
+    rows: COMMODITY_TYPE_MASTER_ROWS.map((row) => ({
+        id: row.id,
+        name: row.name,
+        acosCode: row.acosCode,
+        testRequired: row.testRequired,
+    })),
     formFields: [
         { key: "name", label: "NAME", required: true, placeholder: "e.g., Wheat" },
         { key: "acosCode", label: "ACOS CODE", required: true, placeholder: "e.g., WHT001" },

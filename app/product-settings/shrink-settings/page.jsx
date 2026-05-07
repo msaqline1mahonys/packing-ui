@@ -1,23 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { COMMODITY_MASTER_ROWS, COMMODITY_TYPE_MASTER_ROWS, CUSTOMER_MASTER_ROWS, SHRINK_SETTINGS_DATA } from "@/lib/Data";
 
 export default function ShrinkSettingsPage() {
-    const [defaultShrink, setDefaultShrink] = useState("0.5");
-    const [savedDefaultShrink, setSavedDefaultShrink] = useState("0.5");
+    const [defaultShrink, setDefaultShrink] = useState(String(SHRINK_SETTINGS_DATA.defaultShrinkPercent));
+    const [savedDefaultShrink, setSavedDefaultShrink] = useState(String(SHRINK_SETTINGS_DATA.defaultShrinkPercent));
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [customer, setCustomer] = useState("");
     const [commodity, setCommodity] = useState("");
     const [shrinkPct, setShrinkPct] = useState("");
+    const [customerCommodityRules, setCustomerCommodityRules] = useState(() =>
+        SHRINK_SETTINGS_DATA.customerCommodityShrinkRules.map((rule) => ({ ...rule }))
+    );
+
+    const commodityTypeById = useMemo(
+        () => new Map(COMMODITY_TYPE_MASTER_ROWS.map((item) => [item.id, item])),
+        []
+    );
+    const commodityById = useMemo(() => new Map(COMMODITY_MASTER_ROWS.map((item) => [item.id, item])), []);
+    const customerById = useMemo(() => new Map(CUSTOMER_MASTER_ROWS.map((item) => [item.id, item])), []);
 
     const handleSaveDefault = () => {
         setSavedDefaultShrink(defaultShrink);
     };
 
     const handleAddShrink = () => {
-        // Handle save logic here
+        if (!customer || !commodity || !shrinkPct.trim()) return;
+        const parsed = Number.parseFloat(shrinkPct);
+        if (!Number.isFinite(parsed) || parsed < 0) return;
+
+        setCustomerCommodityRules((prev) => {
+            const customerId = Number(customer);
+            const commodityId = Number(commodity);
+            const existing = prev.find((rule) => rule.customerId === customerId && rule.commodityId === commodityId);
+            if (existing) {
+                return prev.map((rule) =>
+                    rule.id === existing.id ? { ...rule, shrinkPct: parsed } : rule
+                );
+            }
+            const nextId = Math.max(0, ...prev.map((rule) => Number(rule.id) || 0)) + 1;
+            return [...prev, { id: nextId, customerId, commodityId, shrinkPct: parsed }];
+        });
         setIsModalOpen(false);
         setCustomer("");
         setCommodity("");
@@ -70,15 +96,12 @@ export default function ShrinkSettingsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {/* Placeholders for rows */}
-                                <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
-                                    <td className="px-4 py-3 text-slate-700">Wheat</td>
-                                    <td className="px-4 py-3 text-slate-700 text-right">0.8%</td>
-                                </tr>
-                                <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
-                                    <td className="px-4 py-3 text-slate-700">Barley</td>
-                                    <td className="px-4 py-3 text-slate-700 text-right">1.2%</td>
-                                </tr>
+                                {SHRINK_SETTINGS_DATA.commodityTypeShrinkRules.map((rule) => (
+                                    <tr key={rule.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
+                                        <td className="px-4 py-3 text-slate-700">{commodityTypeById.get(rule.commodityTypeId)?.name || "-"}</td>
+                                        <td className="px-4 py-3 text-slate-700 text-right">{rule.shrinkPct}%</td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                     </div>
@@ -100,11 +123,17 @@ export default function ShrinkSettingsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
-                                    <td className="px-4 py-3 text-slate-700">Australian Hard Wheat</td>
-                                    <td className="px-4 py-3 text-slate-700">Wheat</td>
-                                    <td className="px-4 py-3 text-slate-700 text-right">1.0%</td>
-                                </tr>
+                                {SHRINK_SETTINGS_DATA.commodityShrinkRules.map((rule) => {
+                                    const item = commodityById.get(rule.commodityId);
+                                    const type = commodityTypeById.get(item?.commodityTypeId);
+                                    return (
+                                        <tr key={rule.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
+                                            <td className="px-4 py-3 text-slate-700">{item?.description || "-"}</td>
+                                            <td className="px-4 py-3 text-slate-700">{type?.name || "-"}</td>
+                                            <td className="px-4 py-3 text-slate-700 text-right">{rule.shrinkPct}%</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -120,9 +149,32 @@ export default function ShrinkSettingsPage() {
                         <Button type="button" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setIsModalOpen(true)}>
                             + Add customer-commodity shrink
                         </Button>
-                        <p className="mt-4 text-[11px] text-slate-400">
-                            No customer-commodity agreements. Add one to apply a special shrink % for a specific customer and commodity.
-                        </p>
+                        {customerCommodityRules.length === 0 ? (
+                            <p className="mt-4 text-[11px] text-slate-400">
+                                No customer-commodity agreements. Add one to apply a special shrink % for a specific customer and commodity.
+                            </p>
+                        ) : (
+                            <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50/95 border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">CUSTOMER</th>
+                                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">COMMODITY</th>
+                                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500 text-right">SHRINK %</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {customerCommodityRules.map((rule) => (
+                                            <tr key={rule.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/90">
+                                                <td className="px-4 py-3 text-slate-700">{customerById.get(rule.customerId)?.name || "-"}</td>
+                                                <td className="px-4 py-3 text-slate-700">{commodityById.get(rule.commodityId)?.description || "-"}</td>
+                                                <td className="px-4 py-3 text-slate-700 text-right">{rule.shrinkPct}%</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -139,6 +191,11 @@ export default function ShrinkSettingsPage() {
                             onChange={(e) => setCustomer(e.target.value)}
                         >
                             <option value="">Select customer</option>
+                            {CUSTOMER_MASTER_ROWS.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                    {item.name} ({item.code})
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -152,6 +209,11 @@ export default function ShrinkSettingsPage() {
                             onChange={(e) => setCommodity(e.target.value)}
                         >
                             <option value="">Select commodity</option>
+                            {COMMODITY_MASTER_ROWS.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                    {item.description}
+                                </option>
+                            ))}
                         </select>
                     </div>
 

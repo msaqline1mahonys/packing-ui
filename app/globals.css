@@ -134,3 +134,16 @@
     @apply font-sans;
   }
 }
+
+/* Clutch table row state styles */
+.clutch-row-import {
+  background-color: #eff6ff !important;
+}
+
+.clutch-row-import:hover {
+  background-color: #dbeafe !important;
+}
+
+.clutch-row-selected {
+  background-color: #dbeafe !important;
+}

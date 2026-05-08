@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Paper, ThemeProvider, createTheme, CssBaseline, TextField, InputAdornment, IconButton, Button, Stack, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip } from '@mui/material';
+import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip } from '@mui/material';
 import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
 import Download from '@mui/icons-material/Download';
@@ -791,19 +791,40 @@ export function Grid(props) {
         borderColor: 'divider',
         flexWrap: 'wrap'
       }}>
-          {enableGlobalSearch && <TextField size="small" placeholder="Search…" value={globalSearch} onChange={e => {
-          setGlobalSearch(e.target.value);
-          setPage(0);
-        }} InputProps={{
-          startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment>,
-          endAdornment: globalSearch ? <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setGlobalSearch('')}>
-                      <Clear fontSize="small" />
-                    </IconButton>
-                  </InputAdornment> : undefined
-        }} sx={{
-          minWidth: 240
-        }} />}
+          {enableGlobalSearch && <Box sx={{
+          minWidth: 240,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          px: 1,
+          py: 0.25,
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          bgcolor: 'background.paper'
+        }}>
+              <Search fontSize="small" color="action" />
+              <Box component="input" type="text" placeholder="Search..." value={globalSearch} onChange={e => {
+            setGlobalSearch(e.target.value);
+            setPage(0);
+          }} sx={{
+            flex: 1,
+            minWidth: 0,
+            border: 'none',
+            outline: 'none',
+            bgcolor: 'transparent',
+            color: 'text.primary',
+            fontSize: '0.875rem',
+            py: 0.75,
+            '&::placeholder': {
+              color: 'text.secondary',
+              opacity: 1
+            }
+          }} />
+              {globalSearch ? <IconButton size="small" onClick={() => setGlobalSearch('')}>
+                  <Clear fontSize="small" />
+                </IconButton> : null}
+            </Box>}
 
           {hasActiveFilters && <Chip size="small" label={`${Object.keys(filters).filter(k => filters[k]).length} filter(s)`} onDelete={() => setFilters({})} color="primary" variant="outlined" />}
 
@@ -1263,7 +1284,12 @@ export function Grid(props) {
         gap: 1,
         flexWrap: 'wrap'
       }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          flexWrap: 'wrap'
+        }}>
             <Typography variant="caption" color="text.secondary">
               {filteredCount.toLocaleString()} {filteredCount === 1 ? 'row' : 'rows'}
               {filteredCount !== totalCount && ` (filtered from ${totalCount.toLocaleString()})`}
@@ -1272,15 +1298,19 @@ export function Grid(props) {
                 <Chip size="small" label={`${selection.count} selected`} color="primary" variant="outlined" />
                 <Button size="small" onClick={selection.clear}>Clear</Button>
               </>}
-          </Stack>
+          </Box>
 
-          {enablePagination && pageCount > 1 && <Stack direction="row" spacing={1} alignItems="center">
+          {enablePagination && pageCount > 1 && <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
               <Button size="small" disabled={safePage === 0} onClick={() => setPage(0)}>«</Button>
               <Button size="small" disabled={safePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Prev</Button>
               <Typography variant="caption">Page {safePage + 1} of {pageCount}</Typography>
               <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}>Next</Button>
               <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(pageCount - 1)}>»</Button>
-            </Stack>}
+            </Box>}
         </Box>
       </Paper>
 

@@ -152,15 +152,16 @@ export default function ContactUsersPage() {
       }
     }
 
-    if (formData.aoActive) {
-      if (!aoPemsUsername) {
-        window.alert("AO PEMS Username is required when AO is active.");
-        return;
-      }
-      if (!aoToken) {
-        window.alert("AO Token is required when AO is active.");
-        return;
-      }
+    const isActivatingAo = formData.aoActive && (!editMode || !selected || !selected.aoActive);
+
+    if (formData.aoActive && !aoPemsUsername) {
+      window.alert("AO PEMS Username is required when AO is active.");
+      return;
+    }
+
+    if (isActivatingAo && !aoToken) {
+      window.alert("AO Token is required when enabling AO.");
+      return;
     }
 
     if (formData.isFumigator && !fumigatorLicence) {
@@ -182,7 +183,7 @@ export default function ContactUsersPage() {
       aoPemsUsername: formData.aoActive ? aoPemsUsername : "",
       aoPemsPassword: formData.aoActive ? (formData.aoPemsPassword || "").trim() : "",
       aoToken: formData.aoActive ? aoToken : "",
-      signature: formData.aoActive ? signature : "",
+      signature,
       isFumigator: formData.isFumigator,
       fumigationExpiry: formData.isFumigator ? formData.fumigationExpiry : "",
       fumigatorLicence: formData.isFumigator ? fumigatorLicence : "",
@@ -255,13 +256,13 @@ export default function ContactUsersPage() {
                 <DetailItem label="Weighbridge Access" value={selected.weighbridgeAccess ? "Yes" : "No"} />
                 <DetailItem label="Packers Account Access" value={selected.packersAccountAccess ? "Yes" : "No"} />
                 <DetailItem label="AO Active" value={selected.aoActive ? "Yes" : "No"} />
+                <DetailItem label="Signature" value={selected.signature || "—"} />
                 {selected.aoActive ? (
                   <>
                     <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "—"} />
                     <DetailItem label="AO Token" value={selected.aoToken ? "Configured" : "Not set"} />
                     <DetailItem label="AO Expiry" value={selected.aoExpiry || "—"} />
                     <DetailItem label="AO License Number" value={selected.aoLicenseNumber || "—"} />
-                    <DetailItem label="Signature" value={selected.signature || "—"} />
                   </>
                 ) : null}
                 <DetailItem label="Fumigator" value={selected.isFumigator ? "Yes" : "No"} />
@@ -326,6 +327,14 @@ export default function ContactUsersPage() {
                 <option value="inactive">Inactive</option>
               </select>
             </FormRow>
+
+            <FormRow label="Signature">
+              <Input
+                value={formData.signature}
+                onChange={(event) => setFormData({ ...formData, signature: event.target.value })}
+                placeholder="Type user signature or signing name"
+              />
+            </FormRow>
           </div>
 
           <div className="grid gap-4">
@@ -377,9 +386,6 @@ export default function ContactUsersPage() {
                     onChange={(event) => setFormData({ ...formData, aoLicenseNumber: event.target.value })}
                     placeholder="AO License Number"
                   />
-                </FormRow>
-                <FormRow label="Signature">
-                  <Input value={formData.signature} onChange={(event) => setFormData({ ...formData, signature: event.target.value })} placeholder="Signature" />
                 </FormRow>
               </div>
             ) : (

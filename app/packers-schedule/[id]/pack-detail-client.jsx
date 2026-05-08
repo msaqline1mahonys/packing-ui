@@ -20,9 +20,15 @@ const YES_NO_OPTIONS = ["No", "Yes"];
 const INSPECTION_OPTIONS = ["Pending", "Passed", "Failed"];
 const PRA_STATUS_OPTIONS = ["Pending", "Accepted", "Rejected", "Error"];
 const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
+const PACK_CHECK_FIELDS = [
+  { key: "importDetailsChecked", label: "Import details checked" },
+  { key: "sampleRequirementsChecked", label: "Sample requirements checked" },
+  { key: "rfpDetailsChecked", label: "RFP details checked" },
+  { key: "micorRequirementsChecked", label: "MICOR requirements checked" },
+];
 
 const inputClass =
-  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/40 focus:ring-2";
+  "h-11 rounded-lg border border-slate-200 bg-white px-2 text-[15px] text-slate-800 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/40 focus:ring-2";
 const sectionCardClass = "overflow-hidden rounded-xl border border-slate-200/90 bg-white";
 const sectionHeaderClass = "border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800";
 
@@ -80,6 +86,7 @@ export default function PackDetailClient({ packId }) {
     return syncWorkDrafts([row], loadWorkDrafts());
   });
   const [selectedContainerId, setSelectedContainerId] = useState(null);
+  const [containerSearch, setContainerSearch] = useState("");
 
   const packerNames = useMemo(
     () => (PACK_FORM_LOOKUPS.packers || []).filter((p) => String(p.status).toLowerCase() === "active").map((p) => p.name),
@@ -98,20 +105,25 @@ export default function PackDetailClient({ packId }) {
 
   const selectedPackDraft = packRow ? workByPack[packRow.id] : null;
   const containerRows = selectedPackDraft?.containers || [];
+  const filteredContainerRows = useMemo(() => {
+    const q = containerSearch.trim().toLowerCase();
+    if (!q) return containerRows;
+    return containerRows.filter((container) => String(container.containerNo || "").toLowerCase().includes(q));
+  }, [containerRows, containerSearch]);
 
   useEffect(() => {
-    if (!containerRows.length) {
+    if (!filteredContainerRows.length) {
       setSelectedContainerId(null);
       return;
     }
-    if (!selectedContainerId || !containerRows.some((container) => container.id === selectedContainerId)) {
-      setSelectedContainerId(containerRows[0].id);
+    if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
+      setSelectedContainerId(filteredContainerRows[0].id);
     }
-  }, [containerRows, selectedContainerId]);
+  }, [filteredContainerRows, selectedContainerId]);
 
   const selectedContainer = useMemo(
-    () => containerRows.find((container) => container.id === selectedContainerId) || null,
-    [containerRows, selectedContainerId]
+    () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
+    [filteredContainerRows, selectedContainerId]
   );
 
   const packSummary = useMemo(() => {
@@ -180,6 +192,16 @@ export default function PackDetailClient({ packId }) {
     updateSelectedPack((current) => ({ ...current, [field]: value }));
   }
 
+  function setPackCheck(checkKey, value) {
+    updateSelectedPack((current) => ({
+      ...current,
+      packChecks: {
+        ...(current.packChecks || {}),
+        [checkKey]: value,
+      },
+    }));
+  }
+
   function refreshPack() {
     const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId)) || null;
     setPackRow(row);
@@ -200,6 +222,24 @@ export default function PackDetailClient({ packId }) {
   }
 
   const packDocuments = [...asDocumentItems(packRow.rfpFiles, "RFP"), ...asDocumentItems(packRow.packingInstructionFiles, "Instruction")];
+  const releaseRefsSummary = useMemo(() => {
+    const refs = Array.from(
+      new Set(
+        (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : [])
+          .map((release) => String(release?.releaseRef || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (!refs.length) return "—";
+    return refs.join(", ");
+  }, [packRow?.releaseDetails]);
+  const aggregateNettWeight = useMemo(() => {
+    const total = (selectedPackDraft?.containers || []).reduce((sum, container) => {
+      const nett = Number(container?.nettWeight);
+      return Number.isFinite(nett) ? sum + nett : sum;
+    }, 0);
+    return toRoundedNumber(total);
+  }, [selectedPackDraft?.containers]);
   const weightPerContainer = useMemo(() => {
     const total = Number(packRow?.mtTotal);
     const count = Number(packRow?.containersRequired);
@@ -215,10 +255,13 @@ export default function PackDetailClient({ packId }) {
         selectedContainer.aoSignoff ? null : "AO signoff",
       ].filter(Boolean)
     : [];
+  const packChecks = selectedPackDraft?.packChecks || {};
+  const packChecksCompleteCount = PACK_CHECK_FIELDS.filter((field) => Boolean(packChecks[field.key])).length;
+  const allPackChecksComplete = packChecksCompleteCount === PACK_CHECK_FIELDS.length;
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl border border-slate-200/90 bg-white p-4">
+      <section className="rounded-xl border border-slate-200/90 bg-white p-4 md:p-5">
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/packers-schedule")}>
             Back
@@ -226,7 +269,8 @@ export default function PackDetailClient({ packId }) {
           <h2 className="text-lg font-semibold text-slate-900">Pack #{packRow.id}</h2>
           <span className="rounded-full bg-brand/15 px-2 py-0.5 text-xs font-semibold text-brand-ink">{packRow.status}</span>
           <span className="ms-auto text-sm text-slate-600">
-            PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete}
+            PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
+            {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
           </span>
           <Button variant="secondary" size="sm" type="button" onClick={refreshPack}>
             Refresh
@@ -234,7 +278,7 @@ export default function PackDetailClient({ packId }) {
         </div>
         <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Customer" value={safeValue(packRow.customer)} />
-          <Field label="ETD" value={formatDateTimeValue(packRow.etd)} />
+          <Field label="Releases" value={releaseRefsSummary} />
           <Field label="Cut-off" value={formatDateTimeValue(packRow.vesselCutoffDate)} />
           <Field
             label="Fumigation"
@@ -252,19 +296,80 @@ export default function PackDetailClient({ packId }) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Packing note</p>
           <p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{safeValue(packRow.jobNotes || packRow.packingNote)}</p>
         </div>
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pre-pack checks</p>
+            <span
+              className={cn(
+                "ms-auto rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
+                allPackChecksComplete ? "bg-emerald-100 text-emerald-800 ring-emerald-200" : "bg-amber-100 text-amber-800 ring-amber-200"
+              )}
+            >
+              {packChecksCompleteCount}/{PACK_CHECK_FIELDS.length} complete
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PACK_CHECK_FIELDS.map((field) => {
+              const checked = Boolean(packChecks[field.key]);
+              return (
+                <div key={field.key} className="flex min-w-[280px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <span className="flex-1 text-[13px] text-slate-700">{field.label}</span>
+                  <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPackCheck(field.key, false)}
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                        !checked ? "bg-slate-700 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      Pending
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPackCheck(field.key, true)}
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                        checked ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      Checked
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
-      <div className="grid gap-5 2xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
         <aside className="space-y-4">
           <section className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
             <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Container queue</h3>
-              <span className="ms-auto text-xs font-medium text-slate-600">
+              <span className="ms-auto text-sm font-medium text-slate-600">
                 Pack progress {packSummary.submitted}/{packRow.containersRequired}
               </span>
             </div>
+            <div className="border-b border-slate-200 px-2 py-2">
+              <input
+                className={cn(inputClass, "h-10 text-sm")}
+                value={containerSearch}
+                onChange={(event) => setContainerSearch(event.target.value)}
+                placeholder="Search container number..."
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Showing {filteredContainerRows.length} of {containerRows.length} containers
+              </p>
+            </div>
             <div className="max-h-[560px] space-y-2 overflow-auto p-2">
-              {containerRows.map((container) => {
+              {!filteredContainerRows.length ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-5 text-center text-xs text-slate-500">
+                  No containers match this search.
+                </div>
+              ) : null}
+              {filteredContainerRows.map((container) => {
                 const stage = containerStage(container);
                 return (
                   <button
@@ -272,18 +377,18 @@ export default function PackDetailClient({ packId }) {
                     type="button"
                     onClick={() => setSelectedContainerId(container.id)}
                     className={cn(
-                      "w-full rounded-lg border px-2.5 py-2 text-left transition-colors",
+                      "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                       selectedContainerId === container.id
                         ? "border-brand/40 bg-brand/10"
                         : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-slate-700">#{container.order}</span>
-                      <span className="font-semibold text-slate-900">{container.containerNo || "Draft container"}</span>
-                      <span className={cn("ms-auto rounded-full px-2 py-0.5 text-[10px] font-semibold", stageBadgeClass(stage))}>{stage}</span>
+                      <span className="text-xs font-semibold text-slate-700">#{container.order}</span>
+                      <span className="text-[15px] font-semibold text-slate-900">{container.containerNo || "Draft container"}</span>
+                      <span className={cn("ms-auto rounded-full px-2.5 py-1 text-xs font-semibold", stageBadgeClass(stage))}>{stage}</span>
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
+                    <div className="mt-1 text-xs text-slate-500">
                       Seal {safeValue(container.sealNo)} · Net {toInputNumber(container.nettWeight)} MT
                     </div>
                   </button>
@@ -336,7 +441,7 @@ export default function PackDetailClient({ packId }) {
           </section>
           <section className="rounded-xl border border-slate-200/90 bg-white p-3">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Container list</label>
-            <textarea className={`${inputClass} min-h-[84px] w-full resize-y font-mono text-[12px]`} readOnly value={containerRows.map((container) => container.containerNo).join("\n")} />
+            <textarea className={`${inputClass} min-h-[84px] w-full resize-y font-mono text-[12px]`} readOnly value={filteredContainerRows.map((container) => container.containerNo).join("\n")} />
           </section>
         </aside>
 
@@ -587,10 +692,10 @@ function PriorityField({ label, value }) {
 
 function LabeledInput({ label, value, onChange, type = "text", readOnly = false, step, placeholder }) {
   return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-600">{label}</label>
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-slate-600">{label}</label>
       <input
-        className={cn(inputClass, readOnly ? "cursor-default bg-slate-50 text-slate-700" : "")}
+        className={cn(inputClass, "block w-full", readOnly ? "cursor-default bg-slate-50 text-slate-700" : "")}
         value={value ?? ""}
         type={type}
         onChange={(event) => onChange?.(event.target.value)}
@@ -604,9 +709,9 @@ function LabeledInput({ label, value, onChange, type = "text", readOnly = false,
 
 function LabeledSelect({ label, value, options, onChange, placeholder = "Select option" }) {
   return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-600">{label}</label>
-      <select className={inputClass} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-slate-600">{label}</label>
+      <select className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
         <option value="">{options.length ? placeholder : "—"}</option>
         {options.map((option) => (
           <option key={option} value={option}>

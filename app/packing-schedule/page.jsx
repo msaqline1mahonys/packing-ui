@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import { PACK_STATUSES } from "@/lib/Data";
+import { PACK_FORM_LOOKUPS, PACK_STATUSES } from "@/lib/Data";
 import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { cn } from "@/lib/utils";
 
@@ -17,24 +17,51 @@ const config = {
 };
 
 const TABLE_COLUMNS = [
-  { key: "id", label: "ID", numeric: true },
-  { key: "importExport", label: "I/E" },
   { key: "customer", label: "Customer" },
   { key: "commodity", label: "Commodity" },
   { key: "status", label: "Status" },
   { key: "jobReference", label: "Job Ref" },
+  { key: "vessel", label: "Vessel" },
+  { key: "etd", label: "ETD", date: true },
+  { key: "vesselCutoffDate", label: "Cut-off" },
+  { key: "emptyPark", label: "Empty park" },
   { key: "containersRequired", label: "Cnt", numeric: true },
   { key: "mtTotal", label: "MT", numeric: true },
+  { key: "id", label: "ID", numeric: true },
+  { key: "importExport", label: "I/E" },
 ];
 
-const gridColumns = TABLE_COLUMNS.map((column) => ({
-  key: column.key,
-  header: column.label,
-  type: column.numeric ? "number" : "text",
-  sortable: true,
-  filterable: true,
-  resizable: true,
-}));
+function formatCutoffOrEtdDisplay(value) {
+  if (value == null || String(value).trim() === "") return "—";
+  const str = String(value).trim();
+  if (str.includes("T")) {
+    const [d, t] = str.split("T");
+    const hm = (t || "").slice(0, 5);
+    return hm ? `${d} ${hm}` : d;
+  }
+  return str;
+}
+
+function emptyParkRaw(row, parkIdToName) {
+  const details = Array.isArray(row.releaseDetails) ? row.releaseDetails : [];
+  const names = [];
+  const seen = new Set();
+  for (const r of details) {
+    const id = r.emptyContainerParkId;
+    if (!id) continue;
+    const name = parkIdToName.get(Number(id));
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names.join(", ");
+}
+
+function emptyParkDisplay(row, parkIdToName) {
+  const s = emptyParkRaw(row, parkIdToName);
+  return s || "—";
+}
 export default function PackingSchedulePage() {
   const router = useRouter();
   const [rows, setRows] = useState(() => loadPackScheduleRows());
@@ -62,6 +89,43 @@ export default function PackingSchedulePage() {
   }, [rows, importExportFilter, selectedStatuses, searchByDate, selectedDate]);
 
   const selected = useMemo(() => filtered.find((p) => p.id === selectedId) || null, [filtered, selectedId]);
+
+  const parkIdToName = useMemo(() => {
+    const m = new Map();
+    for (const p of PACK_FORM_LOOKUPS.containerParks) {
+      m.set(p.id, p.name);
+    }
+    return m;
+  }, []);
+
+  const gridColumns = useMemo(() => {
+    const emptyParkGetter = (row) => emptyParkRaw(row, parkIdToName);
+    return TABLE_COLUMNS.map((column) => {
+      const base = {
+        key: column.key,
+        header: column.label,
+        type: column.numeric ? "number" : column.date ? "date" : "text",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+      };
+      if (column.key === "emptyPark") {
+        return {
+          ...base,
+          type: "text",
+          valueGetter: emptyParkGetter,
+          format: (v) => (v ? String(v) : "—"),
+        };
+      }
+      if (column.key === "vesselCutoffDate") {
+        return { ...base, type: "text", format: formatCutoffOrEtdDisplay };
+      }
+      if (column.key === "etd") {
+        return { ...base, type: "date", format: formatCutoffOrEtdDisplay };
+      }
+      return base;
+    });
+  }, [parkIdToName]);
 
   function openAddPage() {
     router.push("/packing-schedule/new-pack-form");
@@ -194,6 +258,10 @@ export default function PackingSchedulePage() {
               <Field label="Commodity" value={selected.commodity} />
               <Field label="Import/Export" value={selected.importExport} />
               <Field label="Job Ref" value={selected.jobReference} />
+              <Field label="Vessel" value={selected.vessel} />
+              <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />
+              <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vesselCutoffDate)} />
+              <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
               <Field label="Count" value={String(selected.containersRequired)} />
               <Field label="MT" value={selected.mtTotal?.toFixed(1)} />
             </div>

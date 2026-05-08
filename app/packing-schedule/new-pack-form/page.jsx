@@ -429,18 +429,18 @@ export default function NewPackFormPage() {
   };
 
   const summaryFields = [
-    ["Customer", stickySummary.customer],
-    ["Job ref", stickySummary.jobRef],
-    ["Commodity", stickySummary.commodity],
-    ["Fumigation", stickySummary.fumigation],
-    ["Pack warning", stickySummary.packWarning],
-    ["Release", stickySummary.releases],
-    ["Containers", stickySummary.containers],
+    ["Cust", stickySummary.customer],
+    ["Job", stickySummary.jobRef],
+    ["Comm", stickySummary.commodity],
+    ["Fumi", stickySummary.fumigation],
+    ["Warn", stickySummary.packWarning],
+    ["Rel", stickySummary.releases],
+    ["Cnt", stickySummary.containers],
     ["ISO", stickySummary.containerCode],
     ["MT", stickySummary.mtTotal],
-    ["Vessel", stickySummary.vessel],
+    ["Vsl", stickySummary.vessel],
     ["ETD", stickySummary.etd],
-    ["Transhipment", stickySummary.transshipment],
+    ["Tship", stickySummary.transshipment],
     ["RFP", stickySummary.rfp],
     ["EDN", stickySummary.edn],
   ];
@@ -1121,7 +1121,7 @@ export default function NewPackFormPage() {
         <div className="flex w-full flex-col gap-2.5 px-5 py-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-6 sm:py-3">
           <div className="min-w-0 flex-1">
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Pack summary</p>
-            <dl className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] leading-snug text-slate-600 sm:text-xs">
+            <dl className="flex flex-nowrap gap-x-3 overflow-x-auto whitespace-nowrap text-[11px] leading-snug text-slate-600 sm:text-xs">
               {summaryFields.map(([label, value]) => (
                 <div key={label} className="flex max-w-full shrink-0 items-baseline gap-1 border-l border-slate-200/90 pl-2 first:border-l-0 first:pl-0">
                   <dt className="shrink-0 font-medium text-slate-400">{label}</dt>

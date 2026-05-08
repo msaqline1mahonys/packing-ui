@@ -25,9 +25,9 @@ import {
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500";
 
-function buildBlankTicket() {
+function buildBlankTicket(direction) {
   return {
-    type: "in",
+    type: direction,
     site: DEMO_SITE,
     status: "booked",
     cmoId: null,
@@ -52,9 +52,16 @@ function buildBlankTicket() {
   };
 }
 
-export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
+export default function InTicketFormClient({ mode, ticketId: routeTicketId, direction = "incoming" }) {
   const router = useRouter();
   const isCreate = mode === "create";
+  const isIncoming = direction !== "outgoing";
+  const ticketType = isIncoming ? "in" : "out";
+  const listPath = isIncoming ? "/ticketing" : "/ticketing/outgoing";
+  const detailPathBase = isIncoming ? "/ticketing/in" : "/ticketing/outgoing";
+  const ticketLabel = isIncoming ? "In-Ticket" : "Out-Ticket";
+  const ticketSubtitle = isIncoming ? "Incoming weighbridge ticket" : "Outgoing weighbridge ticket";
+  const cmoDirection = isIncoming ? "in" : "out";
   const customers = DEMO_CUSTOMERS;
   const internalAccounts = DEMO_INTERNAL_ACCOUNTS;
   const commodityTypes = DEMO_COMMODITY_TYPES;
@@ -71,9 +78,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
     if (mode === "edit" && routeTicketId) {
       const seeded = demoExistingTicket(routeTicketId);
       if (seeded) return seeded;
-      return { ...buildBlankTicket(), id: routeTicketId };
+      return { ...buildBlankTicket(ticketType), id: routeTicketId };
     }
-    return buildBlankTicket();
+    return buildBlankTicket(ticketType);
   });
 
   const [showCmoModal, setShowCmoModal] = useState(false);
@@ -86,7 +93,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
   const [locationWarning, setLocationWarning] = useState(null);
 
   const [newCmo, setNewCmo] = useState({
-    direction: "in",
+    direction: cmoDirection,
     customerId: "",
     commodityTypeId: "",
     commodityId: "",
@@ -115,7 +122,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
   const getLocationStock = (locationId) => {
     const stockItems = [];
     tickets
-      .filter((t) => t.type === "in" && t.status === "completed" && Number(t.unloadedLocation) === Number(locationId))
+      .filter((t) => t.type === ticketType && t.status === "completed" && Number(t.unloadedLocation) === Number(locationId))
       .forEach((tk) => {
         const tCmo = cmos.find((c) => c.id === tk.cmoId);
         const tCommodityType = tCmo ? commodityTypes.find((ct) => ct.id === tCmo.commodityTypeId) : null;
@@ -162,7 +169,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
     const selectedCmo = cmos.find((c) => c.id === cmoId);
     if (!selectedCmo) return null;
     const totalReceived = tickets
-      .filter((t) => t.type === "in" && t.status === "completed" && t.cmoId === cmoId)
+      .filter((t) => t.type === ticketType && t.status === "completed" && t.cmoId === cmoId)
       .reduce((sum, t) => {
         const netWeight =
           (t.grossWeights || []).reduce((a, b) => a + b, 0) - (t.tareWeights || []).reduce((a, b) => a + b, 0);
@@ -255,7 +262,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
     const id = ticket.id ?? Math.floor(Math.random() * 90000 + 10000);
     const next = { ...ticket, id };
     setTicket(next);
-    router.push(`/ticketing/in/${id}`);
+    router.push(`${detailPathBase}/${id}`);
   };
 
   const handleComplete = () => {
@@ -271,13 +278,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
   };
 
   return (
-    <div className="mx-auto max-w-6xl pb-10 font-sans">
+    <div className="mx-auto w-full max-w-[min(92rem,calc(100%-2rem))] space-y-3 px-5 pt-2 pb-10 font-sans sm:px-6 sm:pt-3 lg:px-8">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[#0f1e3d] md:text-[1.35rem]">
-            {isCompleted ? "Completed" : isCreate ? "New" : "Edit"} In-Ticket {ticketNumericId ? `#${ticketNumericId}` : ""}
+            {isCompleted ? "Completed" : isCreate ? "New" : "Edit"} {ticketLabel} {ticketNumericId ? `#${ticketNumericId}` : ""}
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">Incoming weighbridge ticket</p>
+          <p className="mt-0.5 text-xs text-slate-500">{ticketSubtitle}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {isCompleted ? (
@@ -296,7 +303,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
               </Button>
             </>
           ) : null}
-          <Link href="/ticketing" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-xs")}>
+          <Link href={listPath} className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-xs")}>
             Back
           </Link>
         </div>
@@ -325,7 +332,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
                 >
                   <option value="">— Select CMO —</option>
                   {cmos
-                    .filter((c) => c.direction === "in")
+                    .filter((c) => c.direction === cmoDirection)
                     .map((c) => {
                       const cCommodity = commodities.find((com) => com.id === c.commodityId);
                       return (
@@ -459,7 +466,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
           </Card>
 
           <Card title="Truck & Weights">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-end">
               <FormRow label="Truck" required>
                 <div className="flex gap-2">
                   <select
@@ -515,33 +522,34 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
                 </div>
               </FormRow>
             </div>
-
-            <WeightSection
-              label="Gross Weight"
-              weights={ticket.grossWeights}
-              dateTimes={ticket.grossWeightDateTimes}
-              total={grossTotal}
-              unitType={commodity?.unitType || "t"}
-              splitLoad={ticket.splitLoad}
-              disabled={isCompleted}
-              onAdd={() => addWeight("grossWeights")}
-              onUpdate={(i, v) => updateWeight("grossWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
-              onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
-              onRemove={(i) => removeWeight("grossWeights", i)}
-            />
-            <WeightSection
-              label="Tare Weight"
-              weights={ticket.tareWeights}
-              dateTimes={ticket.tareWeightDateTimes}
-              total={tareTotal}
-              unitType={commodity?.unitType || "t"}
-              splitLoad={ticket.splitLoad}
-              disabled={isCompleted}
-              onAdd={() => addWeight("tareWeights")}
-              onUpdate={(i, v) => updateWeight("tareWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
-              onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
-              onRemove={(i) => removeWeight("tareWeights", i)}
-            />
+            <div className="grid gap-3 xl:grid-cols-2">
+              <WeightSection
+                label="Gross Weight"
+                weights={ticket.grossWeights}
+                dateTimes={ticket.grossWeightDateTimes}
+                total={grossTotal}
+                unitType={commodity?.unitType || "t"}
+                splitLoad={ticket.splitLoad}
+                disabled={isCompleted}
+                onAdd={() => addWeight("grossWeights")}
+                onUpdate={(i, v) => updateWeight("grossWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
+                onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
+                onRemove={(i) => removeWeight("grossWeights", i)}
+              />
+              <WeightSection
+                label="Tare Weight"
+                weights={ticket.tareWeights}
+                dateTimes={ticket.tareWeightDateTimes}
+                total={tareTotal}
+                unitType={commodity?.unitType || "t"}
+                splitLoad={ticket.splitLoad}
+                disabled={isCompleted}
+                onAdd={() => addWeight("tareWeights")}
+                onUpdate={(i, v) => updateWeight("tareWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
+                onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
+                onRemove={(i) => removeWeight("tareWeights", i)}
+              />
+            </div>
 
             {tareTotal > grossTotal && grossTotal > 0 ? (
               <div className="mt-3 rounded-md border border-yellow-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -688,7 +696,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
                   variant="destructive"
                   className="w-full justify-center"
                   onClick={() => {
-                    if (typeof window !== "undefined" && window.confirm("Remove this ticket?")) router.push("/ticketing");
+                    if (typeof window !== "undefined" && window.confirm("Remove this ticket?")) router.push(listPath);
                   }}
                 >
                   Remove Ticket
@@ -711,7 +719,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
         </div>
       </div>
 
-      <Modal open={showCmoModal} title="Create New CMO (Incoming)" onClose={() => setShowCmoModal(false)}>
+      <Modal open={showCmoModal} title={`Create New CMO (${isIncoming ? "Incoming" : "Outgoing"})`} onClose={() => setShowCmoModal(false)}>
         <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CMO Reference will be auto-generated</span>
         </div>
@@ -811,7 +819,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
                   ...prev,
                   {
                     id: nextId,
-                    direction: "in",
+                    direction: cmoDirection,
                     cmoReference: ref,
                     customerId: Number(newCmo.customerId),
                     commodityTypeId: Number(newCmo.commodityTypeId),
@@ -822,7 +830,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
                 ]);
                 setShowCmoModal(false);
                 setNewCmo({
-                  direction: "in",
+                  direction: cmoDirection,
                   customerId: "",
                   commodityTypeId: "",
                   commodityId: "",
@@ -908,7 +916,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId }) {
             Print Ticket
           </Button>
           <Link
-            href={ticket.id ? `/ticketing/in/${ticket.id}` : "/ticketing"}
+            href={ticket.id ? `${detailPathBase}/${ticket.id}` : listPath}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center justify-center")}
             onClick={() => setShowPrintConfirm(false)}
           >
@@ -1176,7 +1184,7 @@ function WeightSection({
       <div className="flex flex-wrap items-start gap-2.5">
         {displayWeights.map((w, i) => (
           <div key={i} className="rounded-lg border border-slate-200 bg-slate-50/90 p-2">
-            <div className="flex gap-1">
+            <div className="grid gap-2 md:grid-cols-[110px_180px_auto] md:items-end">
               <div>
                 <label className="mb-1 block text-[10px] font-semibold text-slate-500">Weight ({isTonnes ? "t" : "kg"})</label>
                 <input
@@ -1188,18 +1196,7 @@ function WeightSection({
                   onChange={(e) => onUpdate(i, e.target.value)}
                 />
               </div>
-              {splitLoad && !disabled && weights.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => onRemove(i)}
-                  className="mt-5 px-1 text-lg leading-none text-red-600 hover:text-red-800"
-                  aria-label="Remove line"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-1.5">
+              <div>
               <label className="mb-1 block text-[10px] font-semibold text-slate-500">Date &amp; Time</label>
               <input
                 type="datetime-local"
@@ -1208,6 +1205,17 @@ function WeightSection({
                 onChange={(e) => onUpdateDateTime(i, e.target.value)}
                 className={cn(inputClass, "w-[180px] text-xs")}
               />
+              </div>
+              {splitLoad && !disabled && weights.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => onRemove(i)}
+                  className="h-8 self-end px-1 text-lg leading-none text-red-600 hover:text-red-800"
+                  aria-label="Remove line"
+                >
+                  ×
+                </button>
+              ) : null}
             </div>
           </div>
         ))}

@@ -1,5 +1,5 @@
-import CmoTicketingClient from "../cmo-client";
+import CmoPage from "./cmo-page";
 
 export default function TicketingCmoPage() {
-  return <CmoTicketingClient />;
+  return <CmoPage />;
 }

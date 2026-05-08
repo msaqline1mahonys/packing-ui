@@ -1,5 +1,5 @@
-import InTicketFormClient from "../in-ticket-form-client";
+import InTicketForm from "../in-ticket-form";
 
 export default function NewInTicketPage() {
-  return <InTicketFormClient mode="create" />;
+  return <InTicketForm mode="create" />;
 }

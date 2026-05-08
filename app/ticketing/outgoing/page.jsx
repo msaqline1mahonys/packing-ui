@@ -1,5 +1,5 @@
-import OutgoingTicketingClient from "../outgoing-client";
+import OutgoingTicketPage from "./outgoing-ticket-page";
 
 export default function TicketingOutgoingPage() {
-  return <OutgoingTicketingClient />;
+  return <OutgoingTicketPage />;
 }

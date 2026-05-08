@@ -12,9 +12,13 @@ const inputClass =
 
 const columns = [
   { key: "name", label: "Name" },
-  { key: "email", label: "Email" },
-  { key: "role", label: "Role" },
+  { key: "weighbridgeAccessLabel", label: "Weighbridge" },
+  { key: "packersAccountAccessLabel", label: "Packers Acc" },
   { key: "status", label: "Status" },
+  { key: "aoActiveLabel", label: "AO Active" },
+  { key: "aoExpiryLabel", label: "AO Expiry" },
+  { key: "aoLicenseNumberLabel", label: "AO License Number" },
+  { key: "aoPemsPasswordLabel", label: "AO PEMs Password" },
 ];
 
 // Column definitions for clutch-table Grid
@@ -33,6 +37,12 @@ function toDisplayRow(row) {
   return {
     ...row,
     status: row.active ? "Active" : "Inactive",
+    weighbridgeAccessLabel: row.weighbridgeAccess ? "Yes" : "No",
+    packersAccountAccessLabel: row.packersAccountAccess ? "Yes" : "No",
+    aoActiveLabel: row.aoActive ? "Yes" : "No",
+    aoExpiryLabel: row.aoExpiry || "—",
+    aoLicenseNumberLabel: row.aoLicenseNumber || "—",
+    aoPemsPasswordLabel: row.aoPemsPassword ? "••••••••" : "—",
   };
 }
 
@@ -43,6 +53,18 @@ function buildFormData(row) {
       email: "",
       role: "",
       active: true,
+      weighbridgeAccess: false,
+      packersAccountAccess: false,
+      aoActive: false,
+      aoExpiry: "",
+      aoLicenseNumber: "",
+      aoPemsUsername: "",
+      aoPemsPassword: "",
+      aoToken: "",
+      signature: "",
+      isFumigator: false,
+      fumigationExpiry: "",
+      fumigatorLicence: "",
       newPassword: "",
       confirmPassword: "",
     };
@@ -52,6 +74,18 @@ function buildFormData(row) {
     email: row.email || "",
     role: row.role || "",
     active: row.active !== false,
+    weighbridgeAccess: row.weighbridgeAccess === true,
+    packersAccountAccess: row.packersAccountAccess === true,
+    aoActive: row.aoActive === true,
+    aoExpiry: row.aoExpiry || "",
+    aoLicenseNumber: row.aoLicenseNumber || "",
+    aoPemsUsername: row.aoPemsUsername || "",
+    aoPemsPassword: row.aoPemsPassword || "",
+    aoToken: row.aoToken || "",
+    signature: row.signature || "",
+    isFumigator: row.isFumigator === true,
+    fumigationExpiry: row.fumigationExpiry || "",
+    fumigatorLicence: row.fumigatorLicence || "",
     newPassword: "",
     confirmPassword: "",
   };
@@ -101,6 +135,11 @@ export default function ContactUsersPage() {
     if (!formData.name.trim() || !formData.email.trim()) return;
     const nextPassword = (formData.newPassword || "").trim();
     const confirmPassword = (formData.confirmPassword || "").trim();
+    const aoPemsUsername = (formData.aoPemsUsername || "").trim();
+    const aoToken = (formData.aoToken || "").trim();
+    const aoLicenseNumber = (formData.aoLicenseNumber || "").trim();
+    const signature = (formData.signature || "").trim();
+    const fumigatorLicence = (formData.fumigatorLicence || "").trim();
 
     if (nextPassword || confirmPassword) {
       if (nextPassword.length < 8) {
@@ -113,12 +152,40 @@ export default function ContactUsersPage() {
       }
     }
 
+    if (formData.aoActive) {
+      if (!aoPemsUsername) {
+        window.alert("AO PEMS Username is required when AO is active.");
+        return;
+      }
+      if (!aoToken) {
+        window.alert("AO Token is required when AO is active.");
+        return;
+      }
+    }
+
+    if (formData.isFumigator && !fumigatorLicence) {
+      window.alert("Fumigator Licence is required when Fumigator is enabled.");
+      return;
+    }
+
     const nextRow = toDisplayRow({
       id: editMode && selected ? selected.id : Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1,
       name: formData.name.trim(),
       email: formData.email.trim(),
       role: formData.role.trim(),
       active: formData.active,
+      weighbridgeAccess: formData.weighbridgeAccess,
+      packersAccountAccess: formData.packersAccountAccess,
+      aoActive: formData.aoActive,
+      aoExpiry: formData.aoActive ? formData.aoExpiry : "",
+      aoLicenseNumber: formData.aoActive ? aoLicenseNumber : "",
+      aoPemsUsername: formData.aoActive ? aoPemsUsername : "",
+      aoPemsPassword: formData.aoActive ? (formData.aoPemsPassword || "").trim() : "",
+      aoToken: formData.aoActive ? aoToken : "",
+      signature: formData.aoActive ? signature : "",
+      isFumigator: formData.isFumigator,
+      fumigationExpiry: formData.isFumigator ? formData.fumigationExpiry : "",
+      fumigatorLicence: formData.isFumigator ? fumigatorLicence : "",
       password: editMode && selected ? (nextPassword ? nextPassword : selected.password || "") : nextPassword,
       passwordUpdatedAt: editMode && selected ? (nextPassword ? new Date().toISOString() : selected.passwordUpdatedAt || "") : nextPassword ? new Date().toISOString() : "",
     });
@@ -146,7 +213,7 @@ export default function ContactUsersPage() {
       <div>
         <p className="text-xs text-slate-500">Contacts / Users</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Users</h1>
-        {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage users: name, email, role, and status.</p> : null}
+        {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage users, AO credentials, and fumigator details in one place.</p> : null}
       </div>
 
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
@@ -185,6 +252,25 @@ export default function ContactUsersPage() {
                 <DetailItem label="Email" value={selected.email} />
                 <DetailItem label="Role" value={selected.role || "—"} />
                 <DetailItem label="Status" value={selected.status} />
+                <DetailItem label="Weighbridge Access" value={selected.weighbridgeAccess ? "Yes" : "No"} />
+                <DetailItem label="Packers Account Access" value={selected.packersAccountAccess ? "Yes" : "No"} />
+                <DetailItem label="AO Active" value={selected.aoActive ? "Yes" : "No"} />
+                {selected.aoActive ? (
+                  <>
+                    <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "—"} />
+                    <DetailItem label="AO Token" value={selected.aoToken ? "Configured" : "Not set"} />
+                    <DetailItem label="AO Expiry" value={selected.aoExpiry || "—"} />
+                    <DetailItem label="AO License Number" value={selected.aoLicenseNumber || "—"} />
+                    <DetailItem label="Signature" value={selected.signature || "—"} />
+                  </>
+                ) : null}
+                <DetailItem label="Fumigator" value={selected.isFumigator ? "Yes" : "No"} />
+                {selected.isFumigator ? (
+                  <>
+                    <DetailItem label="Fumigator Licence" value={selected.fumigatorLicence || "—"} />
+                    <DetailItem label="Fumigation Expiry" value={selected.fumigationExpiry || "—"} />
+                  </>
+                ) : null}
                 <DetailItem
                   label="Password Last Updated"
                   value={selected.passwordUpdatedAt ? new Date(selected.passwordUpdatedAt).toLocaleString() : "Never"}
@@ -203,59 +289,155 @@ export default function ContactUsersPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit User" : "Add New User"} width={500}>
-        <div className="space-y-3">
-          <FormRow label="Name" required>
-            <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., J. Mitchell" />
-          </FormRow>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit User" : "Add New User"} width={760}>
+        <div className="space-y-5">
+          <SectionTitle title="Basic Details" />
+          <div className="grid gap-4">
+            <FormRow label="Name" required>
+              <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., J. Mitchell" />
+            </FormRow>
 
-          <FormRow label="Email" required>
-            <Input
-              type="email"
-              value={formData.email}
-              onChange={(event) => setFormData({ ...formData, email: event.target.value })}
-              placeholder="e.g., j.mitchell@mahonys.com.au"
+            <FormRow label="Email" required>
+              <Input
+                type="email"
+                value={formData.email}
+                onChange={(event) => setFormData({ ...formData, email: event.target.value })}
+                placeholder="e.g., j.mitchell@mahonys.com.au"
+              />
+            </FormRow>
+          </div>
+
+          <div className="grid gap-4">
+            <FormRow label="Role">
+              <Input
+                value={formData.role}
+                onChange={(event) => setFormData({ ...formData, role: event.target.value })}
+                placeholder="e.g., Manager, Supervisor, Operator"
+              />
+            </FormRow>
+
+            <FormRow label="Status">
+              <select
+                className={inputClass}
+                value={formData.active ? "active" : "inactive"}
+                onChange={(event) => setFormData({ ...formData, active: event.target.value === "active" })}
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </FormRow>
+          </div>
+
+          <div className="grid gap-4">
+            <ToggleField
+              label="Weighbridge Access"
+              checked={formData.weighbridgeAccess}
+              onChange={(checked) => setFormData({ ...formData, weighbridgeAccess: checked })}
             />
-          </FormRow>
-
-          <FormRow label="Role">
-            <Input
-              value={formData.role}
-              onChange={(event) => setFormData({ ...formData, role: event.target.value })}
-              placeholder="e.g., Manager, Supervisor, Operator"
+            <ToggleField
+              label="Packers Account Access"
+              checked={formData.packersAccountAccess}
+              onChange={(checked) => setFormData({ ...formData, packersAccountAccess: checked })}
             />
-          </FormRow>
+          </div>
 
-          <FormRow label="Status">
-            <select
-              className={inputClass}
-              value={formData.active ? "active" : "inactive"}
-              onChange={(event) => setFormData({ ...formData, active: event.target.value === "active" })}
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </FormRow>
+          <div className="border-t border-slate-200 pt-4">
+            <SectionTitle title="AO Details" />
+            <ToggleField
+              label="AO Active"
+              checked={formData.aoActive}
+              onChange={(checked) => setFormData({ ...formData, aoActive: checked })}
+            />
+            {formData.aoActive ? (
+              <div className="mt-3 grid gap-4">
+                <FormRow label="AO PEMs Username" required>
+                  <Input
+                    value={formData.aoPemsUsername}
+                    onChange={(event) => setFormData({ ...formData, aoPemsUsername: event.target.value })}
+                    placeholder="AO PEMs Username"
+                  />
+                </FormRow>
+                <FormRow label="AO PEMs Password">
+                  <Input
+                    type="password"
+                    value={formData.aoPemsPassword}
+                    onChange={(event) => setFormData({ ...formData, aoPemsPassword: event.target.value })}
+                    placeholder="AO PEMs Password"
+                  />
+                </FormRow>
+                <FormRow label="AO Token" required>
+                  <Input value={formData.aoToken} onChange={(event) => setFormData({ ...formData, aoToken: event.target.value })} placeholder="AO Token" />
+                </FormRow>
+                <FormRow label="AO Expiry">
+                  <Input type="date" value={formData.aoExpiry} onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })} />
+                </FormRow>
+                <FormRow label="AO License Number">
+                  <Input
+                    value={formData.aoLicenseNumber}
+                    onChange={(event) => setFormData({ ...formData, aoLicenseNumber: event.target.value })}
+                    placeholder="AO License Number"
+                  />
+                </FormRow>
+                <FormRow label="Signature">
+                  <Input value={formData.signature} onChange={(event) => setFormData({ ...formData, signature: event.target.value })} placeholder="Signature" />
+                </FormRow>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">Enable AO Active to capture AO credentials and license details.</p>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200 pt-4">
+            <SectionTitle title="Fumigator Details" />
+            <ToggleField
+              label="Fumigator"
+              checked={formData.isFumigator}
+              onChange={(checked) => setFormData({ ...formData, isFumigator: checked })}
+            />
+            {formData.isFumigator ? (
+              <div className="mt-3 grid gap-4">
+                <FormRow label="Fumigator Licence" required>
+                  <Input
+                    value={formData.fumigatorLicence}
+                    onChange={(event) => setFormData({ ...formData, fumigatorLicence: event.target.value })}
+                    placeholder="Fumigator Licence"
+                  />
+                </FormRow>
+                <FormRow label="Fumigation Expiry">
+                  <Input
+                    type="date"
+                    value={formData.fumigationExpiry}
+                    onChange={(event) => setFormData({ ...formData, fumigationExpiry: event.target.value })}
+                  />
+                </FormRow>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">Enable Fumigator to record fumigator licence and expiry.</p>
+            )}
+          </div>
 
           {editMode ? (
-            <>
-              <FormRow label="New Password">
-                <Input
-                  type="password"
-                  value={formData.newPassword}
-                  onChange={(event) => setFormData({ ...formData, newPassword: event.target.value })}
-                  placeholder="Leave blank to keep current password"
-                />
-              </FormRow>
-              <FormRow label="Confirm New Password">
-                <Input
-                  type="password"
-                  value={formData.confirmPassword}
-                  onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
-                  placeholder="Re-enter new password"
-                />
-              </FormRow>
-            </>
+            <div className="border-t border-slate-200 pt-4">
+              <SectionTitle title="Security" />
+              <div className="grid gap-4">
+                <FormRow label="New Password">
+                  <Input
+                    type="password"
+                    value={formData.newPassword}
+                    onChange={(event) => setFormData({ ...formData, newPassword: event.target.value })}
+                    placeholder="Leave blank to keep current password"
+                  />
+                </FormRow>
+                <FormRow label="Confirm New Password">
+                  <Input
+                    type="password"
+                    value={formData.confirmPassword}
+                    onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
+                    placeholder="Re-enter new password"
+                  />
+                </FormRow>
+              </div>
+            </div>
           ) : null}
         </div>
 
@@ -313,6 +495,9 @@ function MobileList({ rows, selectedId, onSelect, search }) {
               </div>
               <p className="mt-1 text-xs text-slate-600">{row.email || "—"}</p>
               <p className="mt-1 text-[11px] text-slate-500">{row.role || "—"}</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                AO: {row.aoActive ? "Yes" : "No"} | Fumigator: {row.isFumigator ? "Yes" : "No"}
+              </p>
             </button>
           );
         })
@@ -365,6 +550,29 @@ function FormRow({ label, required, children }) {
       </label>
       {children}
     </div>
+  );
+}
+
+function SectionTitle({ title }) {
+  return <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">{title}</h3>;
+}
+
+function ToggleField({ label, checked, onChange }) {
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <span className="text-xs font-medium text-slate-700">{label}</span>
+      <button
+        type="button"
+        aria-pressed={checked}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "inline-flex h-6 min-w-[58px] items-center justify-center rounded-full px-2 text-[11px] font-semibold transition-colors",
+          checked ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300" : "bg-slate-200 text-slate-600 ring-1 ring-slate-300"
+        )}
+      >
+        {checked ? "Enabled" : "Disabled"}
+      </button>
+    </label>
   );
 }
 

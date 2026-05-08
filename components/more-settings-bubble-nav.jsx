@@ -6,7 +6,10 @@ import { usePathname } from "next/navigation";
 import { SectionRouteDropdown } from "@/components/section-route-dropdown";
 import { cn } from "@/lib/utils";
 
-const MORE_SETTINGS_ITEMS = [{ label: "Site", href: "/more-settings/site" }];
+const MORE_SETTINGS_ITEMS = [
+  { label: "Site", href: "/more-settings/site" },
+  { label: "Integration Settings", href: "/more-settings/integration-settings" },
+];
 
 function MoreSettingsTabs() {
   const pathname = usePathname();

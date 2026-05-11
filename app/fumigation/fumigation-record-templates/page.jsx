@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import {
+  loadRecordTemplates,
+  nextLocalEntityId,
+  saveRecordTemplates,
+} from "@/lib/fumigation-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -18,18 +23,6 @@ const RECORD_FIELDS = [
   "Inspector verification",
 ];
 
-const initialRows = [
-  {
-    id: 1,
-    name: "Default Record Sheet",
-    headerText: "Mahonys Packing - Fumigation Record",
-    footerText: "Record retained for compliance audit.",
-    body: "Record all monitoring intervals and final clearance values.",
-    includeCertificateFields: true,
-    fields: RECORD_FIELDS,
-  },
-];
-
 function buildDraft(row) {
   return {
     name: row?.name ?? "",
@@ -42,11 +35,15 @@ function buildDraft(row) {
 }
 
 export default function FumigationRecordTemplatesPage() {
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
+
+  useEffect(() => {
+    setRows(loadRecordTemplates());
+  }, []);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -111,22 +108,30 @@ export default function FumigationRecordTemplatesPage() {
     const normalized = { ...draft, name: draft.name.trim() };
 
     if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
-      setRows((prev) => [{ id: nextId, ...normalized }, ...prev]);
+      const nextId = nextLocalEntityId(rows);
+      const nextRows = [{ id: nextId, ...normalized }, ...rows];
+      setRows(nextRows);
+      saveRecordTemplates(nextRows);
       setSelectedId(nextId);
       setModalMode(null);
       return;
     }
 
     if (modalMode === "edit" && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? { ...row, ...normalized } : row)));
+      const nextRows = rows.map((row) =>
+        row.id === selected.id ? { ...row, ...normalized } : row
+      );
+      setRows(nextRows);
+      saveRecordTemplates(nextRows);
       setModalMode(null);
     }
   }
 
   function removeSelected() {
     if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
+    const nextRows = rows.filter((row) => row.id !== selected.id);
+    setRows(nextRows);
+    saveRecordTemplates(nextRows);
     setSelectedId(null);
   }
 

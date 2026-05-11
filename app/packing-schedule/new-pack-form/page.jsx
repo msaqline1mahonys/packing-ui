@@ -15,6 +15,12 @@ import {
   REFERENCE_COUNTRIES_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
+import {
+  loadCertificateTemplates,
+  loadFumigants,
+  loadMethodologies,
+  loadRecordTemplates,
+} from "@/lib/fumigation-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { ChevronDown } from "lucide-react";
 
@@ -39,28 +45,6 @@ const PACK_FUMIGATION_APPLICATION_LABELS = {
 const PACK_FUMIGATION_DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
 const PACK_FUMIGATION_MASS_UNITS = ["g", "kg"];
 const FUMIGATION_MIN_EXPOSURE_UNITS = ["hours", "days"];
-const FUMIGATION_FUMIGANTS = [
-  { id: 1, code: "PH3", name: "Phosphine" },
-  { id: 2, code: "MBR", name: "Methyl Bromide" },
-];
-const FUMIGATION_METHODOLOGIES = [
-  {
-    id: 1,
-    fumigantId: 1,
-    name: "Container phosphine export",
-    version: "v1.0",
-    dosageGuide: "20-35 ppm by temperature band",
-    safetyNotes: "Wear calibrated PH3 monitor and PPE.",
-  },
-  {
-    id: 2,
-    fumigantId: 2,
-    name: "Methyl bromide chamber",
-    version: "v1.0",
-    dosageGuide: "Apply as per approved method statement.",
-    safetyNotes: "Restrict area and monitor re-entry levels.",
-  },
-];
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -108,6 +92,8 @@ function blankFumigationDetail() {
 const blankPack = (siteId) => ({
   ...PACK_TEMPLATE,
   siteId,
+  certificateTemplateId: null,
+  recordTemplateId: null,
   fumigationDetail: {
     ...blankFumigationDetail(),
     ...(PACK_TEMPLATE.fumigationDetail || {}),
@@ -223,6 +209,8 @@ function rowToPack(row, siteId) {
     fumigationRequired: Boolean(row.fumigationRequired),
     fumigantId: row.fumigantId ?? null,
     methodologyId: row.methodologyId ?? null,
+    certificateTemplateId: row.certificateTemplateId ?? null,
+    recordTemplateId: row.recordTemplateId ?? null,
     fumigationDetail: detail,
     daffPermission: row.daffPermission || "N/A",
     edn: row.edn || "",
@@ -284,6 +272,8 @@ function packToScheduleRow(pack, existingRow) {
     fumigationRequired: Boolean(pack.fumigationRequired),
     fumigantId: pack.fumigantId ? Number(pack.fumigantId) : null,
     methodologyId: pack.methodologyId ? Number(pack.methodologyId) : null,
+    certificateTemplateId: pack.certificateTemplateId ? Number(pack.certificateTemplateId) : null,
+    recordTemplateId: pack.recordTemplateId ? Number(pack.recordTemplateId) : null,
     fumigationDetail: detail,
     daffPermission: pack.daffPermission || "N/A",
     edn: pack.edn || "",
@@ -320,6 +310,10 @@ export default function NewPackFormPage() {
   const editId = Number(searchParams.get("id"));
   const currentSite = Number(activeSiteId) || 1;
   const [vesselDepartures, setVesselDepartures] = useState([]);
+  const [fumigants] = useState(() => loadFumigants());
+  const [methodologies] = useState(() => loadMethodologies());
+  const [certificateTemplates] = useState(() => loadCertificateTemplates());
+  const [recordTemplates] = useState(() => loadRecordTemplates());
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [samplePanelOpen, setSamplePanelOpen] = useState(false);
@@ -355,13 +349,13 @@ export default function NewPackFormPage() {
   const fumigationMethodologyOptions = useMemo(() => {
     const fumigantId = pack.fumigantId ? Number(pack.fumigantId) : null;
     if (!fumigantId) return [];
-    return FUMIGATION_METHODOLOGIES.filter((item) => Number(item.fumigantId) === fumigantId);
-  }, [pack.fumigantId]);
+    return methodologies.filter((item) => Number(item.fumigantId) === fumigantId);
+  }, [pack.fumigantId, methodologies]);
   const selectedFumigationMethodology = useMemo(() => {
     const methodologyId = pack.methodologyId ? Number(pack.methodologyId) : null;
     if (!methodologyId) return null;
-    return FUMIGATION_METHODOLOGIES.find((item) => Number(item.id) === methodologyId) || null;
-  }, [pack.methodologyId]);
+    return methodologies.find((item) => Number(item.id) === methodologyId) || null;
+  }, [pack.methodologyId, methodologies]);
 
   function updateFumigationDetail(patch) {
     setPack((prev) => {
@@ -386,7 +380,10 @@ export default function NewPackFormPage() {
     return vesselDepartures.find((v) => v.id === Number(pack.vesselDepartureId)) || null;
   }, [pack.vesselDepartureId, vesselDepartures]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
-  const linkedContainersLeft = Math.max(0, Number(pack.containersRequired || 0) - releaseRows.length);
+  const containersLeftToPackDisplay =
+    pack.containersRequired === "" || pack.containersRequired == null
+      ? ""
+      : String(pack.containersRequired);
 
   const computedMtTotal = useMemo(() => {
     if (pack.containersRequired === "" || pack.quantityPerContainer === "") return null;
@@ -530,6 +527,18 @@ export default function NewPackFormPage() {
       methodologyId:
         pack.methodologyId !== null && pack.methodologyId !== undefined && pack.methodologyId !== ""
           ? Number(pack.methodologyId)
+          : null,
+      certificateTemplateId:
+        pack.certificateTemplateId !== null &&
+        pack.certificateTemplateId !== undefined &&
+        pack.certificateTemplateId !== ""
+          ? Number(pack.certificateTemplateId)
+          : null,
+      recordTemplateId:
+        pack.recordTemplateId !== null &&
+        pack.recordTemplateId !== undefined &&
+        pack.recordTemplateId !== ""
+          ? Number(pack.recordTemplateId)
           : null,
       fumigationDetail:
         pack.fumigationDetail && typeof pack.fumigationDetail === "object"
@@ -744,6 +753,8 @@ export default function NewPackFormPage() {
                       fumigationRequired: enabled,
                       fumigantId: enabled ? prev.fumigantId : null,
                       methodologyId: enabled ? prev.methodologyId : null,
+                      certificateTemplateId: enabled ? prev.certificateTemplateId : null,
+                      recordTemplateId: enabled ? prev.recordTemplateId : null,
                     }));
                   }}
                 >
@@ -758,7 +769,7 @@ export default function NewPackFormPage() {
                     value={pack.fumigationDetail?.fumigationNotes || pack.fumigation || ""}
                     onChange={(e) => {
                       const value = e.target.value;
-                      const matched = FUMIGATION_FUMIGANTS.find((item) => `${item.code} - ${item.name}` === value);
+                      const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
                       setPack((prev) => ({
                         ...prev,
                         fumigantId: matched ? Number(matched.id) : prev.fumigantId,
@@ -771,7 +782,7 @@ export default function NewPackFormPage() {
                     }}
                   >
                     <option value="">- Select fumigant -</option>
-                    {FUMIGATION_FUMIGANTS.map((item) => {
+                    {fumigants.map((item) => {
                       const label = `${item.code} - ${item.name}`;
                       return (
                         <option key={item.id} value={label}>
@@ -975,7 +986,7 @@ export default function NewPackFormPage() {
               <input className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
             </FormRow>
             <FormRow label="Containers Left To Pack">
-              <input className={inputClass} value={String(linkedContainersLeft)} readOnly disabled />
+              <input className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
             </FormRow>
             <FormRow label="Container Code">
               <select className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
@@ -1023,8 +1034,11 @@ export default function NewPackFormPage() {
           </div>
 
           <div className="space-y-3 pt-1">
+            <p className="text-[11px] text-slate-500">
+              Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
+            </p>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Release number <span className="font-normal normal-case text-slate-400">· Linked containers: {releaseRows.length}</span>
+              Release number <span className="font-normal normal-case text-slate-400">· Release lines: {releaseRows.length}</span>
             </p>
             {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
               <div key={`release-row-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
@@ -1344,7 +1358,7 @@ export default function NewPackFormPage() {
                   setPack((prev) => {
                     const nextMethodology =
                       prev.methodologyId && Number(prev.methodologyId)
-                        ? FUMIGATION_METHODOLOGIES.find((item) => Number(item.id) === Number(prev.methodologyId))
+                        ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
                         : null;
                     return {
                       ...prev,
@@ -1358,7 +1372,7 @@ export default function NewPackFormPage() {
                 }}
               >
                 <option value="">- Select -</option>
-                {FUMIGATION_FUMIGANTS.map((item) => (
+                {fumigants.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.code} - {item.name}
                   </option>
@@ -1377,6 +1391,41 @@ export default function NewPackFormPage() {
                   <option key={item.id} value={item.id}>
                     {item.name}
                     {item.version ? ` (${item.version})` : ""}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormRow label="Certificate template">
+              <select
+                className={inputClass}
+                value={pack.certificateTemplateId ?? ""}
+                onChange={(e) =>
+                  set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
+                }
+              >
+                <option value="">- Select -</option>
+                {certificateTemplates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Record template">
+              <select
+                className={inputClass}
+                value={pack.recordTemplateId ?? ""}
+                onChange={(e) =>
+                  set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
+                }
+              >
+                <option value="">- Select -</option>
+                {recordTemplates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
                   </option>
                 ))}
               </select>

@@ -10,9 +10,11 @@ import {
   HelpCircle,
   LayoutDashboard,
   Package,
+  PackageOpen,
   Settings2,
   Ticket,
   Users,
+  Warehouse,
   Waypoints,
 } from "lucide-react";
 import { DEFAULT_SITE_OPTIONS } from "@/lib/site-data";
@@ -44,10 +46,20 @@ export const PACKING_NAV_MODULES = [
     ],
   },
   {
-    name: "Packing schedule",
-    href: "/packing-schedule",
-    icon: <Package className="size-5" strokeWidth={1.5} />,
+    name: "Packing",
+    href: "/packing",
+    icon: <PackageOpen className="size-5" strokeWidth={1.5} />,
   },
+  {
+    name: "Stock Management",
+    href: "/stock-management",
+    icon: <Warehouse className="size-5" strokeWidth={1.5} />,
+  },
+  // {
+  //   name: "Packing schedule",
+  //   href: "/packing-schedule",
+  //   icon: <Package className="size-5" strokeWidth={1.5} />,
+  // },
   {
     name: "Packers schedule",
     href: "/packers-schedule",

@@ -105,7 +105,15 @@ export default function OutgoingTicketPage() {
 
   const gridColumns = useMemo(
     () => [
-      { key: "id", header: "ID", type: "number", sortable: true, filterable: true, resizable: true },
+      {
+        key: "id",
+        header: "ID",
+        type: "number",
+        align: "left",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+      },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityGrade", header: "Commodity & grade", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "truck", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },

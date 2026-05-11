@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip } from '@mui/material';
 import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
@@ -72,7 +72,9 @@ export function Grid(props) {
     getCellStyle,
     toolbarActions,
     fileName = 'export',
-    persistKey
+    persistKey,
+    /** When true, column widths grow so the grid uses the full scroll-area width (slack split evenly). */
+    fillContainerWidth = true
   } = props;
   const persisted = useMemo(() => loadPersistedState(persistKey), [persistKey]);
   const dimensions = DENSITIES[density];
@@ -402,6 +404,89 @@ export function Grid(props) {
     }
   }));
   const scrollRef = useRef(null);
+  const [bodyClientWidth, setBodyClientWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!fillContainerWidth) {
+      setBodyClientWidth(0);
+      return;
+    }
+    const el = scrollRef.current;
+    if (!el) return;
+
+    /** Ignore tiny width jitter (subpixel + layout during unrelated CSS transitions e.g. navbar). */
+    const WIDTH_EPSILON_PX = 2;
+
+    let rafId = null;
+    let lastCommitted = -1;
+
+    const commitWidth = (w) => {
+      if (lastCommitted !== -1 && Math.abs(w - lastCommitted) < WIDTH_EPSILON_PX) return;
+      lastCommitted = w;
+      setBodyClientWidth(w);
+    };
+
+    const flush = () => {
+      rafId = null;
+      commitWidth(Math.floor(el.clientWidth));
+    };
+
+    const scheduleFlush = () => {
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(flush);
+    };
+
+    flush();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', scheduleFlush);
+      return () => {
+        window.removeEventListener('resize', scheduleFlush);
+        if (rafId != null) cancelAnimationFrame(rafId);
+      };
+    }
+
+    const ro = new ResizeObserver(() => scheduleFlush());
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (rafId != null) cancelAnimationFrame(rafId);
+    };
+  }, [fillContainerWidth, visibleColumns.length]);
+
+  const selectionColumnWidth = enableSelection ? 42 : 0;
+
+  const columnWidthByKey = useMemo(() => {
+    const map = new Map();
+    const n = visibleColumns.length;
+    if (n === 0) return map;
+
+    const bases = visibleColumns.map((c) => c.state.width);
+
+    if (!fillContainerWidth || bodyClientWidth <= selectionColumnWidth) {
+      visibleColumns.forEach((c, i) => map.set(c.def.key, bases[i]));
+      return map;
+    }
+
+    const availForCols = bodyClientWidth - selectionColumnWidth;
+    const sumBase = bases.reduce((a, b) => a + b, 0);
+    const extra = availForCols - sumBase;
+
+    if (extra <= 0) {
+      visibleColumns.forEach((c, i) => map.set(c.def.key, bases[i]));
+      return map;
+    }
+
+    const addEach = Math.floor(extra / n);
+    let remainder = extra - addEach * n;
+    visibleColumns.forEach((c, i) => {
+      const bump = addEach + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder -= 1;
+      map.set(c.def.key, bases[i] + bump);
+    });
+    return map;
+  }, [visibleColumns, fillContainerWidth, bodyClientWidth, enableSelection, selectionColumnWidth]);
+
   const virtualizer = useVirtualizer({
     count: pagedRows.length,
     getScrollElement: () => scrollRef.current,
@@ -554,20 +639,20 @@ export function Grid(props) {
     for (const col of visibleColumns) {
       if (col.state.pin !== 'left') continue;
       offsets.set(col.def.key, acc);
-      acc += col.state.width;
+      acc += columnWidthByKey.get(col.def.key) ?? col.state.width;
     }
     return offsets;
-  }, [visibleColumns]);
+  }, [visibleColumns, columnWidthByKey]);
   const rightPinOffsets = useMemo(() => {
     const offsets = new Map();
     const rightCols = visibleColumns.filter(c => c.state.pin === 'right');
     let acc = 0;
     for (let i = rightCols.length - 1; i >= 0; i--) {
       offsets.set(rightCols[i].def.key, acc);
-      acc += rightCols[i].state.width;
+      acc += columnWidthByKey.get(rightCols[i].def.key) ?? rightCols[i].state.width;
     }
     return offsets;
-  }, [visibleColumns]);
+  }, [visibleColumns, columnWidthByKey]);
   const allOnPageSelected = pagedRows.length > 0 && pagedRows.every(row => selection.isSelected(safeGetRowId(row)));
   const aggregationRow = useMemo(() => {
     if (!enableSelection || selection.count === 0) return null;
@@ -666,7 +751,7 @@ export function Grid(props) {
       max: numericCount > 0 ? max : 0
     };
   }, [liveSelection, pagedRows, visibleColumns]);
-  const totalColumnsWidth = visibleColumns.reduce((sum, c) => sum + c.state.width, 0) + (enableSelection ? 42 : 0);
+  const totalColumnsWidth = visibleColumns.reduce((sum, c) => sum + (columnWidthByKey.get(c.def.key) ?? c.state.width), 0) + selectionColumnWidth;
   const hasActiveFilters = Object.values(filters).some(f => f);
   const isCellInRange = useCallback((rowIdx, colIdx) => liveSelection.has(cellKey(rowIdx, colIdx)), [liveSelection]);
 
@@ -937,7 +1022,7 @@ export function Grid(props) {
                   const sortItem = sortModel.find(s => s.key === col.def.key);
                   const sortIdx = sortModel.findIndex(s => s.key === col.def.key);
                   const hasFilter = Boolean(filters[col.def.key]);
-                  return <HeaderCell key={col.def.key} column={col.def} width={col.state.width} pin={col.state.pin} pinLeftOffset={leftPinOffsets.get(col.def.key) ?? 0 + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
+                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={leftPinOffsets.get(col.def.key) ?? 0 + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
                     e.stopPropagation();
                     setActiveColumnKey(col.def.key);
                     setFilterAnchor(e.currentTarget);
@@ -1131,9 +1216,9 @@ export function Grid(props) {
                       c: colIdx
                     });
                   }} style={mergedCellStyle} sx={{
-                    width: col.state.width,
-                    minWidth: col.state.width,
-                    maxWidth: col.state.width,
+                    width: columnWidthByKey.get(col.def.key) ?? col.state.width,
+                    minWidth: columnWidthByKey.get(col.def.key) ?? col.state.width,
+                    maxWidth: columnWidthByKey.get(col.def.key) ?? col.state.width,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
@@ -1211,9 +1296,9 @@ export function Grid(props) {
             }
           }
           return <Box key={col.def.key} sx={{
-            width: col.state.width,
-            minWidth: col.state.width,
-            maxWidth: col.state.width,
+            width: columnWidthByKey.get(col.def.key) ?? col.state.width,
+            minWidth: columnWidthByKey.get(col.def.key) ?? col.state.width,
+            maxWidth: columnWidthByKey.get(col.def.key) ?? col.state.width,
             display: 'flex',
             alignItems: 'center',
             justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',

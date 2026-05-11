@@ -31,6 +31,36 @@ const commodityOptions = COMMODITY_MASTER_ROWS.filter((row) => row.status !== "I
 const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
+const PACK_FUMIGATION_APPLICATION_METHOD = ["in-container", "bulk"];
+const PACK_FUMIGATION_APPLICATION_LABELS = {
+  "in-container": "In-container",
+  bulk: "Bulk",
+};
+const PACK_FUMIGATION_DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
+const PACK_FUMIGATION_MASS_UNITS = ["g", "kg"];
+const FUMIGATION_MIN_EXPOSURE_UNITS = ["hours", "days"];
+const FUMIGATION_FUMIGANTS = [
+  { id: 1, code: "PH3", name: "Phosphine" },
+  { id: 2, code: "MBR", name: "Methyl Bromide" },
+];
+const FUMIGATION_METHODOLOGIES = [
+  {
+    id: 1,
+    fumigantId: 1,
+    name: "Container phosphine export",
+    version: "v1.0",
+    dosageGuide: "20-35 ppm by temperature band",
+    safetyNotes: "Wear calibrated PH3 monitor and PPE.",
+  },
+  {
+    id: 2,
+    fumigantId: 2,
+    name: "Methyl bromide chamber",
+    version: "v1.0",
+    dosageGuide: "Apply as per approved method statement.",
+    safetyNotes: "Restrict area and monitor re-entry levels.",
+  },
+];
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -47,9 +77,41 @@ const accentSummaryClass =
 const accentChevronClass =
   "size-3 shrink-0 text-slate-400 transition-transform duration-200 ease-out group-open:rotate-180";
 
+function blankFumigationDetail() {
+  return {
+    applicationMethod: "in-container",
+    enclosureDescription: "",
+    volumeM3: "",
+    actualTonnage: "",
+    minForecastedTemperature: "",
+    minAmbientTemperature: "",
+    actualTemperature: "",
+    dosageValue: "",
+    dosageUnit: "ppm",
+    calculatedDosageValue: "",
+    calculatedDosageUnit: "g",
+    specificDosageRateValue: "",
+    specificDosageRateUnit: "ppm",
+    actualDosageAppliedValue: "",
+    actualDosageAppliedUnit: "g",
+    exposureTimeValue: "",
+    exposureTimeUnit: "hours",
+    dosingFinishAt: "",
+    fumigationStartAt: "",
+    fumigationEndAt: "",
+    clearanceValue: "",
+    fumigatorName: "",
+    fumigationNotes: "",
+  };
+}
+
 const blankPack = (siteId) => ({
   ...PACK_TEMPLATE,
   siteId,
+  fumigationDetail: {
+    ...blankFumigationDetail(),
+    ...(PACK_TEMPLATE.fumigationDetail || {}),
+  },
   containerCode: "",
   releaseNumbers: [],
   collectFromIds: [],
@@ -131,6 +193,10 @@ function rowToPack(row, siteId) {
           transporterId: legacyTransporters[index] ?? null,
         }))
       : [];
+  const detail =
+    row.fumigationDetail && typeof row.fumigationDetail === "object"
+      ? { ...blankFumigationDetail(), ...row.fumigationDetail }
+      : blankFumigationDetail();
   return {
     ...blankPack(siteId),
     importExport: row.importExport || "Export",
@@ -154,6 +220,10 @@ function rowToPack(row, siteId) {
     vesselCutoffDate: row.vesselCutoffDate || "",
     etd: row.etd || "",
     fumigation: row.fumigation || "",
+    fumigationRequired: Boolean(row.fumigationRequired),
+    fumigantId: row.fumigantId ?? null,
+    methodologyId: row.methodologyId ?? null,
+    fumigationDetail: detail,
     daffPermission: row.daffPermission || "N/A",
     edn: row.edn || "",
     packWarningRequired: Boolean(row.packWarningRequired),
@@ -182,6 +252,11 @@ function packToScheduleRow(pack, existingRow) {
   const exporterName = customerOptions.find((c) => c.id === Number(pack.exporter))?.name || existingRow?.exporter || "-";
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const detail =
+    pack.fumigationDetail && typeof pack.fumigationDetail === "object"
+      ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
+      : blankFumigationDetail();
+  const fumigationSummary = String(detail.fumigationNotes || pack.fumigation || "").trim();
   return {
     id: existingRow?.id ?? 0,
     importExport: pack.importExport,
@@ -205,7 +280,11 @@ function packToScheduleRow(pack, existingRow) {
     lloydId: pack.lloydId || "",
     vesselCutoffDate: pack.vesselCutoffDate || "",
     etd: pack.etd || "",
-    fumigation: pack.fumigation || "",
+    fumigation: fumigationSummary,
+    fumigationRequired: Boolean(pack.fumigationRequired),
+    fumigantId: pack.fumigantId ? Number(pack.fumigantId) : null,
+    methodologyId: pack.methodologyId ? Number(pack.methodologyId) : null,
+    fumigationDetail: detail,
     daffPermission: pack.daffPermission || "N/A",
     edn: pack.edn || "",
     packWarningRequired: Boolean(pack.packWarningRequired),
@@ -244,6 +323,7 @@ export default function NewPackFormPage() {
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [samplePanelOpen, setSamplePanelOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("general");
   const userClosedSampleWhileRequiredRef = useRef(false);
   const prevSampleRequiredRef = useRef(undefined);
 
@@ -266,6 +346,39 @@ export default function NewPackFormPage() {
     const url = URL.createObjectURL(item.file);
     window.open(url, "_blank", "noopener,noreferrer");
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const fd =
+    pack.fumigationDetail && typeof pack.fumigationDetail === "object"
+      ? pack.fumigationDetail
+      : blankFumigationDetail();
+  const fumigationMethodologyOptions = useMemo(() => {
+    const fumigantId = pack.fumigantId ? Number(pack.fumigantId) : null;
+    if (!fumigantId) return [];
+    return FUMIGATION_METHODOLOGIES.filter((item) => Number(item.fumigantId) === fumigantId);
+  }, [pack.fumigantId]);
+  const selectedFumigationMethodology = useMemo(() => {
+    const methodologyId = pack.methodologyId ? Number(pack.methodologyId) : null;
+    if (!methodologyId) return null;
+    return FUMIGATION_METHODOLOGIES.find((item) => Number(item.id) === methodologyId) || null;
+  }, [pack.methodologyId]);
+
+  function updateFumigationDetail(patch) {
+    setPack((prev) => {
+      const previousDetail =
+        prev.fumigationDetail && typeof prev.fumigationDetail === "object"
+          ? prev.fumigationDetail
+          : blankFumigationDetail();
+      const nextDetail = { ...previousDetail, ...patch };
+      return {
+        ...prev,
+        fumigationDetail: nextDetail,
+        fumigation:
+          nextDetail.fumigationNotes != null
+            ? String(nextDetail.fumigationNotes)
+            : prev.fumigation,
+      };
+    });
   }
 
   const selectedVessel = useMemo(() => {
@@ -303,7 +416,7 @@ export default function NewPackFormPage() {
       customer: customerName || "—",
       jobRef: String(pack.jobReference || "").trim() || "—",
       commodity: commodityName || "—",
-      fumigation: String(pack.fumigation || "").trim() || "—",
+      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim() || "—",
       packWarning:
         pack.packWarningRequired && String(pack.packWarning || "").trim()
           ? String(pack.packWarning).trim()
@@ -327,6 +440,7 @@ export default function NewPackFormPage() {
     pack.containerCode,
     computedMtTotal,
     pack.fumigation,
+    pack.fumigationDetail,
     pack.packWarningRequired,
     pack.packWarning,
     pack.etd,
@@ -351,6 +465,12 @@ export default function NewPackFormPage() {
     if (mode !== "add") return;
     setPack((prev) => ({ ...prev, siteId: currentSite }));
   }, [currentSite, mode]);
+
+  useEffect(() => {
+    if (!pack.fumigationRequired && activeTab === "fumigation") {
+      setActiveTab("general");
+    }
+  }, [pack.fumigationRequired, activeTab]);
 
   useEffect(() => {
     const prev = prevSampleRequiredRef.current;
@@ -402,6 +522,20 @@ export default function NewPackFormPage() {
       shippingLineId: pack.shippingLineId ? Number(pack.shippingLineId) : null,
       vesselDepartureId: pack.vesselDepartureId ? Number(pack.vesselDepartureId) : null,
       exporter: pack.exporter ? Number(pack.exporter) : null,
+      fumigationRequired: Boolean(pack.fumigationRequired),
+      fumigantId:
+        pack.fumigantId !== null && pack.fumigantId !== undefined && pack.fumigantId !== ""
+          ? Number(pack.fumigantId)
+          : null,
+      methodologyId:
+        pack.methodologyId !== null && pack.methodologyId !== undefined && pack.methodologyId !== ""
+          ? Number(pack.methodologyId)
+          : null,
+      fumigationDetail:
+        pack.fumigationDetail && typeof pack.fumigationDetail === "object"
+          ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
+          : blankFumigationDetail(),
+      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim(),
       sampleEntries: (pack.sampleEntries || [])
         .map((entry) => ({
           type: entry.type,
@@ -458,7 +592,37 @@ export default function NewPackFormPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-xl font-semibold text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("general")}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              activeTab === "general"
+                ? "border-brand/45 bg-brand/15 text-brand-ink"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            General
+          </button>
+          {pack.fumigationRequired ? (
+            <button
+              type="button"
+              onClick={() => setActiveTab("fumigation")}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-xs font-semibold",
+                activeTab === "fumigation"
+                  ? "border-brand/45 bg-brand/15 text-brand-ink"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              Fumigation
+            </button>
+          ) : null}
+        </div>
 
+      {activeTab === "general" ? (
+      <>
       <section className={sectionClass} aria-label="Pack basics">
         <div className={gridClass}>
           <FormRow label="Pack type">
@@ -567,18 +731,70 @@ export default function NewPackFormPage() {
               <option value="yes">Yes</option>
             </select>
           </FormRow>
-          <FormRow label="Fumigation" className="sm:col-span-2 md:col-span-2">
-            <input className={inputClass} value={pack.fumigation} onChange={(e) => set("fumigation", e.target.value)} placeholder="Fumigation details" />
-          </FormRow>
-          <FormRow label="Daff permission (fumigation)">
-            <select className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
-              {DAFF_PERMISSION_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </FormRow>
+          <div className="sm:col-span-2 md:col-span-3">
+            <div className={cn("grid gap-4", pack.fumigationRequired ? "sm:grid-cols-3" : "sm:grid-cols-1")}>
+              <FormRow label="Fumigation required">
+                <select
+                  className={inputClass}
+                  value={pack.fumigationRequired ? "yes" : "no"}
+                  onChange={(e) => {
+                    const enabled = e.target.value === "yes";
+                    setPack((prev) => ({
+                      ...prev,
+                      fumigationRequired: enabled,
+                      fumigantId: enabled ? prev.fumigantId : null,
+                      methodologyId: enabled ? prev.methodologyId : null,
+                    }));
+                  }}
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </FormRow>
+              {pack.fumigationRequired ? (
+                <FormRow label="Fumigant selector">
+                  <select
+                    className={inputClass}
+                    value={pack.fumigationDetail?.fumigationNotes || pack.fumigation || ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const matched = FUMIGATION_FUMIGANTS.find((item) => `${item.code} - ${item.name}` === value);
+                      setPack((prev) => ({
+                        ...prev,
+                        fumigantId: matched ? Number(matched.id) : prev.fumigantId,
+                        fumigation: value,
+                        fumigationDetail: {
+                          ...(prev.fumigationDetail || blankFumigationDetail()),
+                          fumigationNotes: value,
+                        },
+                      }));
+                    }}
+                  >
+                    <option value="">- Select fumigant -</option>
+                    {FUMIGATION_FUMIGANTS.map((item) => {
+                      const label = `${item.code} - ${item.name}`;
+                      return (
+                        <option key={item.id} value={label}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </FormRow>
+              ) : null}
+              {pack.fumigationRequired ? (
+                <FormRow label="DAFF Permission">
+                  <select className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
+                    {DAFF_PERMISSION_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+              ) : null}
+            </div>
+          </div>
           <FormRow label="Pack warning" className="sm:col-span-2 md:col-span-3">
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -1113,6 +1329,198 @@ export default function NewPackFormPage() {
           <textarea className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
         </FormRow>
       </section>
+      </>
+      ) : (
+      <section className={sectionClass}>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormRow label="Fumigant">
+              <select
+                className={inputClass}
+                value={pack.fumigantId ?? ""}
+                onChange={(e) => {
+                  const fumigantId = e.target.value ? Number(e.target.value) : null;
+                  setPack((prev) => {
+                    const nextMethodology =
+                      prev.methodologyId && Number(prev.methodologyId)
+                        ? FUMIGATION_METHODOLOGIES.find((item) => Number(item.id) === Number(prev.methodologyId))
+                        : null;
+                    return {
+                      ...prev,
+                      fumigantId,
+                      methodologyId:
+                        nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
+                          ? prev.methodologyId
+                          : null,
+                    };
+                  });
+                }}
+              >
+                <option value="">- Select -</option>
+                {FUMIGATION_FUMIGANTS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.code} - {item.name}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Methodology">
+              <select
+                className={inputClass}
+                value={pack.methodologyId ?? ""}
+                onChange={(e) => set("methodologyId", e.target.value ? Number(e.target.value) : null)}
+                disabled={!pack.fumigantId}
+              >
+                <option value="">- Select -</option>
+                {fumigationMethodologyOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.version ? ` (${item.version})` : ""}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+          </div>
+
+          {selectedFumigationMethodology ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <p className="font-semibold text-slate-800">
+                {selectedFumigationMethodology.name}
+                {selectedFumigationMethodology.version ? ` ${selectedFumigationMethodology.version}` : ""}
+              </p>
+              <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "—"}</p>
+              <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "—"}</p>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormRow label="Application method">
+              <select
+                className={inputClass}
+                value={fd.applicationMethod || "in-container"}
+                onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
+              >
+                {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
+                  <option key={method} value={method}>
+                    {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Fumigator">
+              <input
+                className={inputClass}
+                value={fd.fumigatorName || ""}
+                onChange={(e) => updateFumigationDetail({ fumigatorName: e.target.value })}
+                placeholder="Fumigator name"
+              />
+            </FormRow>
+            <FormRow label="Volume (m3)">
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={fd.volumeM3 ?? ""}
+                onChange={(e) => updateFumigationDetail({ volumeM3: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Actual tonnage (MT)">
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={fd.actualTonnage ?? ""}
+                onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Dosage value">
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={fd.dosageValue ?? ""}
+                onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Dosage unit">
+              <select
+                className={inputClass}
+                value={fd.dosageUnit || "ppm"}
+                onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
+              >
+                {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Exposure time value">
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={fd.exposureTimeValue ?? ""}
+                onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Exposure time unit">
+              <select
+                className={inputClass}
+                value={fd.exposureTimeUnit || "hours"}
+                onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
+              >
+                {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Calculated dosage (value)">
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={fd.calculatedDosageValue ?? ""}
+                onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Calculated dosage (unit)">
+              <select
+                className={inputClass}
+                value={fd.calculatedDosageUnit || "g"}
+                onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
+              >
+                {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+          </div>
+
+          <FormRow label="Enclosure description">
+            <input
+              className={inputClass}
+              value={fd.enclosureDescription || ""}
+              onChange={(e) => updateFumigationDetail({ enclosureDescription: e.target.value })}
+              placeholder="Container, chamber, sheeted stack..."
+            />
+          </FormRow>
+          <FormRow label="Clearance">
+            <input
+              className={inputClass}
+              value={fd.clearanceValue ?? ""}
+              onChange={(e) => updateFumigationDetail({ clearanceValue: e.target.value })}
+              placeholder="Clearance period/value"
+            />
+          </FormRow>
+        </div>
+      </section>
+      )}
       </div>
 
       <footer

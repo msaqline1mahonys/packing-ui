@@ -45,6 +45,11 @@ const PACK_FUMIGATION_APPLICATION_LABELS = {
 const PACK_FUMIGATION_DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
 const PACK_FUMIGATION_MASS_UNITS = ["g", "kg"];
 const FUMIGATION_MIN_EXPOSURE_UNITS = ["hours", "days"];
+const ISO_BY_CONTAINER_CODE = {
+  "20FT": "22G1",
+  "40FT": "42G1",
+  HC40: "45G1",
+};
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -89,11 +94,48 @@ function blankFumigationDetail() {
   };
 }
 
+function defaultIsoForContainerCode(containerCode) {
+  return ISO_BY_CONTAINER_CODE[String(containerCode || "").toUpperCase()] || "";
+}
+
+function createDraftContainer(pack, index, existing = {}) {
+  const order = index + 1;
+  return {
+    id: existing.id || `container-${order}`,
+    packId: existing.packId ?? pack.id ?? null,
+    order,
+    containerNumber: existing.containerNumber ?? existing.containerNo ?? "",
+    containerCode: existing.containerCode ?? pack.containerCode ?? "",
+    containerIsoCode:
+      existing.containerIsoCode ??
+      existing.isoCode ??
+      defaultIsoForContainerCode(existing.containerCode ?? pack.containerCode),
+    sealNumber: existing.sealNumber ?? existing.sealNo ?? "",
+    releaseNumber: existing.releaseNumber ?? "",
+    emptyContainerParkId: existing.emptyContainerParkId ?? "",
+    transporterId: existing.transporterId ?? "",
+    status: existing.status || "Draft",
+  };
+}
+
+function buildPackContainers(pack, existingRow) {
+  const requiredCount = Math.max(Number(pack.containersRequired || 0), 0);
+  const existingContainers = Array.isArray(pack.containers)
+    ? pack.containers
+    : Array.isArray(existingRow?.containers)
+      ? existingRow.containers
+      : [];
+  return Array.from({ length: requiredCount }, (_, index) =>
+    createDraftContainer(pack, index, existingContainers[index] || {})
+  );
+}
+
 const blankPack = (siteId) => ({
   ...PACK_TEMPLATE,
   siteId,
   certificateTemplateId: null,
   recordTemplateId: null,
+  containers: [],
   fumigationDetail: {
     ...blankFumigationDetail(),
     ...(PACK_TEMPLATE.fumigationDetail || {}),
@@ -211,6 +253,7 @@ function rowToPack(row, siteId) {
     methodologyId: row.methodologyId ?? null,
     certificateTemplateId: row.certificateTemplateId ?? null,
     recordTemplateId: row.recordTemplateId ?? null,
+    containers: buildPackContainers(row, row),
     fumigationDetail: detail,
     daffPermission: row.daffPermission || "N/A",
     edn: row.edn || "",
@@ -240,6 +283,7 @@ function packToScheduleRow(pack, existingRow) {
   const exporterName = customerOptions.find((c) => c.id === Number(pack.exporter))?.name || existingRow?.exporter || "-";
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const containers = buildPackContainers(pack, existingRow);
   const detail =
     pack.fumigationDetail && typeof pack.fumigationDetail === "object"
       ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
@@ -256,6 +300,7 @@ function packToScheduleRow(pack, existingRow) {
     mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? 0 : Number(pack.mtTotal),
     containerCode: pack.containerCode || "",
     releaseDetails,
+    containers,
     releaseNumbers: releaseDetails.map((row) => row.releaseRef).filter(Boolean),
     collectFromIds: releaseDetails.map((row) => row.emptyContainerParkId).filter(Boolean),
     transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
@@ -380,10 +425,13 @@ export default function NewPackFormPage() {
     return vesselDepartures.find((v) => v.id === Number(pack.vesselDepartureId)) || null;
   }, [pack.vesselDepartureId, vesselDepartures]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  const containersLeftToPack = packContainers.filter((container) => {
+    const status = String(container.status || "").toLowerCase();
+    return status !== "complete" && status !== "completed";
+  }).length;
   const containersLeftToPackDisplay =
-    pack.containersRequired === "" || pack.containersRequired == null
-      ? ""
-      : String(pack.containersRequired);
+    pack.containersRequired === "" || pack.containersRequired == null ? "" : String(containersLeftToPack);
 
   const computedMtTotal = useMemo(() => {
     if (pack.containersRequired === "" || pack.quantityPerContainer === "") return null;
@@ -566,6 +614,7 @@ export default function NewPackFormPage() {
     } else {
       const created = packToScheduleRow(normalized, null);
       created.id = nextPackId(rows);
+      created.containers = buildPackContainers({ ...normalized, id: created.id }, created);
       savePackScheduleRows([created, ...rows]);
     }
     router.push("/packing-schedule");

@@ -13,7 +13,7 @@ import {
   toInputNumber,
   toRoundedNumber,
 } from "@/lib/packers-work-store";
-import { loadPackScheduleRows } from "@/lib/pack-schedule-store";
+import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { cn } from "@/lib/utils";
 
 const YES_NO_OPTIONS = ["No", "Yes"];
@@ -77,6 +77,38 @@ function stageBadgeClass(stage) {
   }
 }
 
+function packContainerFromWorkContainer(container, packRow) {
+  return {
+    id: container.id,
+    packId: packRow.id,
+    order: container.order,
+    containerNumber: container.containerNo || "",
+    containerCode: packRow.containerCode || "",
+    containerIsoCode: container.isoCode || "",
+    sealNumber: container.sealNo || "",
+    releaseNumber: container.releaseNumber || "",
+    releasePark: container.releasePark || "",
+    transporter: container.transporter || "",
+    grainLocation: container.grainLocation || "",
+    stockBayId: container.stockBayId || "",
+    startDate: container.startDate || "",
+    startHour: container.startHour || "",
+    startMinute: container.startMinute || "",
+    tare: container.tare ?? null,
+    grossWeight: container.grossWeight ?? null,
+    nettWeight: container.nettWeight ?? null,
+    containerTareWeight: container.containerTareWeight ?? null,
+    packerSignoff: container.packerSignoff || "",
+    outLoaded: container.outLoaded || "No",
+    praSubmitted: Boolean(container.praSubmitted),
+    praLastStatus: container.praLastStatus || "Pending",
+    emptyInspection: container.emptyInspection || "Pending",
+    grainInspection: container.grainInspection || "Pending",
+    aoSignoff: container.aoSignoff || "",
+    status: containerStage(container),
+  };
+}
+
 export default function PackDetailClient({ packId }) {
   const router = useRouter();
   const [packRow, setPackRow] = useState(() => loadPackScheduleRows().find((row) => Number(row.id) === Number(packId)) || null);
@@ -101,6 +133,14 @@ export default function PackDetailClient({ packId }) {
 
   useEffect(() => {
     saveWorkDrafts(workByPack);
+    if (!packRow || !workByPack[packRow.id]) return;
+    const containers = (workByPack[packRow.id].containers || []).map((container) =>
+      packContainerFromWorkContainer(container, packRow)
+    );
+    const rows = loadPackScheduleRows();
+    savePackScheduleRows(
+      rows.map((row) => (Number(row.id) === Number(packRow.id) ? { ...row, containers } : row))
+    );
   }, [workByPack]);
 
   const selectedPackDraft = packRow ? workByPack[packRow.id] : null;
@@ -152,7 +192,8 @@ export default function PackDetailClient({ packId }) {
         const next = typeof patch === "function" ? patch(container) : { ...container, ...patch };
         const tare = toRoundedNumber(next.tare);
         const grossWeight = toRoundedNumber(next.grossWeight);
-        return { ...next, tare, grossWeight, nettWeight: toRoundedNumber(Math.max(grossWeight - tare, 0)) };
+        const normalized = { ...next, tare, grossWeight, nettWeight: toRoundedNumber(Math.max(grossWeight - tare, 0)) };
+        return { ...normalized, status: containerStage(normalized) };
       });
       return { ...current, containers: nextContainers };
     });

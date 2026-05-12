@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { PACK_FORM_LOOKUPS } from "@/lib/Data";
+import { loadContactUsers } from "@/lib/contact-users-store";
 import {
   containerStage,
   loadWorkDrafts,
@@ -16,6 +17,8 @@ import {
 import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
+import { createPraActionHandlers } from "@/components/pems/container-form-actions";
+import ContainerFormSections from "@/components/pems/container-form-sections";
 
 const YES_NO_OPTIONS = ["No", "Yes"];
 const INSPECTION_OPTIONS = ["Pending", "Passed", "Failed"];
@@ -302,6 +305,16 @@ export default function PackDetailClient({ packId }) {
     () => (PACK_FORM_LOOKUPS.packers || []).filter((p) => String(p.status).toLowerCase() === "active").map((p) => p.name),
     []
   );
+  const aoNumberByName = useMemo(() => {
+    const map = new Map();
+    loadContactUsers().forEach((row) => {
+      if (!row?.aoActive) return;
+      const name = String(row.name || "").trim();
+      if (!name) return;
+      map.set(name, String(row.aoNumber || ""));
+    });
+    return map;
+  }, []);
 
   useEffect(() => {
     const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId)) || null;
@@ -354,10 +367,19 @@ export default function PackDetailClient({ packId }) {
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
     [filteredContainerRows, selectedContainerId]
   );
+  const selectedContainerActions = useMemo(() => {
+    if (!selectedContainer) return null;
+    return createPraActionHandlers({
+      container: selectedContainer,
+      applyPatch: updateSelectedContainer,
+      fallbackPacker: packerNames[0] || "",
+    });
+  }, [selectedContainer, packerNames]);
   const stagedContainers = useMemo(
     () => containerRows.filter((container) => pemsDraft.stagedContainerIds.includes(container.id)),
     [containerRows, pemsDraft.stagedContainerIds]
   );
+  const selectedAoNumber = useMemo(() => aoNumberByName.get(String(pemsDraft.aoSignoff || "").trim()) || "", [aoNumberByName, pemsDraft.aoSignoff]);
 
   const packSummary = useMemo(() => {
     if (!packRow || !selectedPackDraft) return { total: 0, submitted: 0, complete: 0 };
@@ -486,10 +508,10 @@ export default function PackDetailClient({ packId }) {
         jobReference: packRow.jobReference || "",
         recordType: pemsDraft.recordType,
         aoSignoff: pemsDraft.aoSignoff,
-        aoNumber: pemsDraft.aoNumber || "",
+        aoNumber: selectedAoNumber,
         inspectionStart: pemsDraft.inspectionStart,
         inspectionEnd: pemsDraft.inspectionEnd,
-        yardId: siteRow?.id || "",
+        yardId: siteRow?.yardNo || "",
         placeOfInspection: siteRow?.name || "",
         containers: containersForBatch.map((container) => ({
           id: container.id,
@@ -533,10 +555,10 @@ export default function PackDetailClient({ packId }) {
           recordType: draft.recordType,
           commodity: packRow.commodity || "",
           aoSignoff: draft.aoSignoff,
-          aoNumber: draft.aoNumber || "",
+          aoNumber: selectedAoNumber,
           inspectionStart: draft.inspectionStart,
           inspectionEnd: draft.inspectionEnd,
-          yardId: siteRow?.id || "",
+          yardId: siteRow?.yardNo || "",
           placeOfInspection: siteRow?.name || "",
           packId: packRow.id,
           containerIds: containersForBatch.map((container) => container.id),
@@ -872,207 +894,23 @@ export default function PackDetailClient({ packId }) {
               </div>
             </div>
 
-            <div className={cn(sectionCardClass, "border-blue-200/90 bg-blue-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-blue-200 bg-blue-100/80 text-blue-900")}>Packing Order</div>
-              <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
-                <LabeledInput
-                  label="Container No"
-                  value={selectedContainer.containerNo}
-                  placeholder="Enter container number"
-                  onChange={(value) => updateSelectedContainer({ containerNo: value })}
-                />
-                <LabeledInput label="Seal No" value={selectedContainer.sealNo} placeholder="Enter seal number" onChange={(value) => updateSelectedContainer({ sealNo: value })} />
-                <LabeledSelect
-                  label="Container ISO"
-                  value={selectedContainer.isoCode}
-                  options={["22G1", "42G1", "45G1", "L5G1"]}
-                  placeholder="Select ISO code"
-                  onChange={(value) => updateSelectedContainer({ isoCode: value })}
-                />
-                <div className="space-y-1 md:col-span-2 xl:col-span-1">
-                  <label className="text-xs font-medium text-slate-600">Start Time (24-hour)</label>
-                  <div className="grid grid-cols-[1fr_92px_92px] gap-2">
-                    <input className={inputClass} type="date" value={selectedContainer.startDate} onChange={(event) => updateSelectedContainer({ startDate: event.target.value })} />
-                    <select className={inputClass} value={selectedContainer.startHour} onChange={(event) => updateSelectedContainer({ startHour: event.target.value })}>
-                      <option value="">HH</option>
-                      {Array.from({ length: 24 }).map((_, hour) => {
-                        const option = String(hour).padStart(2, "0");
-                        return (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <select className={inputClass} value={selectedContainer.startMinute} onChange={(event) => updateSelectedContainer({ startMinute: event.target.value })}>
-                      <option value="">MM</option>
-                      {["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map((minute) => (
-                        <option key={minute} value={minute}>
-                          {minute}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <LabeledSelect
-                  label="Stock/Bay ID"
-                  value={selectedContainer.stockBayId}
-                  options={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
-                  placeholder="Select location"
-                  onChange={(value) => updateSelectedContainer({ stockBayId: value })}
-                />
-                <LabeledInput
-                  label="Grain location"
-                  value={selectedContainer.grainLocation}
-                  placeholder="Enter grain location"
-                  onChange={(value) => updateSelectedContainer({ grainLocation: value })}
-                />
-              </div>
-            </div>
-
-            <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Weights</div>
-              <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
-                <LabeledInput
-                  label="Tare"
-                  value={toInputNumber(selectedContainer.tare)}
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  onChange={(value) => updateSelectedContainer({ tare: value })}
-                />
-                <LabeledInput
-                  label="Gross Weight"
-                  value={toInputNumber(selectedContainer.grossWeight)}
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  onChange={(value) => updateSelectedContainer({ grossWeight: value })}
-                />
-                <LabeledInput label="Nett Weight" value={toInputNumber(selectedContainer.nettWeight)} readOnly />
-                <LabeledInput
-                  label="Container tare weight"
-                  value={toInputNumber(selectedContainer.containerTareWeight)}
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  onChange={(value) => updateSelectedContainer({ containerTareWeight: value })}
-                />
-              </div>
-            </div>
-
-            <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Release Details</div>
-              <div className="grid gap-3 p-3 md:grid-cols-3">
-                <LabeledInput
-                  label="Release Number"
-                  value={selectedContainer.releaseNumber}
-                  placeholder="Enter release number"
-                  onChange={(value) => updateSelectedContainer({ releaseNumber: value })}
-                />
-                <LabeledInput
-                  label="Container Park"
-                  value={selectedContainer.releasePark}
-                  placeholder="Enter container park"
-                  onChange={(value) => updateSelectedContainer({ releasePark: value })}
-                />
-                <LabeledInput label="Transporter" value={selectedContainer.transporter} placeholder="Enter transporter" onChange={(value) => updateSelectedContainer({ transporter: value })} />
-              </div>
-            </div>
-
-            <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Signoff</div>
-              <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
-                <LabeledSelect label="Packer signoff" value={selectedContainer.packerSignoff} options={packerNames} onChange={(value) => updateSelectedContainer({ packerSignoff: value })} />
-                <LabeledSelect label="Out-loaded?" value={selectedContainer.outLoaded} options={YES_NO_OPTIONS} onChange={(value) => updateSelectedContainer({ outLoaded: value })} />
-                <LabeledSelect label="PRA signoff" value={selectedContainer.praSignoff} options={packerNames} onChange={(value) => updateSelectedContainer({ praSignoff: value })} />
-                <LabeledSelect
-                  label="PRA template"
-                  value={selectedContainer.praTemplate}
-                  options={PRA_TEMPLATE_OPTIONS}
-                  onChange={(value) => updateSelectedContainer({ praTemplate: value })}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    updateSelectedContainer({
-                      packerSignoff: "",
-                      outLoaded: "No",
-                      praSignoff: "",
-                      praSubmitted: false,
-                      praLastStatus: "Pending",
-                      praLastSubmittedTime: "",
-                      praLastError: "",
-                    })
-                  }
-                >
-                  Reset container
-                </Button>
-                <Button type="button" size="sm" onClick={() => updateSelectedContainer({ outLoaded: "Yes", packerSignoff: selectedContainer.packerSignoff || packerNames[0] || "" })}>
-                  Mark packed
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() =>
-                    updateSelectedContainer({
-                      praSubmitted: true,
-                      praLastStatus: "Accepted",
-                      praLastSubmittedTime: new Date().toLocaleString(),
-                      praLastError: "ERA0100-Message received without error",
-                    })
-                  }
-                >
-                  Submit PRA
-                </Button>
-                <span className="ms-auto text-sm font-semibold text-rose-600">{selectedContainer.praSubmitted ? "PRA Submitted" : "PRA Pending"}</span>
-              </div>
-            </div>
-
-            <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>1-Stop PRA Info</div>
-              <div className="grid gap-3 p-3 md:grid-cols-3">
-                <LabeledSelect
-                  label="PRA last status"
-                  value={selectedContainer.praLastStatus}
-                  options={PRA_STATUS_OPTIONS}
-                  onChange={(value) => updateSelectedContainer({ praLastStatus: value })}
-                />
-                <LabeledInput
-                  label="PRA last submitted time"
-                  value={selectedContainer.praLastSubmittedTime}
-                  onChange={(value) => updateSelectedContainer({ praLastSubmittedTime: value })}
-                />
-                <LabeledInput label="PRA last error" value={selectedContainer.praLastError} onChange={(value) => updateSelectedContainer({ praLastError: value })} />
-              </div>
-            </div>
-
-            <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
-              <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Authorised Officer Inspection</div>
-              <div className="grid gap-3 p-3 md:grid-cols-3">
-                <LabeledSelect
-                  label="Empty container inspection"
-                  value={selectedContainer.emptyInspection}
-                  options={INSPECTION_OPTIONS}
-                  onChange={(value) => updateSelectedContainer({ emptyInspection: value })}
-                />
-                <LabeledSelect
-                  label="Grain inspection"
-                  value={selectedContainer.grainInspection}
-                  options={INSPECTION_OPTIONS}
-                  onChange={(value) => updateSelectedContainer({ grainInspection: value })}
-                />
-                <LabeledSelect label="AO signoff" value={selectedContainer.aoSignoff} options={packerNames} onChange={(value) => updateSelectedContainer({ aoSignoff: value })} />
-              </div>
-              <div className="px-3 pb-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark</label>
-                <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={selectedContainer.aoInspectionRemark} onChange={(event) => updateSelectedContainer({ aoInspectionRemark: event.target.value })} />
-              </div>
-            </div>
+            <ContainerFormSections
+              container={selectedContainer}
+              onChange={updateSelectedContainer}
+              packerNames={packerNames}
+              yesNoOptions={YES_NO_OPTIONS}
+              inspectionOptions={INSPECTION_OPTIONS}
+              praTemplateOptions={PRA_TEMPLATE_OPTIONS}
+              praStatusOptions={PRA_STATUS_OPTIONS}
+              isoOptions={["22G1", "42G1", "45G1", "L5G1"]}
+              stockBayOptions={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
+              inputClass={inputClass}
+              sectionCardClass={sectionCardClass}
+              sectionHeaderClass={sectionHeaderClass}
+              onResetContainer={selectedContainerActions?.onResetContainer}
+              onMarkPacked={selectedContainerActions?.onMarkPacked}
+              onSubmitPra={selectedContainerActions?.onSubmitPra}
+            />
 
             <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
               {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}
@@ -1091,6 +929,7 @@ export default function PackDetailClient({ packId }) {
             setActiveTab("Packing");
           }}
           pemsDraft={pemsDraft}
+          selectedAoNumber={selectedAoNumber}
           pemsSubmissions={pemsSubmissions}
           siteRow={siteRow}
           packRow={packRow}
@@ -1130,6 +969,7 @@ function PemsTab({
   onSelectContainer,
   onOpenContainer,
   pemsDraft,
+  selectedAoNumber,
   pemsSubmissions,
   siteRow,
   packRow,
@@ -1144,6 +984,15 @@ function PemsTab({
   const stagedIds = pemsDraft.stagedContainerIds || [];
   const isGppirRecord = pemsDraft.recordType === GPPIR_RECORD_TYPE;
   const stagedContainers = containers.filter((container) => stagedIds.includes(container.id));
+  const pemsChecks = [
+    siteRow?.yardNo ? { ok: true, label: `Yard number resolved (${siteRow.yardNo})` } : { ok: false, label: "Missing yard number in selected site record." },
+    siteRow?.name ? { ok: true, label: `Place of inspection resolved (${siteRow.name})` } : { ok: false, label: "Missing site name for place of inspection." },
+    pemsDraft.aoSignoff
+      ? selectedAoNumber
+        ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
+        : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
+      : { ok: false, label: "Select AO signoff to resolve AO number." },
+  ];
   const expiryDate = formatDateDisplay(addDaysToDate(pemsDraft.inspectionEnd || pemsDraft.inspectionStart, isGppirRecord ? 28 : 90));
   const gppirTotalWeight = toRoundedNumber(
     stagedContainers.reduce((sum, container) => sum + (Number.isFinite(Number(container.nettWeight)) ? Number(container.nettWeight) : 0), 0)
@@ -1208,13 +1057,17 @@ function PemsTab({
             options={packerNames}
             onChange={(value) => onUpdatePemsDraft({ aoSignoff: value })}
           />
-          <LabeledInput label="Yard ID" value={siteRow?.id || ""} readOnly />
-          <LabeledInput label="Place of inspection" value={siteRow?.name || ""} readOnly />
-          <LabeledInput
-            label="Submitted AO Number"
-            value={pemsDraft.aoNumber || ""}
-            onChange={(value) => onUpdatePemsDraft({ aoNumber: value })}
-          />
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 md:col-span-2 xl:col-span-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
+            <div className="mt-1 space-y-1">
+              {pemsChecks.map((check) => (
+                <p key={check.label} className={cn("text-xs", check.ok ? "text-emerald-700" : "text-amber-700")}>
+                  {check.ok ? "OK - " : "Needs attention - "}
+                  {check.label}
+                </p>
+              ))}
+            </div>
+          </div>
           <div className="flex items-end">
             <Button type="button" onClick={onSubmitBatch} disabled={!stagedContainers.length || isSubmitting} className="h-11 w-full">
               {isSubmitting ? "Submitting PEMs..." : `Submit ${stagedContainers.length} container(s)`}
@@ -1313,7 +1166,7 @@ function PemsTab({
               <div className="grid gap-2 md:grid-cols-4">
                 <Field label="RFP Number" value={rfpNumber} />
                 <Field label="Establishment Name" value={safeValue(siteRow?.name)} />
-                <Field label="Establishment Number" value={safeValue(siteRow?.id)} />
+                <Field label="Establishment Number" value={safeValue(siteRow?.yardNo)} />
                 <Field label="Exporter Name" value={safeValue(packRow.exporter || packRow.customer)} />
               </div>
               <div className="grid gap-2 md:grid-cols-4">
@@ -1371,7 +1224,7 @@ function PemsTab({
               </div>
               <div className="grid gap-2 md:grid-cols-5">
                 <Field label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
-                <Field label="Submitted AO Number" value={safeValue(pemsDraft.aoNumber)} />
+                <Field label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
                 <Field label="Additional Declaration" value="N/A" />
                 <Field label="Total Passed" value={`${gppirPassedWeight.toFixed(4)} M/TONS`} />
                 <Field label="Total Failed" value={`${gppirFailedWeight.toFixed(4)} M/TONS`} />
@@ -1380,7 +1233,7 @@ function PemsTab({
           ) : (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
               <div className="grid gap-2 md:grid-cols-4">
-                <Field label="Container Yard Id" value={safeValue(siteRow?.id)} />
+                <Field label="Container Yard Id" value={safeValue(siteRow?.yardNo)} />
                 <Field label="Place of Inspection" value={safeValue(siteRow?.name)} />
                 <Field label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                 <Field label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
@@ -1417,7 +1270,7 @@ function PemsTab({
               </div>
               <div className="grid gap-2 md:grid-cols-4">
                 <Field label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
-                <Field label="Submitted AO Number" value={safeValue(pemsDraft.aoNumber)} />
+                <Field label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
                 <Field label="Pack Reference" value={safeValue(packRow.jobReference)} />
                 <Field label="Containers in batch" value={String(stagedContainers.length)} />
               </div>

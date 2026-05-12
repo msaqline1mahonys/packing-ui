@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
+import { createPraActionHandlers } from "@/components/pems/container-form-actions";
+import ContainerFormSections from "@/components/pems/container-form-sections";
 import { Button } from "@/components/ui/button";
 import {
   COMMODITY_MASTER_ROWS,
@@ -21,7 +23,9 @@ import {
   loadMethodologies,
   loadRecordTemplates,
 } from "@/lib/fumigation-store";
+import { loadContactUsers } from "@/lib/contact-users-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { readSiteRows } from "@/lib/site-data";
 import { ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -50,6 +54,13 @@ const ISO_BY_CONTAINER_CODE = {
   "40FT": "42G1",
   HC40: "45G1",
 };
+const PEMS_RECORD_OPTIONS = ["Empty Container Inspection Record", "Grain and Plant Product Inspection Record"];
+const ECR_RECORD_TYPE = "Empty Container Inspection Record";
+const GPPIR_RECORD_TYPE = "Grain and Plant Product Inspection Record";
+const INSPECTION_OPTIONS = ["Pending", "Passed", "Failed"];
+const YES_NO_OPTIONS = ["No", "Yes"];
+const PRA_STATUS_OPTIONS = ["Pending", "Accepted", "Rejected", "Error"];
+const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -65,6 +76,49 @@ const accentSummaryClass =
   "flex cursor-pointer list-none items-center justify-between gap-2 rounded px-0.5 py-0 text-[10px] font-semibold uppercase tracking-wide text-slate-600 outline-none hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-brand/25 [&::-webkit-details-marker]:hidden";
 const accentChevronClass =
   "size-3 shrink-0 text-slate-400 transition-transform duration-200 ease-out group-open:rotate-180";
+
+function safeValue(value) {
+  if (value == null || String(value).trim() === "") return "—";
+  return String(value);
+}
+
+function formatDateTimeValue(value) {
+  if (value == null || String(value).trim() === "") return "—";
+  const str = String(value).trim();
+  if (!str.includes("T")) return str;
+  const [datePart, timePart] = str.split("T");
+  const hhmm = (timePart || "").slice(0, 5);
+  return hhmm ? `${datePart} ${hhmm}` : datePart;
+}
+
+function formatDateTimeInput(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const hours = String(parsed.getHours()).padStart(2, "0");
+  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function defaultPemsDraft() {
+  return {
+    recordType: ECR_RECORD_TYPE,
+    inspectionStart: "",
+    inspectionEnd: "",
+    aoSignoff: "",
+    aoNumber: "",
+    stagedContainerIds: [],
+  };
+}
+
+function toRoundedNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
 
 function blankFumigationDetail() {
   return {
@@ -112,8 +166,37 @@ function createDraftContainer(pack, index, existing = {}) {
       defaultIsoForContainerCode(existing.containerCode ?? pack.containerCode),
     sealNumber: existing.sealNumber ?? existing.sealNo ?? "",
     releaseNumber: existing.releaseNumber ?? "",
+    releasePark: existing.releasePark ?? "",
+    transporter: existing.transporter ?? "",
     emptyContainerParkId: existing.emptyContainerParkId ?? "",
     transporterId: existing.transporterId ?? "",
+    startDate: existing.startDate ?? pack.packingStartDate ?? "",
+    startHour: existing.startHour ?? "",
+    startMinute: existing.startMinute ?? "",
+    grainLocation: existing.grainLocation ?? "",
+    stockBayId: existing.stockBayId ?? "",
+    tare: existing.tare ?? "",
+    grossWeight: existing.grossWeight ?? "",
+    nettWeight: existing.nettWeight ?? "",
+    containerTareWeight: existing.containerTareWeight ?? "",
+    emptyInspection: existing.emptyInspection ?? "Pending",
+    grainInspection: existing.grainInspection ?? "Pending",
+    packerSignoff: existing.packerSignoff ?? "",
+    outLoaded: existing.outLoaded ?? "No",
+    praSignoff: existing.praSignoff ?? "",
+    praTemplate: existing.praTemplate ?? PRA_TEMPLATE_OPTIONS[0],
+    praSubmitted: Boolean(existing.praSubmitted),
+    praLastStatus: existing.praLastStatus ?? "Pending",
+    praLastSubmittedTime: existing.praLastSubmittedTime ?? "",
+    praLastError: existing.praLastError ?? "",
+    aoSignoff: existing.aoSignoff ?? "",
+    aoInspectionRemark: existing.aoInspectionRemark ?? "",
+    ecrSubmitted: Boolean(existing.ecrSubmitted),
+    ecrLastSubmittedAt: existing.ecrLastSubmittedAt ?? "",
+    ecrLastBatchId: existing.ecrLastBatchId ?? "",
+    gppirSubmitted: Boolean(existing.gppirSubmitted),
+    gppirLastSubmittedAt: existing.gppirLastSubmittedAt ?? "",
+    gppirLastBatchId: existing.gppirLastBatchId ?? "",
     status: existing.status || "Draft",
   };
 }
@@ -156,6 +239,8 @@ const blankPack = (siteId) => ({
   sampleStatuses: [],
   sampleEntries: [],
   packingInstructionFiles: [],
+  pemsDraft: defaultPemsDraft(),
+  pemsSubmissions: [],
 });
 
 function createSampleEntry() {
@@ -274,6 +359,8 @@ function rowToPack(row, siteId) {
     additionalDeclarationFiles: normalizeFileItems(row.additionalDeclarationFiles),
     rfpFiles: normalizeFileItems(row.rfpFiles),
     packingInstructionFiles: normalizeFileItems(row.packingInstructionFiles),
+    pemsDraft: { ...defaultPemsDraft(), ...(row.pemsDraft || {}) },
+    pemsSubmissions: Array.isArray(row.pemsSubmissions) ? row.pemsSubmissions : [],
   };
 }
 
@@ -334,6 +421,8 @@ function packToScheduleRow(pack, existingRow) {
       additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
       rfpFiles: normalizeFileItems(pack.rfpFiles),
       packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+    pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
+    pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
   };
 }
 
@@ -359,10 +448,16 @@ export default function NewPackFormPage() {
   const [methodologies] = useState(() => loadMethodologies());
   const [certificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates] = useState(() => loadRecordTemplates());
+  const packerNames = useMemo(
+    () => (PACK_FORM_LOOKUPS.packers || []).filter((row) => String(row.status).toLowerCase() === "active").map((row) => row.name),
+    []
+  );
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [samplePanelOpen, setSamplePanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("general");
+  const [editingContainerId, setEditingContainerId] = useState(null);
+  const [pemsSubmitError, setPemsSubmitError] = useState("");
   const userClosedSampleWhileRequiredRef = useRef(false);
   const prevSampleRequiredRef = useRef(undefined);
 
@@ -420,12 +515,129 @@ export default function NewPackFormPage() {
     });
   }
 
+  function updatePackContainer(containerId, patch) {
+    setPack((prev) => {
+      const existing = buildPackContainers(prev, editingRow);
+      const next = existing.map((container) => {
+        if (container.id !== containerId) return container;
+        const patchValue = typeof patch === "function" ? patch(container) : patch;
+        const draft = { ...container, ...patchValue };
+        const tare = toRoundedNumber(draft.tare);
+        const grossWeight = toRoundedNumber(draft.grossWeight);
+        return {
+          ...draft,
+          tare,
+          grossWeight,
+          nettWeight: toRoundedNumber(Math.max(grossWeight - tare, 0)),
+        };
+      });
+      return { ...prev, containers: next };
+    });
+  }
+
+  function updatePemsDraft(patch) {
+    setPack((prev) => {
+      const current = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
+      const nextPatch = typeof patch === "function" ? patch(current) : patch;
+      return { ...prev, pemsDraft: { ...current, ...nextPatch } };
+    });
+  }
+
+  function togglePemsContainer(containerId) {
+    updatePemsDraft((current) => {
+      const exists = current.stagedContainerIds.includes(containerId);
+      return {
+        ...current,
+        stagedContainerIds: exists ? current.stagedContainerIds.filter((id) => id !== containerId) : [...current.stagedContainerIds, containerId],
+      };
+    });
+  }
+
+  function submitPemsFromForm() {
+    const isGppir = pemsDraft.recordType === GPPIR_RECORD_TYPE;
+    const stagedIds = pemsDraft.stagedContainerIds || [];
+    const containers = packContainers.filter((container) => stagedIds.includes(container.id));
+    if (!containers.length || !pemsDraft.inspectionStart || !pemsDraft.inspectionEnd || !pemsDraft.aoSignoff) {
+      setPemsSubmitError("Select staged containers and complete inspection start/end and AO signoff.");
+      return;
+    }
+    if (isGppir) {
+      const missingEcr = containers.filter((container) => !container.ecrSubmitted);
+      if (missingEcr.length) {
+        setPemsSubmitError("ECR must be submitted before GPPIR for all staged containers.");
+        return;
+      }
+    }
+    const submittedAt = new Date().toISOString();
+    const batchId = `PEMS-${Date.now()}`;
+    setPemsSubmitError("");
+    setPack((prev) => {
+      const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
+      const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
+      const stagedSet = new Set(stagedIds);
+      const nextSubmission = {
+        batchId,
+        submittedAt,
+        status: "Accepted",
+        recordType: currentDraft.recordType,
+        aoSignoff: currentDraft.aoSignoff,
+        aoNumber: selectedAoNumber,
+        inspectionStart: currentDraft.inspectionStart,
+        inspectionEnd: currentDraft.inspectionEnd,
+        yardId: String(selectedPackSite?.yardNo || ""),
+        placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${prev.siteId || ""}`,
+        packId: prev.id || editingRow?.id || "draft",
+        containerIds: containers.map((container) => container.id),
+        containers,
+      };
+      return {
+        ...prev,
+        pemsDraft: { ...currentDraft, stagedContainerIds: [] },
+        pemsSubmissions: [nextSubmission, ...previousSubs],
+        containers: (Array.isArray(prev.containers) ? prev.containers : []).map((container) => {
+          if (!stagedSet.has(container.id)) return container;
+          return isGppir
+            ? { ...container, gppirSubmitted: true, gppirLastSubmittedAt: submittedAt, gppirLastBatchId: batchId }
+            : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
+        }),
+      };
+    });
+  }
+
   const selectedVessel = useMemo(() => {
     if (!pack.vesselDepartureId) return null;
     return vesselDepartures.find((v) => v.id === Number(pack.vesselDepartureId)) || null;
   }, [pack.vesselDepartureId, vesselDepartures]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  const pemsDraft = useMemo(() => ({ ...defaultPemsDraft(), ...(pack.pemsDraft || {}) }), [pack.pemsDraft]);
+  const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
+  const siteRows = useMemo(() => readSiteRows(), []);
+  const selectedPackSite = useMemo(() => {
+    const byId = siteRows.find((row) => Number(row.id) === Number(pack.siteId));
+    return byId || siteRows[0] || null;
+  }, [siteRows, pack.siteId]);
+  const aoNumberByName = useMemo(() => {
+    const map = new Map();
+    loadContactUsers().forEach((row) => {
+      if (!row?.aoActive) return;
+      const name = String(row.name || "").trim();
+      if (!name) return;
+      map.set(name, String(row.aoNumber || ""));
+    });
+    return map;
+  }, []);
+  const selectedAoNumber = useMemo(() => aoNumberByName.get(String(pemsDraft.aoSignoff || "").trim()) || "", [aoNumberByName, pemsDraft.aoSignoff]);
+  const selectedEditContainer = packContainers.find((container) => container.id === editingContainerId) || null;
+  const selectedEditContainerActions = useMemo(() => {
+    if (!selectedEditContainer) return null;
+    return createPraActionHandlers({
+      container: selectedEditContainer,
+      applyPatch: (patch) => updatePackContainer(selectedEditContainer.id, patch),
+      fallbackPacker: packerNames[0] || "",
+    });
+  }, [selectedEditContainer, packerNames]);
+  const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));
   const containersLeftToPack = packContainers.filter((container) => {
     const status = String(container.status || "").toLowerCase();
     return status !== "complete" && status !== "completed";
@@ -688,6 +900,18 @@ export default function NewPackFormPage() {
             )}
           >
             Accounting
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("pems")}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              activeTab === "pems"
+                ? "border-brand/45 bg-brand/15 text-brand-ink"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            PEMs
           </button>
         </div>
 
@@ -1407,6 +1631,251 @@ export default function NewPackFormPage() {
       </>
       ) : null}
 
+      {activeTab === "pems" ? (
+      <div className="space-y-4">
+        <section className={sectionClass}>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PEMs submission setup</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <FormRow label="Record type">
+              <select
+                className={inputClass}
+                value={pemsDraft.recordType}
+                onChange={(e) =>
+                  updatePemsDraft((current) => ({
+                    ...current,
+                    recordType: e.target.value,
+                    stagedContainerIds:
+                      e.target.value === GPPIR_RECORD_TYPE
+                        ? current.stagedContainerIds.filter((id) => {
+                            const target = packContainers.find((container) => container.id === id);
+                            return Boolean(target?.ecrSubmitted);
+                          })
+                        : current.stagedContainerIds,
+                  }))
+                }
+              >
+                {PEMS_RECORD_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Inspection start">
+              <input
+                className={inputClass}
+                type="datetime-local"
+                value={formatDateTimeInput(pemsDraft.inspectionStart)}
+                onChange={(e) => updatePemsDraft({ inspectionStart: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="Inspection end">
+              <input
+                className={inputClass}
+                type="datetime-local"
+                value={formatDateTimeInput(pemsDraft.inspectionEnd)}
+                onChange={(e) => updatePemsDraft({ inspectionEnd: e.target.value })}
+              />
+            </FormRow>
+            <FormRow label="AO signoff">
+              <input className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
+            </FormRow>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2 lg:col-span-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
+              <div className="mt-1 space-y-1">
+                {[
+                  selectedPackSite?.yardNo
+                    ? { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }
+                    : { ok: false, label: "Missing yard number in selected site record." },
+                  selectedPackSite?.name
+                    ? { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }
+                    : { ok: false, label: "Missing site name for place of inspection." },
+                  pemsDraft.aoSignoff
+                    ? selectedAoNumber
+                      ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
+                      : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
+                    : { ok: false, label: "Select AO signoff to resolve AO number." },
+                ].map((check) => (
+                  <p key={check.label} className={cn("text-xs", check.ok ? "text-emerald-700" : "text-amber-700")}>
+                    {check.ok ? "OK - " : "Needs attention - "}
+                    {check.label}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
+              <Button
+                type="button"
+                className="h-10 w-full"
+                onClick={submitPemsFromForm}
+                disabled={!stagedPemsContainers.length}
+              >
+                Submit {stagedPemsContainers.length}
+              </Button>
+            </div>
+          </div>
+          {pemsSubmitError ? (
+            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>
+          ) : null}
+        </section>
+
+        <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
+          <section className={sectionClass}>
+            <div className="mb-2 flex items-center gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Container list</h2>
+              <span className="ms-auto text-xs font-semibold text-slate-500">{stagedPemsContainers.length} staged</span>
+            </div>
+            <div className="mb-2 flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() =>
+                  updatePemsDraft({
+                    stagedContainerIds:
+                      pemsDraft.recordType === GPPIR_RECORD_TYPE
+                        ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                        : packContainers.map((container) => container.id),
+                  })
+                }
+              >
+                Stage all
+              </Button>
+              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[11px]" onClick={() => updatePemsDraft({ stagedContainerIds: [] })}>
+                Clear
+              </Button>
+            </div>
+            <div className="max-h-[460px] space-y-1 overflow-auto pr-1">
+              {packContainers.map((container) => {
+                const checked = pemsDraft.stagedContainerIds.includes(container.id);
+                const canStage = pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted;
+                const statusLabel = container.gppirSubmitted ? "GPPIR Submitted" : container.ecrSubmitted ? "ECR Submitted" : "Awaiting ECR";
+                return (
+                  <div key={container.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!canStage}
+                        onChange={() => {
+                          if (!canStage) return;
+                          togglePemsContainer(container.id);
+                        }}
+                      />
+                      <span className="text-xs font-semibold text-slate-800">#{container.order} {container.containerNumber || "Draft container"}</span>
+                      <span className="ms-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">{statusLabel}</span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">
+                      Seal {safeValue(container.sealNumber)} · Release {safeValue(container.releaseNumber)}
+                    </div>
+                    <button
+                      type="button"
+                      className="mt-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700"
+                      onClick={() => setEditingContainerId(container.id)}
+                    >
+                      Edit container
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className={sectionClass}>
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700">Staging preview</h2>
+            {!stagedPemsContainers.length ? (
+              <div className="rounded-md border border-dashed border-slate-300 px-3 py-8 text-center text-sm text-slate-500">
+                Stage one or more containers to preview PEM records.
+              </div>
+            ) : (
+              <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Yard: {safeValue(selectedPackSite?.yardNo)}</div>
+                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Place: {safeValue(selectedPackSite?.name)}</div>
+                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Start: {formatDateTimeValue(pemsDraft.inspectionStart)}</div>
+                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">End: {formatDateTimeValue(pemsDraft.inspectionEnd)}</div>
+                </div>
+                <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                  <table className="w-full min-w-[900px] text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-700">
+                      {pemsDraft.recordType === GPPIR_RECORD_TYPE ? (
+                        <tr>
+                          <th className="px-2 py-1.5">RFP Line</th>
+                          <th className="px-2 py-1.5">Container Number</th>
+                          <th className="px-2 py-1.5">Source</th>
+                          <th className="px-2 py-1.5">Commodity</th>
+                          <th className="px-2 py-1.5">Weight</th>
+                          <th className="px-2 py-1.5">Result</th>
+                          <th className="px-2 py-1.5">AO</th>
+                        </tr>
+                      ) : (
+                        <tr>
+                          <th className="px-2 py-1.5">Container Number</th>
+                          <th className="px-2 py-1.5">Inspection Level</th>
+                          <th className="px-2 py-1.5">RFP Number</th>
+                          <th className="px-2 py-1.5">Result</th>
+                          <th className="px-2 py-1.5">Seal Number</th>
+                          <th className="px-2 py-1.5">AO</th>
+                          <th className="px-2 py-1.5">Remarks</th>
+                        </tr>
+                      )}
+                    </thead>
+                    <tbody>
+                      {stagedPemsContainers.map((container) => (
+                        pemsDraft.recordType === GPPIR_RECORD_TYPE ? (
+                          <tr key={container.id} className="border-t border-slate-100">
+                            <td className="px-2 py-1.5">1</td>
+                            <td className="px-2 py-1.5 font-medium">{safeValue(container.containerNumber)}</td>
+                            <td className="px-2 py-1.5">{safeValue(container.grainLocation || container.stockBayId)}</td>
+                            <td className="px-2 py-1.5">{safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description)}</td>
+                            <td className="px-2 py-1.5">{toRoundedNumber(container.nettWeight).toFixed(2)} MT</td>
+                            <td className="px-2 py-1.5">{container.grainInspection}</td>
+                            <td className="px-2 py-1.5">{safeValue(pemsDraft.aoSignoff)}</td>
+                          </tr>
+                        ) : (
+                          <tr key={container.id} className="border-t border-slate-100">
+                            <td className="px-2 py-1.5 font-medium">{safeValue(container.containerNumber)}</td>
+                            <td className="px-2 py-1.5">Consumable</td>
+                            <td className="px-2 py-1.5">{safeValue(container.releaseNumber)}</td>
+                            <td className="px-2 py-1.5">{container.emptyInspection === "Passed" ? "Pass" : container.emptyInspection === "Failed" ? "Fail" : "Pending"}</td>
+                            <td className="px-2 py-1.5">{safeValue(container.sealNumber)}</td>
+                            <td className="px-2 py-1.5">{safeValue(pemsDraft.aoSignoff)}</td>
+                            <td className="px-2 py-1.5">{safeValue(container.aoInspectionRemark)}</td>
+                          </tr>
+                        )
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
+              {!pemsSubmissions.length ? (
+                <p className="mt-2 text-xs text-slate-500">No submissions yet.</p>
+              ) : (
+                <div className="mt-2 space-y-1.5">
+                  {pemsSubmissions.map((row) => (
+                    <div key={row.batchId} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-800">{row.batchId}</span>
+                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">{safeValue(row.status)}</span>
+                        <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-slate-600">
+                        {safeValue(row.recordType)} · Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+      ) : null}
+
       {activeTab === "accounting" ? (
       <div className="space-y-4">
         <section className={sectionClass}>
@@ -1647,6 +2116,55 @@ export default function NewPackFormPage() {
           </FormRow>
         </div>
       </section>
+      ) : null}
+
+      {editingContainerId && selectedEditContainer ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close container editor"
+            className="absolute inset-0 bg-slate-900/45"
+            onClick={() => setEditingContainerId(null)}
+          />
+          <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">Container #{selectedEditContainer.order}</h3>
+              <span className="ms-auto text-xs text-slate-500">{selectedEditContainer.containerNumber || "Draft container"}</span>
+            </div>
+
+            <ContainerFormSections
+              container={selectedEditContainer}
+              onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
+              packerNames={packerNames}
+              yesNoOptions={YES_NO_OPTIONS}
+              inspectionOptions={INSPECTION_OPTIONS}
+              praTemplateOptions={PRA_TEMPLATE_OPTIONS}
+              praStatusOptions={PRA_STATUS_OPTIONS}
+              isoOptions={["22G1", "42G1", "45G1", "L5G1"]}
+              stockBayOptions={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
+              inputClass={inputClass}
+              sectionCardClass="mt-3 rounded-lg border border-slate-200/90 bg-slate-50/30"
+              sectionHeaderClass="border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800"
+              fieldNames={{
+                containerNo: "containerNumber",
+                sealNo: "sealNumber",
+                isoCode: "containerIsoCode",
+              }}
+              onResetContainer={selectedEditContainerActions?.onResetContainer}
+              onMarkPacked={selectedEditContainerActions?.onMarkPacked}
+              onSubmitPra={selectedEditContainerActions?.onSubmitPra}
+            />
+
+            <div className="mt-3 flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setEditingContainerId(null)}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" onClick={() => setEditingContainerId(null)}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
       </div>
 

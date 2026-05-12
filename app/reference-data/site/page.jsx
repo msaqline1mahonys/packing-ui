@@ -19,11 +19,13 @@ const config = {
   columns: [
     { key: "id", label: "ID" },
     { key: "name", label: "Site Name" },
+    { key: "yardNo", label: "Yard No" },
   ],
   rows: DEFAULT_SITE_ROWS,
   formFields: [
     { key: "id", label: "ID", required: true, placeholder: "e.g. 1" },
     { key: "name", label: "Site Name", required: true, placeholder: "e.g. Melbourne" },
+    { key: "yardNo", label: "Yard No", required: true, placeholder: "e.g. 6851" },
   ],
 };
 

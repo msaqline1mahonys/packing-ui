@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
-import { CONTACT_USER_ROWS } from "@/lib/Data";
+import { loadContactUsers, saveContactUsers } from "@/lib/contact-users-store";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -17,6 +17,7 @@ const columns = [
   { key: "status", label: "Status" },
   { key: "aoActiveLabel", label: "AO Active" },
   { key: "aoExpiryLabel", label: "AO Expiry" },
+  { key: "aoNumberLabel", label: "AO Number" },
   { key: "aoLicenseNumberLabel", label: "AO License Number" },
   { key: "aoPemsPasswordLabel", label: "AO PEMs Password" },
 ];
@@ -31,8 +32,6 @@ const gridColumns = columns.map((col) => ({
   resizable: true,
 }));
 
-const initialRows = CONTACT_USER_ROWS;
-
 function toDisplayRow(row) {
   return {
     ...row,
@@ -41,6 +40,7 @@ function toDisplayRow(row) {
     packersAccountAccessLabel: row.packersAccountAccess ? "Yes" : "No",
     aoActiveLabel: row.aoActive ? "Yes" : "No",
     aoExpiryLabel: row.aoExpiry || "—",
+    aoNumberLabel: row.aoNumber || "—",
     aoLicenseNumberLabel: row.aoLicenseNumber || "—",
     aoPemsPasswordLabel: row.aoPemsPassword ? "••••••••" : "—",
   };
@@ -57,6 +57,7 @@ function buildFormData(row) {
       packersAccountAccess: false,
       aoActive: false,
       aoExpiry: "",
+      aoNumber: "",
       aoLicenseNumber: "",
       aoPemsUsername: "",
       aoPemsPassword: "",
@@ -78,6 +79,7 @@ function buildFormData(row) {
     packersAccountAccess: row.packersAccountAccess === true,
     aoActive: row.aoActive === true,
     aoExpiry: row.aoExpiry || "",
+    aoNumber: row.aoNumber || "",
     aoLicenseNumber: row.aoLicenseNumber || "",
     aoPemsUsername: row.aoPemsUsername || "",
     aoPemsPassword: row.aoPemsPassword || "",
@@ -92,13 +94,17 @@ function buildFormData(row) {
 }
 
 export default function ContactUsersPage() {
-  const [rows, setRows] = useState(() => initialRows.map(toDisplayRow));
+  const [rows, setRows] = useState(() => loadContactUsers().map(toDisplayRow));
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+
+  useEffect(() => {
+    saveContactUsers(rows);
+  }, [rows]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -137,6 +143,7 @@ export default function ContactUsersPage() {
     const confirmPassword = (formData.confirmPassword || "").trim();
     const aoPemsUsername = (formData.aoPemsUsername || "").trim();
     const aoToken = (formData.aoToken || "").trim();
+    const aoNumber = (formData.aoNumber || "").trim();
     const aoLicenseNumber = (formData.aoLicenseNumber || "").trim();
     const signature = (formData.signature || "").trim();
     const fumigatorLicence = (formData.fumigatorLicence || "").trim();
@@ -179,6 +186,7 @@ export default function ContactUsersPage() {
       packersAccountAccess: formData.packersAccountAccess,
       aoActive: formData.aoActive,
       aoExpiry: formData.aoActive ? formData.aoExpiry : "",
+      aoNumber: formData.aoActive ? aoNumber : "",
       aoLicenseNumber: formData.aoActive ? aoLicenseNumber : "",
       aoPemsUsername: formData.aoActive ? aoPemsUsername : "",
       aoPemsPassword: formData.aoActive ? (formData.aoPemsPassword || "").trim() : "",
@@ -262,6 +270,7 @@ export default function ContactUsersPage() {
                     <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "—"} />
                     <DetailItem label="AO Token" value={selected.aoToken ? "Configured" : "Not set"} />
                     <DetailItem label="AO Expiry" value={selected.aoExpiry || "—"} />
+                    <DetailItem label="AO Number" value={selected.aoNumber || "—"} />
                     <DetailItem label="AO License Number" value={selected.aoLicenseNumber || "—"} />
                   </>
                 ) : null}
@@ -379,6 +388,13 @@ export default function ContactUsersPage() {
                 </FormRow>
                 <FormRow label="AO Expiry">
                   <Input type="date" value={formData.aoExpiry} onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })} />
+                </FormRow>
+                <FormRow label="AO Number">
+                  <Input
+                    value={formData.aoNumber}
+                    onChange={(event) => setFormData({ ...formData, aoNumber: event.target.value })}
+                    placeholder="AO Number"
+                  />
                 </FormRow>
                 <FormRow label="AO License Number">
                   <Input

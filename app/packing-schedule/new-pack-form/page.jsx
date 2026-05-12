@@ -677,6 +677,18 @@ export default function NewPackFormPage() {
               Fumigation
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setActiveTab("accounting")}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              activeTab === "accounting"
+                ? "border-brand/45 bg-brand/15 text-brand-ink"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            Accounting
+          </button>
         </div>
 
       {activeTab === "general" ? (
@@ -1393,7 +1405,24 @@ export default function NewPackFormPage() {
         </FormRow>
       </section>
       </>
-      ) : (
+      ) : null}
+
+      {activeTab === "accounting" ? (
+      <div className="space-y-4">
+        <section className={sectionClass}>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Revenue</h2>
+          <p className="text-sm text-slate-500">
+            Revenue calculations will appear once commodity pricing and container data are connected.
+          </p>
+        </section>
+        <section className={sectionClass}>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Expense</h2>
+          <p className="text-sm text-slate-500">Cost-side lines will be added in a future release.</p>
+        </section>
+      </div>
+      ) : null}
+
+      {activeTab === "fumigation" && pack.fumigationRequired ? (
       <section className={sectionClass}>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
         <div className="space-y-4">
@@ -1618,7 +1647,7 @@ export default function NewPackFormPage() {
           </FormRow>
         </div>
       </section>
-      )}
+      ) : null}
       </div>
 
       <footer

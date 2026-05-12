@@ -10,7 +10,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   Package,
-  PackageOpen,
   Settings2,
   Ticket,
   Users,
@@ -46,20 +45,15 @@ export const PACKING_NAV_MODULES = [
     ],
   },
   {
-    name: "Packing",
-    href: "/packing",
-    icon: <PackageOpen className="size-5" strokeWidth={1.5} />,
+    name: "Packing schedule",
+    href: "/packing-schedule",
+    icon: <Package className="size-5" strokeWidth={1.5} />,
   },
   {
     name: "Stock Management",
     href: "/stock-management",
     icon: <Warehouse className="size-5" strokeWidth={1.5} />,
   },
-  // {
-  //   name: "Packing schedule",
-  //   href: "/packing-schedule",
-  //   icon: <Package className="size-5" strokeWidth={1.5} />,
-  // },
   {
     name: "Packers schedule",
     href: "/packers-schedule",

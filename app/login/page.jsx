@@ -11,12 +11,17 @@ import {
   authLabelClass,
 } from "@/components/auth-layout";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (localStorage.getItem("isAuthenticated") === "true") {
@@ -24,15 +29,47 @@ export default function LoginPage() {
     }
   }, [router]);
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    
-    if (email === "admin@gmail.com" && password === "123456") {
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.message || "Invalid email or password.");
+      }
+
+      if (!result?.token) {
+        throw new Error("Login succeeded but no access token was returned.");
+      }
+
+      const { token, ...authPayload } = result;
+
       localStorage.setItem("isAuthenticated", "true");
+      localStorage.setItem("authToken", token);
+      localStorage.setItem("authPayload", JSON.stringify(authPayload));
       router.push("/");
-    } else {
-      setError("Invalid email or password. Please use admin@gmail.com / 123456.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Invalid email or password."
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -59,6 +96,7 @@ export default function LoginPage() {
             className={authInputClass}
             placeholder="you@company.com"
             value={email}
+            disabled={isSubmitting}
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
@@ -84,6 +122,7 @@ export default function LoginPage() {
               className={authInputClass}
               placeholder="••••••••"
               value={password}
+              disabled={isSubmitting}
               onChange={(e) => setPassword(e.target.value)}
             />
             <button
@@ -92,6 +131,7 @@ export default function LoginPage() {
               className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 transition-colors"
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? "Hide password" : "Show password"}
+              disabled={isSubmitting}
             >
               {showPassword ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -107,8 +147,12 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <Button type="submit" className="w-full h-10 text-sm font-semibold">
-          Sign in
+        <Button
+          type="submit"
+          className="w-full h-10 text-sm font-semibold"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Signing in..." : "Sign in"}
         </Button>
       </form>
 

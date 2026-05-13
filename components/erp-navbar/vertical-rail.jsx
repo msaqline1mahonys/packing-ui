@@ -53,11 +53,17 @@ function NavMenu({
     items.some((item) => pathnameMatchesHref(pathname, item.href));
   const [open, setOpen] = useState(descendantActive);
   useEffect(() => {
-    if (descendantActive) setOpen(true);
+    if (!descendantActive) return undefined;
+
+    const frame = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(frame);
   }, [descendantActive]);
 
   useEffect(() => {
-    if (!expanded) setOpen(false);
+    if (expanded) return undefined;
+
+    const frame = requestAnimationFrame(() => setOpen(false));
+    return () => cancelAnimationFrame(frame);
   }, [expanded]);
 
   const baseId = useId();
@@ -470,6 +476,8 @@ export function ErpVerticalRail({ edge }) {
                   type="button"
                   onClick={() => {
                     localStorage.removeItem("isAuthenticated");
+                    localStorage.removeItem("authToken");
+                    localStorage.removeItem("authPayload");
                     router.push("/login");
                   }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left outline-none transition-colors hover:bg-red-50 hover:text-red-800"

@@ -148,6 +148,8 @@ export function ErpHorizontalNav({ edge }) {
                   type="button"
                   onClick={() => {
                     localStorage.removeItem("isAuthenticated");
+                    localStorage.removeItem("authToken");
+                    localStorage.removeItem("authPayload");
                     router.push("/login");
                   }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left outline-none hover:bg-red-50 hover:text-red-800"

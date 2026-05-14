@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { PACK_FORM_LOOKUPS } from "@/lib/Data";
@@ -14,6 +15,7 @@ import {
   toInputNumber,
   toRoundedNumber,
 } from "@/lib/packers-work-store";
+import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
@@ -29,10 +31,10 @@ const PEMS_RECORD_OPTIONS = ["Empty Container Inspection Record", "Grain and Pla
 const ECR_RECORD_TYPE = "Empty Container Inspection Record";
 const GPPIR_RECORD_TYPE = "Grain and Plant Product Inspection Record";
 const PACK_CHECK_FIELDS = [
-  { key: "importDetailsChecked", label: "Import details checked" },
-  { key: "sampleRequirementsChecked", label: "Sample requirements checked" },
-  { key: "rfpDetailsChecked", label: "RFP details checked" },
-  { key: "micorRequirementsChecked", label: "MICOR requirements checked" },
+  { key: "importDetailsChecked", label: "Import details checked", short: "Import details" },
+  { key: "sampleRequirementsChecked", label: "Sample requirements checked", short: "Samples" },
+  { key: "rfpDetailsChecked", label: "RFP details checked", short: "RFP" },
+  { key: "micorRequirementsChecked", label: "MICOR requirements checked", short: "MICOR" },
 ];
 
 const inputClass =
@@ -143,10 +145,11 @@ function buildSubmissionSnapshotHtml(submission) {
           <td>${escapeHtml(row?.aoInspectionRemark || "N/A")}</td>
         </tr>`;
       }
+      const packRfp = String(submission?.rfp || "").trim();
       return `<tr>
         <td>${escapeHtml(row?.containerNo || "")}</td>
         <td>Consumable</td>
-        <td>${escapeHtml(row?.releaseNumber || "")}</td>
+        <td>${escapeHtml(packRfp || row?.releaseNumber || "")}</td>
         <td>${escapeHtml(row?.emptyInspection === "Passed" ? "Pass" : row?.emptyInspection === "Failed" ? "Fail" : "Pending")}</td>
         <td>${escapeHtml(row?.sealNo || "")}</td>
         <td>${escapeHtml(expiryDate)}</td>
@@ -218,18 +221,89 @@ function openSubmissionSnapshot(submission, autoPrint = false) {
   }
 }
 
-function asDocumentItems(files, group) {
-  if (!Array.isArray(files)) return [];
-  return files
-    .map((item, index) => {
-      if (typeof item === "string") {
-        return { id: `${group}-${index}-${item}`, name: item, group };
-      }
-      const name = item?.name;
-      if (!name) return null;
-      return { id: item?.id ?? `${group}-${index}-${name}`, name, group };
-    })
-    .filter(Boolean);
+function normalizePackAttachmentFiles(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item, index) => {
+    if (typeof item === "string") {
+      const isPath = item.startsWith("/");
+      return {
+        id: `legacy-${index}-${item}`,
+        name: item.includes("/") ? item.split("/").pop() || item : item,
+        size: null,
+        type: isPath && item.toLowerCase().endsWith(".pdf") ? "application/pdf" : "",
+        file: null,
+        url: isPath ? item : null,
+      };
+    }
+    return {
+      id: item?.id ?? `file-${index}-${item?.name ?? "unknown"}`,
+      name: item?.name ?? "file",
+      size: Number.isFinite(item?.size) ? item.size : null,
+      type: item?.type ?? "",
+      file: item?.file instanceof File ? item.file : null,
+      url: typeof item?.url === "string" ? item.url : null,
+    };
+  });
+}
+
+function collectPackAttachments(packRow) {
+  if (!packRow) return [];
+  const rows = [];
+  const add = (files, group) => {
+    normalizePackAttachmentFiles(files).forEach((item) => {
+      rows.push({ ...item, group, listKey: `${group}-${item.id}` });
+    });
+  };
+  add(packRow.importPermitFiles, "Permit");
+  add(packRow.rfpFiles, "RFP");
+  add(packRow.packingInstructionFiles, "Instruction");
+  add(packRow.additionalDeclarationFiles, "Declaration");
+  return rows;
+}
+
+function attachmentCanQuickLook(item) {
+  if (item?.file instanceof File) return true;
+  const u = typeof item?.url === "string" ? item.url.trim() : "";
+  if (!u) return false;
+  if (/^https?:\/\//i.test(u)) return true;
+  if (u.startsWith("/")) return true;
+  return false;
+}
+
+/** Absolute URL for iframe / new tab (client). */
+function resolvePackAttachmentViewUrl(item) {
+  const u = typeof item?.url === "string" ? item.url.trim() : "";
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (typeof window !== "undefined" && u.startsWith("/")) {
+    try {
+      return new URL(u, window.location.origin).href;
+    } catch {
+      return u;
+    }
+  }
+  return null;
+}
+
+function previewKindForFileItem(item) {
+  const name = String(item?.name || "").toLowerCase();
+  const url = String(item?.url || "").toLowerCase();
+  const mime = String(item?.type || (item?.file instanceof File ? item.file.type : "") || "");
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name) || /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(url))
+    return "image";
+  if (mime === "application/pdf" || name.endsWith(".pdf") || url.includes(".pdf")) return "pdf";
+  return "generic";
+}
+
+const ATTACHMENT_GROUP_STYLES = {
+  Permit: { pill: "bg-emerald-500/10 text-emerald-800 ring-emerald-500/20" },
+  RFP: { pill: "bg-sky-500/10 text-sky-900 ring-sky-500/20" },
+  Instruction: { pill: "bg-amber-500/10 text-amber-900 ring-amber-500/25" },
+  Declaration: { pill: "bg-violet-500/10 text-violet-900 ring-violet-500/20" },
+};
+
+function attachmentGroupStyles(group) {
+  return ATTACHMENT_GROUP_STYLES[group] || ATTACHMENT_GROUP_STYLES.Instruction;
 }
 
 function stageBadgeClass(stage) {
@@ -300,6 +374,8 @@ export default function PackDetailClient({ packId }) {
   const [containerSearch, setContainerSearch] = useState("");
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
+  const [filePreview, setFilePreview] = useState(null);
+  const previewRevokeRef = useRef(null);
 
   const packerNames = useMemo(
     () => (PACK_FORM_LOOKUPS.packers || []).filter((p) => String(p.status).toLowerCase() === "active").map((p) => p.name),
@@ -444,10 +520,6 @@ export default function PackDetailClient({ packId }) {
     });
   }
 
-  function setBulkField(field, value) {
-    updateSelectedPack((current) => ({ ...current, [field]: value }));
-  }
-
   function setPackCheck(checkKey, value) {
     updateSelectedPack((current) => ({
       ...current,
@@ -457,6 +529,47 @@ export default function PackDetailClient({ packId }) {
       },
     }));
   }
+
+  const closeFilePreview = useCallback(() => {
+    if (previewRevokeRef.current) {
+      previewRevokeRef.current();
+      previewRevokeRef.current = null;
+    }
+    setFilePreview(null);
+  }, []);
+
+  function openAttachmentQuickLook(item) {
+    const viewUrl = resolvePackAttachmentViewUrl(item);
+    if (viewUrl) {
+      closeFilePreview();
+      const kind = previewKindForFileItem(item);
+      previewRevokeRef.current = null;
+      setFilePreview({ src: viewUrl, title: item.name || "Attachment", kind });
+      return;
+    }
+    if (!(item?.file instanceof File)) return;
+    closeFilePreview();
+    const kind = previewKindForFileItem(item);
+    const src = URL.createObjectURL(item.file);
+    previewRevokeRef.current = () => URL.revokeObjectURL(src);
+    setFilePreview({ src, title: item.name || "Attachment", kind });
+  }
+
+  useEffect(() => {
+    if (!filePreview) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") closeFilePreview();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filePreview, closeFilePreview]);
+
+  useEffect(
+    () => () => {
+      if (previewRevokeRef.current) previewRevokeRef.current();
+    },
+    []
+  );
 
   function updatePemsDraft(patch) {
     updateSelectedPack((current) => {
@@ -553,6 +666,7 @@ export default function PackDetailClient({ packId }) {
           submittedAt,
           status: data?.status || "Accepted",
           recordType: draft.recordType,
+          rfp: String(packRow.rfp || "").trim(),
           commodity: packRow.commodity || "",
           aoSignoff: draft.aoSignoff,
           aoNumber: selectedAoNumber,
@@ -631,7 +745,10 @@ export default function PackDetailClient({ packId }) {
     );
   }
 
-  const packDocuments = [...asDocumentItems(packRow.rfpFiles, "RFP"), ...asDocumentItems(packRow.packingInstructionFiles, "Instruction")];
+  const packAttachments = useMemo(() => collectPackAttachments(packRow), [packRow]);
+  const permitNumberLine = String(packRow.importPermitNumber || "").trim();
+  const permitDateLine = packRow.importPermitDate ? formatDateDisplay(packRow.importPermitDate) : "";
+  const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
   const releaseRefsSummary = useMemo(() => {
     const refs = Array.from(
       new Set(
@@ -672,19 +789,22 @@ export default function PackDetailClient({ packId }) {
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 md:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/packers-schedule")}>
-            Back
-          </Button>
-          <h2 className="text-lg font-semibold text-slate-900">Pack #{packRow.id}</h2>
-          <span className="rounded-full bg-brand/15 px-2 py-0.5 text-xs font-semibold text-brand-ink">{packRow.status}</span>
-          <span className="ms-auto text-sm text-slate-600">
-            PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
-            {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
-          </span>
-          <Button variant="secondary" size="sm" type="button" onClick={refreshPack}>
-            Refresh
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-y-1">
+            <h2 className="shrink-0 text-lg font-semibold text-slate-900">Pack #{packRow.id}</h2>
+            <span className="min-w-0 border-l border-slate-200 pl-3 text-sm text-slate-600 sm:ml-1">
+              PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
+              {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="secondary" size="sm" type="button" onClick={refreshPack}>
+              Refresh
+            </Button>
+            <Button variant="secondary" size="sm" type="button" onClick={() => router.push("/packers-schedule")}>
+              Back
+            </Button>
+          </div>
         </div>
         <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Customer" value={safeValue(packRow.customer)} />
@@ -706,49 +826,137 @@ export default function PackDetailClient({ packId }) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Packing note</p>
           <p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{safeValue(packRow.jobNotes || packRow.packingNote)}</p>
         </div>
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pre-pack checks</p>
+        <div
+          id="pack-prepack-review"
+          className="mt-3 overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/80 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200/80 bg-white/90 px-2.5 py-2">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-[13px] font-semibold leading-tight tracking-tight text-slate-900">Pack attachments and pre-pack checks</h3>
+            </div>
             <span
               className={cn(
-                "ms-auto rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
-                allPackChecksComplete ? "bg-emerald-100 text-emerald-800 ring-emerald-200" : "bg-amber-100 text-amber-800 ring-amber-200"
+                "inline-flex shrink-0 items-center self-start rounded-full px-1.5 py-0.5 text-[9px] font-semibold ring-1",
+                allPackChecksComplete ? "bg-emerald-100 text-emerald-900 ring-emerald-200/90" : "bg-amber-100 text-amber-900 ring-amber-200/80"
               )}
             >
-              {packChecksCompleteCount}/{PACK_CHECK_FIELDS.length} complete
+              Checks {packChecksCompleteCount}/{PACK_CHECK_FIELDS.length}
             </span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {PACK_CHECK_FIELDS.map((field) => {
-              const checked = Boolean(packChecks[field.key]);
-              return (
-                <div key={field.key} className="flex min-w-[280px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
-                  <span className="flex-1 text-[13px] text-slate-700">{field.label}</span>
-                  <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setPackCheck(field.key, false)}
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                        !checked ? "bg-slate-700 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                      )}
-                    >
-                      Pending
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPackCheck(field.key, true)}
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                        checked ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                      )}
-                    >
-                      Checked
-                    </button>
-                  </div>
+
+          {/* Pack documents */}
+          <div className="px-2.5 pb-2.5 pt-2">
+            {(packRow.importPermitRequired || permitMetaLine) && (
+              <div className="mb-1.5 flex flex-wrap items-center gap-1 rounded-md border border-slate-200/80 bg-white/90 px-2 py-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Import permit</span>
+                {!packRow.importPermitRequired ? (
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Not required</span>
+                ) : null}
+                {permitMetaLine ? (
+                  <span className="text-xs font-medium text-slate-900">{permitMetaLine}</span>
+                ) : packRow.importPermitRequired ? (
+                  <span className="text-[11px] text-slate-500">Number or date not set on pack — update in pack schedule.</span>
+                ) : (
+                  <span className="text-[11px] text-slate-500">—</span>
+                )}
+              </div>
+            )}
+
+            {packAttachments.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300/90 bg-white/60 px-3 py-6 text-center">
+                <p className="text-xs font-semibold text-slate-800">No documents on this pack yet</p>
+                <p className="mx-auto mt-1.5 max-w-md text-[11px] leading-relaxed text-slate-600">
+                  Attach permits, RFPs, packing instructions, or declarations from the pack schedule. You can still complete the checks below if
+                  those documents are managed outside the system.
+                </p>
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-visible scroll-smooth py-0.5 pb-1 [scrollbar-width:thin]">
+                  {packAttachments.map((doc) => {
+                    const gs = attachmentGroupStyles(doc.group);
+                    const canLook = attachmentCanQuickLook(doc);
+                    return (
+                      <div
+                        key={doc.listKey}
+                        className="group flex w-44 shrink-0 flex-col rounded-md border border-slate-200/80 bg-white p-1.5 shadow-sm transition-colors hover:border-slate-300/90 hover:bg-slate-50/50"
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span
+                            className={cn(
+                              "min-w-0 truncate rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide ring-1",
+                              gs.pill
+                            )}
+                          >
+                            {doc.group}
+                          </span>
+                          {canLook ? (
+                            <button
+                              type="button"
+                              title={`Quick look: ${doc.name}`}
+                              onClick={() => openAttachmentQuickLook(doc)}
+                              className="inline-flex size-5 shrink-0 items-center justify-center rounded border border-slate-200/90 bg-white text-slate-500 transition-colors hover:border-brand/30 hover:bg-brand/5 hover:text-brand-700"
+                            >
+                              <Eye className="size-2.5" aria-hidden />
+                              <span className="sr-only">Quick look {doc.name}</span>
+                            </button>
+                          ) : (
+                            <span
+                              title="Preview needs an uploaded file or URL"
+                              className="shrink-0 rounded border border-dashed border-slate-200 bg-slate-50 px-0.5 py-px text-[7px] font-medium leading-none text-slate-400"
+                            >
+                              —
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-snug text-slate-800" title={doc.name}>
+                          {doc.name}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            )}
+          </div>
+
+          <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+
+          <div className="bg-white/95 px-2.5 py-2">
+            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4" role="group" aria-label="Pre-pack checks">
+              {PACK_CHECK_FIELDS.map((field) => {
+                const checked = Boolean(packChecks[field.key]);
+                return (
+                  <label
+                    key={field.key}
+                    className={cn(
+                      "relative flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 transition-colors duration-200",
+                      checked
+                        ? "border-emerald-400/90 bg-emerald-50 ring-1 ring-emerald-200/90"
+                        : "border-slate-200/90 bg-white ring-1 ring-slate-100 hover:border-amber-200/80 hover:bg-amber-50/40"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-brand/25"
+                      checked={checked}
+                      onChange={(event) => setPackCheck(field.key, event.target.checked)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          "block text-[12px] font-semibold leading-snug",
+                          checked ? "text-emerald-950" : "text-slate-800"
+                        )}
+                      >
+                        <span className="sm:hidden">{field.short}</span>
+                        <span className="hidden sm:inline">{field.label}</span>
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
@@ -831,18 +1039,6 @@ export default function PackDetailClient({ packId }) {
           <section className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
             <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Pack-level controls</div>
             <div className="grid gap-3 p-3">
-              <LabeledSelect
-                label="Sample collection required"
-                value={selectedPackDraft?.bulkSampleCollectionRequired || "No"}
-                options={YES_NO_OPTIONS}
-                onChange={(value) => setBulkField("bulkSampleCollectionRequired", value)}
-              />
-              <LabeledSelect
-                label="Sample required"
-                value={selectedPackDraft?.bulkSampleRequired || "No"}
-                options={YES_NO_OPTIONS}
-                onChange={(value) => setBulkField("bulkSampleRequired", value)}
-              />
               <div className="grid gap-2 sm:grid-cols-2">
                 <Button type="button" className="h-9 text-sm" variant="destructive" onClick={() => runBulkAction("cancel-pra")}>
                   Bulk Cancel PRA
@@ -850,24 +1046,6 @@ export default function PackDetailClient({ packId }) {
                 <Button type="button" className="h-9 text-sm" onClick={() => runBulkAction("pra-all")}>
                   PRA All Containers
                 </Button>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white/80 p-2.5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pack documents</p>
-                {!packDocuments.length ? (
-                  <p className="mt-1 text-sm text-slate-500">No documents attached to this pack.</p>
-                ) : (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer text-sm font-medium text-slate-700">Quick look ({packDocuments.length})</summary>
-                    <ul className="mt-2 space-y-1.5">
-                      {packDocuments.map((document) => (
-                        <li key={document.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700">
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{document.group}</span>
-                          <span className="truncate">{document.name}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
               </div>
             </div>
           </section>
@@ -947,6 +1125,60 @@ export default function PackDetailClient({ packId }) {
           onSubmitBatch={submitPemsBatch}
         />
       )}
+      {filePreview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-3 backdrop-blur-[1px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="file-preview-title"
+          onClick={closeFilePreview}
+        >
+          <div
+            className="relative flex max-h-[min(90vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+              <p id="file-preview-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
+                {filePreview.title}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <a
+                  href={filePreview.src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-brand-ink underline-offset-2 hover:underline"
+                >
+                  Open in new tab
+                </a>
+                <Button type="button" variant="secondary" size="sm" className="h-8 shrink-0 px-2" onClick={closeFilePreview} aria-label="Close preview">
+                  <X className="size-4" aria-hidden />
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-slate-50">
+              {filePreview.kind === "image" ? (
+                <img src={filePreview.src} alt="" className="mx-auto max-h-[80vh] max-w-full object-contain p-2" />
+              ) : null}
+              {filePreview.kind === "pdf" ? (
+                <iframe title={filePreview.title} src={filePreview.src} className="min-h-[70vh] w-full bg-white" />
+              ) : null}
+              {filePreview.kind === "generic" ? (
+                <div className="p-8 text-center text-sm text-slate-600">
+                  <p className="mb-3">Inline preview is not available for this file type.</p>
+                  <a
+                    href={filePreview.src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-brand-600 underline-offset-2 hover:underline"
+                  >
+                    Open in new tab
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -979,6 +1211,7 @@ function PemsTab({
   onClearStage,
   onSubmitBatch,
 }) {
+  const [pemsContainerSearch, setPemsContainerSearch] = useState("");
   const stagedIds = pemsDraft.stagedContainerIds || [];
   const isGppirRecord = pemsDraft.recordType === GPPIR_RECORD_TYPE;
   const stagedContainers = containers.filter((container) => stagedIds.includes(container.id));
@@ -1023,7 +1256,27 @@ function PemsTab({
     }, 0)
   );
   const gppirFlowResult = stagedContainers.length && stagedContainers.every((container) => container.grainInspection === "Passed") ? "Passed" : "Pending";
-  const rfpNumber = safeValue(stagedContainers[0]?.releaseNumber || packRow.releaseNumber || "N/A");
+  const packRfpText = String(packRow?.rfp || "").trim();
+  const rfpSummary = resolvePackRfpRef({
+    packRfp: packRow?.rfp,
+    stagedContainers,
+    allContainers: containers,
+    releaseRefs: packRow?.releaseNumbers,
+    packReleaseNumber: packRow?.releaseNumber,
+  });
+  const rfpNumber = safeValue(rfpSummary || "N/A");
+
+  const filteredPemsContainers = useMemo(() => {
+    const q = pemsContainerSearch.trim().toLowerCase();
+    if (!q) return containers;
+    return containers.filter((c) =>
+      [c.order, c.containerNo, c.sealNo, c.releaseNumber, c.id, c.stockBayId, c.grainLocation].some((v) =>
+        String(v ?? "")
+          .toLowerCase()
+          .includes(q)
+      )
+    );
+  }, [containers, pemsContainerSearch]);
 
   const eligibleContainerIds = useMemo(
     () => containers.filter((container) => !isGppirRecord || container.ecrSubmitted).map((container) => container.id),
@@ -1184,6 +1437,19 @@ function PemsTab({
             </span>
           </div>
           <div className="border-b border-slate-100 px-2 py-1.5">
+            <input
+              type="search"
+              className={cn(inputClass, "h-9 w-full text-xs")}
+              value={pemsContainerSearch}
+              onChange={(e) => setPemsContainerSearch(e.target.value)}
+              placeholder="Search containers…"
+              aria-label="Search containers"
+            />
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              Showing {filteredPemsContainers.length} of {containers.length}
+            </p>
+          </div>
+          <div className="border-b border-slate-100 px-2 py-1.5">
             <Button
               type="button"
               variant="secondary"
@@ -1196,7 +1462,12 @@ function PemsTab({
             </Button>
           </div>
           <div className="max-h-[18rem] space-y-1 overflow-auto px-1.5 pb-1.5 pt-1">
-            {containers.map((container) => {
+            {!filteredPemsContainers.length ? (
+              <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-2 py-4 text-center text-[11px] text-slate-500">
+                No containers match this search.
+              </div>
+            ) : null}
+            {filteredPemsContainers.map((container) => {
               const checked = stagedIds.includes(container.id);
               const stageEligible = !isGppirRecord || container.ecrSubmitted;
               const stageStatus = container.gppirSubmitted
@@ -1273,15 +1544,24 @@ function PemsTab({
 
         <section className="space-y-4 min-w-0">
         <div className="rounded-xl border border-slate-200/90 bg-white p-3">
-          <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-base font-semibold text-slate-900">
-              {isGppirRecord ? "Grain and Plant Product Inspection Record (staging)" : "Empty Container Inspection Record (staging)"}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 className="text-sm font-semibold leading-snug text-slate-900 sm:text-base">
+              {isGppirRecord ? `${GPPIR_RECORD_TYPE} (staging)` : `${ECR_RECORD_TYPE} (staging)`}
             </h3>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{pemsDraft.recordType}</span>
-            <span className="ms-auto text-xs text-slate-500">Pack #{packRow.id}</span>
+            <span className="ms-auto shrink-0 text-xs text-slate-500 tabular-nums">Pack #{packRow.id}</span>
           </div>
           {!stagedContainers.length ? (
-            <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">Stage one or more containers to populate this record.</div>
+            <div className="space-y-2">
+              {rfpSummary ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">RFP number</p>
+                  <p className="mt-1 font-medium text-slate-900">{safeValue(rfpSummary)}</p>
+                </div>
+              ) : null}
+              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
+                Stage one or more containers to populate this record.
+              </div>
+            </div>
           ) : isGppirRecord ? (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
               <div className="grid gap-2 md:grid-cols-4">
@@ -1298,7 +1578,14 @@ function PemsTab({
               </div>
               <div className="grid gap-2 md:grid-cols-5">
                 <Field label="Destination Country" value={safeValue(packRow.destinationCountry)} />
-                <Field label="Import Permit No." value="N/A" />
+                <Field
+                  label="Import Permit No."
+                  value={
+                    !packRow?.importPermitRequired
+                      ? "N/A"
+                      : String(packRow?.importPermitNumber || "").trim() || "—"
+                  }
+                />
                 <Field label="Flow Path Result" value={gppirFlowResult} />
                 <Field label="Flow path Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                 <Field label="Expiry Date" value={expiryDate} />
@@ -1378,7 +1665,7 @@ function PemsTab({
                       <tr key={container.id} className="border-t border-slate-100 text-slate-700">
                         <td className="px-2 py-2 font-medium">{safeValue(container.containerNo)}</td>
                         <td className="px-2 py-2">Consumable</td>
-                        <td className="px-2 py-2">{safeValue(container.releaseNumber)}</td>
+                        <td className="px-2 py-2">{safeValue(packRfpText || container.releaseNumber)}</td>
                         <td className="px-2 py-2">{container.emptyInspection === "Passed" ? "Pass" : container.emptyInspection === "Failed" ? "Fail" : "Pending"}</td>
                         <td className="px-2 py-2">{safeValue(container.sealNo)}</td>
                         <td className="px-2 py-2">{expiryDate}</td>

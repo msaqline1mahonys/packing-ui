@@ -638,6 +638,16 @@ export default function NewPackFormPage() {
     });
   }, [selectedEditContainer, packerNames]);
   const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));
+  const pemsEligibleContainerIds = useMemo(
+    () =>
+      packContainers
+        .filter((container) => pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted)
+        .map((container) => container.id),
+    [packContainers, pemsDraft.recordType]
+  );
+  const stagedPemsIds = pemsDraft.stagedContainerIds || [];
+  const allPemsEligibleStaged =
+    pemsEligibleContainerIds.length > 0 && pemsEligibleContainerIds.every((id) => stagedPemsIds.includes(id));
   const containersLeftToPack = packContainers.filter((container) => {
     const status = String(container.status || "").toLowerCase();
     return status !== "complete" && status !== "completed";
@@ -1632,7 +1642,44 @@ export default function NewPackFormPage() {
       ) : null}
 
       {activeTab === "pems" ? (
-      <div className="space-y-4">
+      <div className="space-y-3">
+        <section className="rounded-lg border border-slate-200/90 bg-white px-2.5 py-2.5 shadow-none">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Submitted PEM</p>
+            {pemsSubmissions.length ? (
+              <span className="tabular-nums text-[10px] text-slate-400">{pemsSubmissions.length}</span>
+            ) : null}
+          </div>
+          {!pemsSubmissions.length ? (
+            <p className="mt-2 text-[11px] text-slate-500">None yet.</p>
+          ) : (
+            <div className="mt-2 divide-y divide-slate-100 border-t border-slate-100">
+              {pemsSubmissions.map((row) => (
+                <div
+                  key={row.batchId}
+                  className="flex flex-col gap-2 py-2.5 text-[11px] leading-snug sm:flex-row sm:items-start sm:gap-4"
+                >
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 sm:w-[10.5rem] sm:flex-col sm:items-start sm:gap-1">
+                    <span className="font-semibold text-slate-800">{row.batchId}</span>
+                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-800">
+                      {safeValue(row.status)}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1 break-words">
+                    <p className="text-[10px] text-slate-700">{safeValue(row.recordType)}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {Array.isArray(row.containerIds) ? row.containerIds.length : 0} containers
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-[10px] whitespace-nowrap text-slate-400 sm:pt-0.5">
+                    {formatDateTimeValue(row.submittedAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section className={sectionClass}>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PEMs submission setup</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1680,39 +1727,62 @@ export default function NewPackFormPage() {
             <FormRow label="AO signoff">
               <input className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
             </FormRow>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2 lg:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
-              <div className="mt-1 space-y-1">
+          </div>
+          <div className="mt-2 flex flex-row flex-wrap items-start gap-2 sm:gap-3">
+            <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
+              <div className="mt-1 grid auto-rows-auto grid-cols-1 items-start divide-y divide-slate-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                 {[
-                  selectedPackSite?.yardNo
-                    ? { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }
-                    : { ok: false, label: "Missing yard number in selected site record." },
-                  selectedPackSite?.name
-                    ? { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }
-                    : { ok: false, label: "Missing site name for place of inspection." },
-                  pemsDraft.aoSignoff
-                    ? selectedAoNumber
-                      ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
-                      : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
-                    : { ok: false, label: "Select AO signoff to resolve AO number." },
-                ].map((check) => (
-                  <p key={check.label} className={cn("text-xs", check.ok ? "text-emerald-700" : "text-amber-700")}>
-                    {check.ok ? "OK - " : "Needs attention - "}
-                    {check.label}
-                  </p>
+                  {
+                    title: "Yard number",
+                    ...(!selectedPackSite?.yardNo
+                      ? { ok: false, label: "Missing yard number in selected site record." }
+                      : { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }),
+                  },
+                  {
+                    title: "Place of inspection",
+                    ...(!selectedPackSite?.name
+                      ? { ok: false, label: "Missing site name for place of inspection." }
+                      : { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }),
+                  },
+                  {
+                    title: "AO signoff",
+                    ...(pemsDraft.aoSignoff
+                      ? selectedAoNumber
+                        ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
+                        : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
+                      : { ok: false, label: "Select AO signoff to resolve AO number." }),
+                  },
+                ].map((section) => (
+                  <div key={section.title} className="py-1 first:pt-0 last:pb-0 sm:px-2 sm:py-1.5 sm:first:pl-0 sm:last:pr-0">
+                    <div className="space-y-1">
+                      <p className="text-[11px] leading-snug break-words">
+                        <span className="text-slate-400">{section.title}: </span>
+                        <span className={cn(section.ok ? "text-emerald-700" : "text-amber-700")}>
+                          {section.ok ? "OK — " : "Needs attention — "}
+                          {section.label}
+                        </span>
+                      </p>
+                      {section.lines?.length
+                        ? section.lines.map((line, i) => (
+                            <p key={i} className="text-[11px] leading-snug break-words text-slate-600">
+                              {line}
+                            </p>
+                          ))
+                        : null}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
-            <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
-              <Button
-                type="button"
-                className="h-10 w-full"
-                onClick={submitPemsFromForm}
-                disabled={!stagedPemsContainers.length}
-              >
-                Submit {stagedPemsContainers.length}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              className="h-10 shrink-0 self-center sm:min-w-[160px]"
+              onClick={submitPemsFromForm}
+              disabled={!stagedPemsContainers.length}
+            >
+              Submit {stagedPemsContainers.length}
+            </Button>
           </div>
           {pemsSubmitError ? (
             <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>
@@ -1721,41 +1791,49 @@ export default function NewPackFormPage() {
 
         <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
           <section className={sectionClass}>
-            <div className="mb-2 flex items-center gap-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Container list</h2>
-              <span className="ms-auto text-xs font-semibold text-slate-500">{stagedPemsContainers.length} staged</span>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold tracking-wide text-slate-600">Containers</h2>
+              <span className="tabular-nums text-[10px] text-slate-400" aria-live="polite">
+                {stagedPemsContainers.length}/{packContainers.length}
+              </span>
             </div>
-            <div className="mb-2 flex gap-2">
+            <div className="mb-1 border-b border-slate-200 pb-1.5">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-7 px-2 text-[11px]"
-                onClick={() =>
-                  updatePemsDraft({
-                    stagedContainerIds:
-                      pemsDraft.recordType === GPPIR_RECORD_TYPE
-                        ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
-                        : packContainers.map((container) => container.id),
-                  })
-                }
+                className="h-7 px-2.5 text-[11px]"
+                disabled={!pemsEligibleContainerIds.length}
+                onClick={() => {
+                  if (allPemsEligibleStaged) updatePemsDraft({ stagedContainerIds: [] });
+                  else
+                    updatePemsDraft({
+                      stagedContainerIds:
+                        pemsDraft.recordType === GPPIR_RECORD_TYPE
+                          ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                          : packContainers.map((container) => container.id),
+                    });
+                }}
               >
-                Stage all
-              </Button>
-              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[11px]" onClick={() => updatePemsDraft({ stagedContainerIds: [] })}>
-                Clear
+                {allPemsEligibleStaged ? "Unselect all" : "Select all"}
               </Button>
             </div>
-            <div className="max-h-[460px] space-y-1 overflow-auto pr-1">
+            <div className="max-h-[18rem] space-y-1 overflow-auto pr-1">
               {packContainers.map((container) => {
                 const checked = pemsDraft.stagedContainerIds.includes(container.id);
                 const canStage = pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted;
-                const statusLabel = container.gppirSubmitted ? "GPPIR Submitted" : container.ecrSubmitted ? "ECR Submitted" : "Awaiting ECR";
+                const statusLabel = container.gppirSubmitted ? "GPPIR" : container.ecrSubmitted ? "ECR" : "No ECR";
+                const statusTitle = container.gppirSubmitted
+                  ? "GPPIR submitted"
+                  : container.ecrSubmitted
+                    ? "ECR submitted"
+                    : "Awaiting ECR";
                 return (
-                  <div key={container.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <div className="flex items-center gap-2">
+                  <div key={container.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] leading-snug">
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-slate-300"
                         checked={checked}
                         disabled={!canStage}
                         onChange={() => {
@@ -1763,19 +1841,28 @@ export default function NewPackFormPage() {
                           togglePemsContainer(container.id);
                         }}
                       />
-                      <span className="text-xs font-semibold text-slate-800">#{container.order} {container.containerNumber || "Draft container"}</span>
-                      <span className="ms-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">{statusLabel}</span>
+                      <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">
+                        #{container.order} {container.containerNumber || "Draft"}
+                      </span>
+                      <span
+                        title={statusTitle}
+                        className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-slate-700"
+                      >
+                        {statusLabel}
+                      </span>
                     </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">
-                      Seal {safeValue(container.sealNumber)} · Release {safeValue(container.releaseNumber)}
+                    <div className="mt-1 flex min-h-[1.125rem] items-center justify-between gap-1.5 text-[10px] text-slate-500">
+                      <span className="min-w-0 truncate">
+                        {safeValue(container.sealNumber)} · {safeValue(container.releaseNumber)}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                        onClick={() => setEditingContainerId(container.id)}
+                      >
+                        Edit
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="mt-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700"
-                      onClick={() => setEditingContainerId(container.id)}
-                    >
-                      Edit container
-                    </button>
                   </div>
                 );
               })}
@@ -1850,27 +1937,6 @@ export default function NewPackFormPage() {
                 </div>
               </div>
             )}
-            <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
-              {!pemsSubmissions.length ? (
-                <p className="mt-2 text-xs text-slate-500">No submissions yet.</p>
-              ) : (
-                <div className="mt-2 space-y-1.5">
-                  {pemsSubmissions.map((row) => (
-                    <div key={row.batchId} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800">{row.batchId}</span>
-                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">{safeValue(row.status)}</span>
-                        <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-slate-600">
-                        {safeValue(row.recordType)} · Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </section>
         </div>
       </div>

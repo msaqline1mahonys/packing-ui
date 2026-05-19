@@ -7,8 +7,17 @@ import { Printer, FileDown } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const GREEN_BG = "bg-[#1a5632]";
-const GREEN_TEXT = "text-[#1a5632]";
+const INCOMING_PALETTE = {
+  bg: "bg-[#1a5632]",
+  text: "text-[#1a5632]",
+  headingText: "text-[#1a5632]",
+};
+
+const OUTGOING_PALETTE = {
+  bg: "bg-[#b45309]",
+  text: "text-[#b45309]",
+  headingText: "text-[#92400e]",
+};
 
 function toTestCode(name) {
   const raw = String(name || "").trim();
@@ -30,6 +39,8 @@ function TicketCopy({ model }) {
   const firstGross = model.grossRows[0];
   const firstTare = model.tareRows[0];
   const testSlots = buildTestSlots(model.testRows);
+  const palette = model.direction === "outgoing" ? OUTGOING_PALETTE : INCOMING_PALETTE;
+  const ticketTitle = model.direction === "outgoing" ? "Outgoing Ticket" : "Receival Ticket";
 
   return (
     <div className="ticket-print-page break-inside-avoid border border-slate-300 bg-white text-[10px] leading-[1.25]">
@@ -55,8 +66,8 @@ function TicketCopy({ model }) {
       </div>
 
       {/* ─── RECEIVAL TICKET + DATE ─── */}
-      <div className={cn("flex items-center justify-between px-2.5 py-1", GREEN_BG, "text-white")}>
-        <span className="text-[10px] font-bold tracking-wide">Receival Ticket: {model.ticketRef}</span>
+      <div className={cn("flex items-center justify-between px-2.5 py-1", palette.bg, "text-white")}>
+        <span className="text-[10px] font-bold tracking-wide">{ticketTitle}: {model.ticketRef}</span>
         <span className="text-[10px] font-semibold">Date: {model.ticketDate}</span>
       </div>
 
@@ -79,7 +90,7 @@ function TicketCopy({ model }) {
 
         {/* RIGHT: Ticket Details + References */}
         <div className="flex-1">
-          <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", GREEN_BG, "text-white")}>
+          <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", palette.bg, "text-white")}>
             Ticket Details
           </div>
           <table className="w-full border-collapse text-[9.5px]">
@@ -111,6 +122,7 @@ function TicketCopy({ model }) {
             weight={firstGross?.weightMT || "—"}
             date={firstGross?.date || "—"}
             time={firstGross?.time || ""}
+            palette={palette}
           />
           <WeightBlock
             label="SECOND WEIGHT"
@@ -118,14 +130,15 @@ function TicketCopy({ model }) {
             date={firstTare?.date || "—"}
             time={firstTare?.time || ""}
             middle
+            palette={palette}
           />
-          <WeightBlock label="NETT WEIGHT" weight={model.netTotalMT} isNet />
+          <WeightBlock label="NETT WEIGHT" weight={model.netTotalMT} isNet palette={palette} />
         </div>
       </div>
 
       {/* ─── TEST RESULTS ─── */}
       <div className="border-t border-slate-300">
-          <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", GREEN_BG, "text-white")}>
+          <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", palette.bg, "text-white")}>
             Test Results
           </div>
           {testSlots.length > 0 ? (
@@ -191,19 +204,19 @@ function FieldRow({ label, value, noBorder }) {
   );
 }
 
-function WeightBlock({ label, weight, date, time, isNet, middle }) {
+function WeightBlock({ label, weight, date, time, isNet, middle, palette }) {
   return (
     <div
       className={cn(
         "px-2 py-2 text-center",
         middle && "border-x border-slate-300",
-        isNet && cn(GREEN_BG, "text-white")
+        isNet && cn(palette.bg, "text-white")
       )}
     >
       <div className={cn("text-[9px] font-bold uppercase tracking-wide", isNet ? "text-white/80" : "text-slate-600")}>
         {label}
       </div>
-      <div className={cn("mt-0.5 text-[12px] font-extrabold leading-tight", isNet ? "text-white" : GREEN_TEXT)}>
+      <div className={cn("mt-0.5 text-[12px] font-extrabold leading-tight", isNet ? "text-white" : palette.text)}>
         {weight}
       </div>
       {date && !isNet ? (
@@ -230,6 +243,7 @@ export default function InTicketPrintDocument({ model, backHref }) {
   const handlePrint = () => {
     if (typeof window !== "undefined") window.print();
   };
+  const previewLabel = model.direction === "outgoing" ? "Outgoing Ticket" : "Receival Ticket";
 
   return (
     <>
@@ -237,7 +251,7 @@ export default function InTicketPrintDocument({ model, backHref }) {
       <div className="ticket-print-toolbar sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-4 py-3 backdrop-blur-sm print:hidden">
         <div className="mx-auto flex max-w-[48rem] flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-[#0f1e3d]">Print preview — Receival Ticket {model.ticketRef}</p>
+            <p className="text-sm font-semibold text-[#0f1e3d]">Print preview — {previewLabel} {model.ticketRef}</p>
             <p className="text-xs text-slate-500">Use Print for paper, or Save as PDF in the print dialog.</p>
           </div>
           <div className="flex flex-wrap gap-2">

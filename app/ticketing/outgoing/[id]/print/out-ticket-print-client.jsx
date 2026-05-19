@@ -5,10 +5,9 @@ import { useSearchParams } from "next/navigation";
 
 import InTicketPrintDocument from "@/components/ticketing/in-ticket-print-document";
 import { resolveInTicketForPrint } from "@/lib/in-ticket-print";
-import { demoExistingTicket } from "@/lib/demo-in-ticket-data";
 import { loadInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 
-export default function InTicketPrintClient({ ticketId }) {
+export default function OutTicketPrintClient({ ticketId }) {
   const searchParams = useSearchParams();
   const autoPrint = searchParams.get("print") === "1";
   const [hydrated, setHydrated] = useState(false);
@@ -18,14 +17,10 @@ export default function InTicketPrintClient({ ticketId }) {
   }, []);
 
   const model = useMemo(() => {
-    if (!hydrated) {
-      const seeded = demoExistingTicket(ticketId);
-      return seeded ? resolveInTicketForPrint(ticketId, seeded) : null;
-    }
-    const snapshot = loadInTicketSnapshot(ticketId, "in");
-    const ticket = snapshot || demoExistingTicket(ticketId);
-    if (!ticket) return null;
-    return resolveInTicketForPrint(ticketId, ticket);
+    if (!hydrated) return null;
+    const snapshot = loadInTicketSnapshot(ticketId, "out");
+    if (!snapshot) return null;
+    return resolveInTicketForPrint(ticketId, snapshot);
   }, [hydrated, ticketId]);
 
   useEffect(() => {
@@ -34,5 +29,5 @@ export default function InTicketPrintClient({ ticketId }) {
     return () => window.clearTimeout(timer);
   }, [autoPrint, model]);
 
-  return <InTicketPrintDocument model={model} backHref={`/ticketing/in/${ticketId}`} />;
+  return <InTicketPrintDocument model={model} backHref={`/ticketing/outgoing/${ticketId}`} />;
 }

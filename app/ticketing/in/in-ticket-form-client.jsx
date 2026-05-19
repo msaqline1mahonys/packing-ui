@@ -261,7 +261,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const persistTicketSnapshot = (snapshot) => {
     const id = snapshot.id ?? routeTicketId;
-    if (id) saveInTicketSnapshot(id, snapshot);
+    if (id) saveInTicketSnapshot(id, snapshot, ticketType);
   };
 
   const handleSave = () => {

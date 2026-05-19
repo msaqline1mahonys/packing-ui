@@ -31,6 +31,18 @@ const TABLE_COLUMNS = [
   { key: "importExport", label: "I/E" },
 ];
 
+const DATE_FILTER_OPTIONS = [
+  { key: "vesselCutoffDate", label: "Cut-off" },
+  { key: "etd", label: "ETD" },
+  { key: "packingStartDate", label: "Packing Start Date" },
+];
+
+const DATE_FILTER_MODES = [
+  { key: "all", label: "Any Date" },
+  { key: "specific", label: "Specific Date" },
+  { key: "range", label: "Date Range" },
+];
+
 function formatCutoffOrEtdDisplay(value) {
   if (value == null || String(value).trim() === "") return "—";
   const str = String(value).trim();
@@ -62,12 +74,27 @@ function emptyParkDisplay(row, parkIdToName) {
   const s = emptyParkRaw(row, parkIdToName);
   return s || "—";
 }
+
+function getDateOnlyValue(rawValue) {
+  if (rawValue == null) return "";
+  const value = String(rawValue).trim();
+  if (!value) return "";
+  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 export default function PackingSchedulePage() {
   const router = useRouter();
   const [rows, setRows] = useState(() => loadPackScheduleRows());
   const [importExportFilter, setImportExportFilter] = useState("all");
-  const [searchByDate, setSearchByDate] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateFilterField, setDateFilterField] = useState("vesselCutoffDate");
+  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [specificDate, setSpecificDate] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
   useEffect(() => {
@@ -85,10 +112,24 @@ export default function PackingSchedulePage() {
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.includes(p.status))
       .filter((p) => importExportFilter === "all" || p.importExport === importExportFilter)
-      .filter((p) => (searchByDate ? p.date === selectedDate : true));
-  }, [rows, importExportFilter, selectedStatuses, searchByDate, selectedDate]);
+      .filter((p) => {
+        if (dateFilterMode === "all") return true;
+        const rowDate = getDateOnlyValue(p[dateFilterField]);
+        if (!rowDate) return false;
+        if (dateFilterMode === "specific") {
+          if (!specificDate) return true;
+          return rowDate === specificDate;
+        }
+        if (!dateFrom && !dateTo) return true;
+        if (dateFrom && !dateTo) return rowDate >= dateFrom;
+        if (!dateFrom && dateTo) return rowDate <= dateTo;
+        if (dateFrom && rowDate < dateFrom) return false;
+        if (dateTo && rowDate > dateTo) return false;
+        return true;
+      });
+  }, [rows, importExportFilter, selectedStatuses, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
-  const selected = useMemo(() => filtered.find((p) => p.id === selectedId) || null, [filtered, selectedId]);
+  const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
 
   const parkIdToName = useMemo(() => {
     const m = new Map();
@@ -145,42 +186,76 @@ export default function PackingSchedulePage() {
       </div>
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-          <select className={`${inputClass} w-[160px]`} value={importExportFilter} onChange={(e) => setImportExportFilter(e.target.value)}>
-            <option value="all">All (Import/Export)</option>
-            <option value="Import">Import</option>
-            <option value="Export">Export</option>
-          </select>
-          <div className="ms-auto flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
-              <label className="cursor-pointer">
-                <input type="radio" name="date-filter-mode" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
-                <span
-                  className={cn(
-                    "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    !searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                  )}
-                >
-                  All Dates
-                </span>
-              </label>
-              <label className="cursor-pointer">
-                <input type="radio" name="date-filter-mode" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
-                <span
-                  className={cn(
-                    "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                  )}
-                >
-                  By Date
-                </span>
-              </label>
+        <div className="flex w-full flex-wrap items-end gap-3">
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Import / Export</label>
+            <select className={`${inputClass} w-full`} value={importExportFilter} onChange={(e) => setImportExportFilter(e.target.value)}>
+              <option value="all">All (Import/Export)</option>
+              <option value="Import">Import</option>
+              <option value="Export">Export</option>
+            </select>
+          </div>
+          <div className="ms-auto flex flex-wrap items-end gap-3">
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Date Type</label>
+            <select className={`${inputClass} w-full`} value={dateFilterMode} onChange={(e) => setDateFilterMode(e.target.value)}>
+              {DATE_FILTER_MODES.map((mode) => (
+                <option key={mode.key} value={mode.key}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {dateFilterMode !== "all" ? (
+            <div className="min-w-[190px]">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Date Field</label>
+              <select className={`${inputClass} w-full`} value={dateFilterField} onChange={(e) => setDateFilterField(e.target.value)}>
+                {DATE_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            {searchByDate ? <input className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /> : null}
+          ) : null}
+          {dateFilterMode === "specific" ? (
+            <div className="min-w-[170px]">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Specific Date</label>
+              <input className={`${inputClass} w-full`} aria-label="Specific date" type="date" value={specificDate} onChange={(e) => setSpecificDate(e.target.value)} />
+            </div>
+          ) : null}
+          {dateFilterMode === "range" ? (
+            <>
+              <div className="min-w-[155px]">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</label>
+                <input className={`${inputClass} w-full`} aria-label="From date" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </div>
+              <div className="min-w-[155px]">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</label>
+                <input className={`${inputClass} w-full`} aria-label="To date" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </div>
+            </>
+          ) : null}
+          {dateFilterMode !== "all" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2.5 text-[11px]"
+              onClick={() => {
+                setDateFilterMode("all");
+                setSpecificDate("");
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
           <div className="flex flex-1 flex-wrap items-center gap-2">
             {PACK_STATUSES.map((s) => (
               <button
@@ -201,7 +276,7 @@ export default function PackingSchedulePage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start">
+      <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
             columns={gridColumns}
@@ -246,11 +321,11 @@ export default function PackingSchedulePage() {
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-3 py-3">
-            <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
-          </div>
-          {selected ? (
+        {selected ? (
+          <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-3 py-3">
+              <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
+            </div>
             <div className="space-y-3 p-3 text-xs">
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
@@ -261,14 +336,13 @@ export default function PackingSchedulePage() {
               <Field label="Vessel" value={selected.vessel} />
               <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />
               <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vesselCutoffDate)} />
+              <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packingStartDate)} />
               <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
               <Field label="Count" value={String(selected.containersRequired)} />
               <Field label="MT" value={selected.mtTotal?.toFixed(1)} />
             </div>
-          ) : (
-            <div className="p-6 text-center text-xs text-slate-400">Select a pack to view details</div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
     </div>

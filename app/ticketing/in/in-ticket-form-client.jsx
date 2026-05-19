@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import {
   DEMO_CMOS,
   DEMO_COMMODITIES,
@@ -258,10 +259,16 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     ticket.signoff &&
     ticket.unloadedLocation;
 
+  const persistTicketSnapshot = (snapshot) => {
+    const id = snapshot.id ?? routeTicketId;
+    if (id) saveInTicketSnapshot(id, snapshot);
+  };
+
   const handleSave = () => {
     const id = ticket.id ?? Math.floor(Math.random() * 90000 + 10000);
     const next = { ...ticket, id };
     setTicket(next);
+    persistTicketSnapshot(next);
     router.push(`${detailPathBase}/${id}`);
   };
 
@@ -270,8 +277,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     const updated = { ...ticket, id, status: "completed" };
     setTicket(updated);
     setTickets((prev) => [...prev, updated]);
+    persistTicketSnapshot(updated);
     setShowPrintConfirm(true);
   };
+
+  const printHref =
+    ticketNumericId != null ? `${detailPathBase}/${ticketNumericId}/print` : null;
 
   const handleOverride = () => {
     set("status", "processing");
@@ -287,11 +298,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <p className="mt-0.5 text-xs text-slate-500">{ticketSubtitle}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {printHref ? (
+            <>
+              <Link
+                href={printHref}
+                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
+                onClick={() => persistTicketSnapshot(ticket)}
+              >
+                Print overview
+              </Link>
+            </>
+          ) : null}
           {isCompleted ? (
             <>
-              <Button type="button" variant="secondary" size="sm" className="text-xs" onClick={() => window.print()}>
-                Print
-              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -912,9 +931,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       <Modal open={showPrintConfirm} title="Ticket Completed" onClose={() => setShowPrintConfirm(false)}>
         <p className="text-center text-sm text-slate-800">The ticket has been completed successfully.</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <Button type="button" size="sm" onClick={() => { setShowPrintConfirm(false); window.print(); }}>
+          <Link
+            href={ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath}
+            className={cn(buttonVariants({ size: "sm" }), "inline-flex items-center justify-center")}
+            onClick={() => setShowPrintConfirm(false)}
+          >
             Print Ticket
-          </Button>
+          </Link>
           <Link
             href={ticket.id ? `${detailPathBase}/${ticket.id}` : listPath}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center justify-center")}

@@ -147,3 +147,50 @@
 .clutch-row-selected {
   background-color: #dbeafe !important;
 }
+
+@media print {
+  @page {
+    margin: 0;
+    size: A4;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    background: #fff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .ticket-print-document {
+    margin: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+  }
+
+  .ticket-print-document-two-copies {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 0;
+    width: 210mm;
+    height: 297mm;
+  }
+
+  .ticket-print-document .ticket-print-page {
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .ticket-print-toolbar,
+  nav,
+  header {
+    display: none !important;
+  }
+}

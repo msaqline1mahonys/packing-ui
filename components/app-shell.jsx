@@ -12,6 +12,10 @@ const SHELL_BG =
 
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
+function isPrintRoute(pathname) {
+  return /\/ticketing\/in\/\d+\/print\/?$/.test(pathname);
+}
+
 function MainPanel({ children }) {
   return (
     <main className="relative min-h-dvh min-w-0 flex-1 overflow-x-hidden p-6 md:p-10">
@@ -35,8 +39,8 @@ function AppShellInner({ children }) {
     }
   }, [pathname, router]);
 
-  /* Auth pages bypass the ERP shell entirely */
-  if (AUTH_ROUTES.some((r) => pathname.startsWith(r))) {
+  /* Auth and print pages bypass the ERP shell entirely */
+  if (AUTH_ROUTES.some((r) => pathname.startsWith(r)) || isPrintRoute(pathname)) {
     return <>{children}</>;
   }
 

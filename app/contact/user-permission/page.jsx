@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -136,7 +136,7 @@ export default function UserPermissionPage() {
       {isMobile ? (
         <div className="space-y-3">
           <section className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
-            <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
+            <input suppressHydrationWarning className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
           </section>
 
           <section className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
@@ -198,7 +198,7 @@ export default function UserPermissionPage() {
                   allSelected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"
                 )}
               >
-                <input ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
+                <input suppressHydrationWarning ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
                 <span className="text-sm font-semibold text-slate-800">Select all</span>
               </button>
 
@@ -215,7 +215,7 @@ export default function UserPermissionPage() {
                         checked ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"
                       )}
                     >
-                      <input type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
+                      <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
                       <span>
                         <span className="block text-sm font-semibold text-slate-800">{permission.label}</span>
                         <span className="block text-xs text-slate-500">{permission.description}</span>
@@ -235,7 +235,7 @@ export default function UserPermissionPage() {
         <div className="grid min-h-[560px] gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
           <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
             <div className="border-b border-slate-200 p-3">
-              <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
+              <input suppressHydrationWarning className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {filteredUsers.length === 0 ? (
@@ -297,7 +297,7 @@ export default function UserPermissionPage() {
                     allSelected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"
                   )}
                 >
-                  <input ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
+                  <input suppressHydrationWarning ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
                   <span className="text-sm font-semibold text-slate-800">Select all</span>
                 </button>
 
@@ -314,7 +314,7 @@ export default function UserPermissionPage() {
                           checked ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
                         )}
                       >
-                        <input type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
+                        <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
                         <span>
                           <span className="block text-sm font-semibold text-slate-800">{permission.label}</span>
                           <span className="block text-xs text-slate-500">{permission.description}</span>

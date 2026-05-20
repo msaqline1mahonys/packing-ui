@@ -889,7 +889,7 @@ export function Grid(props) {
           bgcolor: 'background.paper'
         }}>
               <Search fontSize="small" color="action" />
-              <Box component="input" type="text" placeholder="Search..." value={globalSearch} onChange={e => {
+              <Box component="input" type="text" placeholder="Search..." value={globalSearch} suppressHydrationWarning onChange={e => {
             setGlobalSearch(e.target.value);
             setPage(0);
           }} sx={{
@@ -944,7 +944,7 @@ export function Grid(props) {
               const st = colStates.find(c => c.key === col.key);
               if (!st) return null;
               return <MenuItem key={col.key} onClick={() => setHidden(col.key, !st.hidden)} dense>
-                      <Checkbox size="small" checked={!st.hidden} />
+                      <Checkbox size="small" checked={!st.hidden} slotProps={{ input: { suppressHydrationWarning: true } }} />
                       <ListItemText primary={col.header} />
                     </MenuItem>;
             })}
@@ -1015,7 +1015,7 @@ export function Grid(props) {
                       <Checkbox size="small" checked={allOnPageSelected} indeterminate={!allOnPageSelected && pagedRows.some(r => selection.isSelected(safeGetRowId(r)))} onChange={() => {
                     const ids = pagedRows.map(r => safeGetRowId(r));
                     selection.toggleMany(ids, !allOnPageSelected);
-                  }} />
+                  }} slotProps={{ input: { suppressHydrationWarning: true } }} />
                     </Box>}
 
                   {visibleColumns.map(col => {
@@ -1125,7 +1125,7 @@ export function Grid(props) {
                   borderRight: '1px solid',
                   borderColor: 'divider'
                 }} onClick={e => e.stopPropagation()}>
-                          <Checkbox size="small" checked={isSelected} onChange={() => selection.toggleRow(rowId)} />
+                          <Checkbox size="small" checked={isSelected} onChange={() => selection.toggleRow(rowId)} slotProps={{ input: { suppressHydrationWarning: true } }} />
                         </Box>}
 
                       {visibleColumns.map((col, colIdx) => {

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { Grid } from "@/components/clutch-table";
@@ -9,8 +9,8 @@ const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const INITIAL_LOCATIONS = [
-  { id: 1, name: "Bay 1 – Main Shed", type: "Bay", capacity: 500, unit: "MT", status: "Active", description: "Primary grain storage bay" },
-  { id: 2, name: "Bay 2 – Overflow", type: "Bay", capacity: 300, unit: "MT", status: "Active", description: "Secondary overflow storage" },
+  { id: 1, name: "Bay 1 â€“ Main Shed", type: "Bay", capacity: 500, unit: "MT", status: "Active", description: "Primary grain storage bay" },
+  { id: 2, name: "Bay 2 â€“ Overflow", type: "Bay", capacity: 300, unit: "MT", status: "Active", description: "Secondary overflow storage" },
   { id: 3, name: "Silo A", type: "Silo", capacity: 1000, unit: "MT", status: "Active", description: "Bulk grain silo" },
   { id: 4, name: "Silo B", type: "Silo", capacity: 800, unit: "MT", status: "Under Maintenance", description: "Under repair" },
   { id: 5, name: "Dock Staging", type: "Staging", capacity: 100, unit: "MT", status: "Active", description: "Temporary staging area at dock" },
@@ -53,7 +53,7 @@ export default function StockLocationsPage() {
   const displayRows = locations.map(l => ({
     ...l,
     capacityDisplay: `${l.capacity} ${l.unit}`,
-    description: l.description || "—"
+    description: l.description || "â€”"
   }));
 
   function openNew() { setEditingId(null); setForm(blankLocation()); setModalOpen(true); }
@@ -176,21 +176,21 @@ export default function StockLocationsPage() {
 
       <Modal open={modalOpen} title={editingId ? "Edit Location" : "Add Location"} onClose={() => setModalOpen(false)}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name" required><input className={inputClass} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Location name" /></Field>
+          <Field label="Name" required><input suppressHydrationWarning className={inputClass} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Location name" /></Field>
           <Field label="Type">
-            <select className={inputClass} value={form.type} onChange={(e) => set("type", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={form.type} onChange={(e) => set("type", e.target.value)}>
               {LOCATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Capacity"><input type="number" className={inputClass} value={form.capacity} onChange={(e) => set("capacity", e.target.value)} placeholder="0" /></Field>
+          <Field label="Capacity"><input suppressHydrationWarning type="number" className={inputClass} value={form.capacity} onChange={(e) => set("capacity", e.target.value)} placeholder="0" /></Field>
           <Field label="Status">
-            <select className={inputClass} value={form.status} onChange={(e) => set("status", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={form.status} onChange={(e) => set("status", e.target.value)}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
         </div>
         <div className="mt-3">
-          <Field label="Description"><textarea className={cn(inputClass, "min-h-16 resize-y")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} /></Field>
+          <Field label="Description"><textarea suppressHydrationWarning className={cn(inputClass, "min-h-16 resize-y")} value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} /></Field>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
@@ -202,7 +202,7 @@ export default function StockLocationsPage() {
 }
 
 function DI({ label, value, highlight }) {
-  return (<div><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd></div>);
+  return (<div><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd></div>);
 }
 function Field({ label, required, children }) {
   return (<div className="space-y-1"><label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}{required && <span className="text-red-500"> *</span>}</label>{children}</div>);
@@ -215,7 +215,7 @@ function Modal({ open, title, onClose, children }) {
       <div role="dialog" aria-modal="true" className="relative max-h-[min(90vh,720px)] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100" onClick={onClose}>×</button>
+          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100" onClick={onClose}>Ã—</button>
         </div>
         <div className="p-4">{children}</div>
       </div>

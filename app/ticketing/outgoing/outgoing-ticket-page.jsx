@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,7 +21,7 @@ const OUT_ROWS = [
   {
     id: 8821,
     customerCmo: "Riverina Co-op / CMO-0138",
-    commodityGrade: "Canola · NON-GM",
+    commodityGrade: "Canola Â· NON-GM",
     truck: "MHY-227",
     status: "booked",
     netT: null,
@@ -31,7 +31,7 @@ const OUT_ROWS = [
   {
     id: 8814,
     customerCmo: "GrainCorp Trading / CMO-0135",
-    commodityGrade: "Feed barley · F1",
+    commodityGrade: "Feed barley Â· F1",
     truck: "MHY-104",
     status: "processing",
     netT: 38.2,
@@ -41,7 +41,7 @@ const OUT_ROWS = [
   {
     id: 8802,
     customerCmo: "Pacific Charter / CMO-0128",
-    commodityGrade: "Wheat · ASW1",
+    commodityGrade: "Wheat Â· ASW1",
     truck: "MHY-088",
     status: "completed",
     netT: 95.0,
@@ -66,7 +66,7 @@ function statusBadgeClass(status) {
 }
 
 function formatNet(v) {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return "â€”";
   return Number(v).toFixed(2);
 }
 
@@ -169,19 +169,19 @@ export default function OutgoingTicketPage() {
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
-                <input type="radio" name="date-filter-outgoing" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
+                <input suppressHydrationWarning type="radio" name="date-filter-outgoing" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
                 <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", !searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
                   All dates
                 </span>
               </label>
               <label className="cursor-pointer">
-                <input type="radio" name="date-filter-outgoing" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
+                <input suppressHydrationWarning type="radio" name="date-filter-outgoing" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
                 <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
                   By date
                 </span>
               </label>
             </div>
-            {searchByDate ? <input className={`${inputClass} w-[140px]`} type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} /> : null}
+            {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} /> : null}
           </div>
         </div>
       </section>
@@ -234,7 +234,7 @@ export default function OutgoingTicketPage() {
               <Field label="Status" value={<span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize", statusBadgeClass(selected.status))}>{selected.status}</span>} />
               <Field label="Net (T)" value={formatNet(selected.netT)} />
               <Field label="Date" value={selected.date} />
-              <Field label="Notes" value={selected.notes || "—"} />
+              <Field label="Notes" value={selected.notes || "â€”"} />
             </div>
           )}
         </div>
@@ -247,7 +247,7 @@ function Field({ label, value }) {
   return (
     <div className="space-y-0.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "—"}</div>
+      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "â€”"}</div>
     </div>
   );
 }

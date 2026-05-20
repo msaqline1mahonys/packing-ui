@@ -58,6 +58,7 @@ export function HeaderCell({
       ref={(el) => { ref.current = el; setNodeRef(el) }}
       className="dg-header-cell"
       role="columnheader"
+      suppressHydrationWarning
       aria-sort={sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : 'none'}
       style={style}
       onMouseEnter={() => setIsHovered(true)}

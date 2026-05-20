@@ -1,14 +1,14 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/* ─── Shared input class ─── */
+/* â”€â”€â”€ Shared input class â”€â”€â”€ */
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-/* ─── Mock data ─── */
+/* â”€â”€â”€ Mock data â”€â”€â”€ */
 const MOCK_CUSTOMERS = [
   { id: 1, name: "ACME Corp" },
   { id: 2, name: "GrainLink" },
@@ -22,14 +22,14 @@ const MOCK_COMMODITIES = [
 ];
 
 const MOCK_TRUCKS = [
-  { id: 1, name: "Truck A – XYZ-001" },
-  { id: 2, name: "Truck B – ABC-002" },
-  { id: 3, name: "Truck C – DEF-003" },
+  { id: 1, name: "Truck A â€“ XYZ-001" },
+  { id: 2, name: "Truck B â€“ ABC-002" },
+  { id: 3, name: "Truck C â€“ DEF-003" },
 ];
 
 const MOCK_STOCK_LOCATIONS = [
-  { id: 1, name: "Bay 1 – Main Shed" },
-  { id: 2, name: "Bay 2 – Overflow" },
+  { id: 1, name: "Bay 1 â€“ Main Shed" },
+  { id: 2, name: "Bay 2 â€“ Overflow" },
   { id: 3, name: "Silo A" },
 ];
 
@@ -54,7 +54,7 @@ function calcNetWeight(ticket) {
   return Math.max(0, (gross - tare) / 1000); // kg -> MT
 }
 
-/* ─── Initial mock packs ─── */
+/* â”€â”€â”€ Initial mock packs â”€â”€â”€ */
 const INITIAL_PACKS = [
   {
     id: 1,
@@ -103,7 +103,7 @@ const INITIAL_PACKS = [
   },
 ];
 
-/* ─── Status badge ─── */
+/* â”€â”€â”€ Status badge â”€â”€â”€ */
 function StatusBadge({ status }) {
   const map = {
     Pending: "bg-amber-100 text-amber-800",
@@ -119,7 +119,7 @@ function StatusBadge({ status }) {
   );
 }
 
-/* ─── Main page ─── */
+/* â”€â”€â”€ Main page â”€â”€â”€ */
 export default function BulkPackingPage() {
   const [packs, setPacks] = useState(() => [...INITIAL_PACKS]);
   const [selectedPackId, setSelectedPackId] = useState(null);
@@ -137,7 +137,7 @@ export default function BulkPackingPage() {
   const customer = selectedPack ? MOCK_CUSTOMERS.find((c) => c.id === selectedPack.customerId) : null;
   const commodity = selectedPack ? MOCK_COMMODITIES.find((c) => c.id === selectedPack.commodityId) : null;
 
-  /* ── Ticket CRUD ── */
+  /* â”€â”€ Ticket CRUD â”€â”€ */
   function openNewTicket() {
     setEditingTicketId(null);
     setTicketForm(blankTicket());
@@ -219,7 +219,7 @@ export default function BulkPackingPage() {
       </div>
 
       <div className="flex gap-4" style={{ minHeight: 520 }}>
-        {/* ── Left: Pack list ── */}
+        {/* â”€â”€ Left: Pack list â”€â”€ */}
         <div className="w-72 shrink-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Bulk pack jobs</p>
@@ -248,8 +248,8 @@ export default function BulkPackingPage() {
                       <span className="font-bold text-brand">#{p.id}</span>
                       <StatusBadge status={p.status} />
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{p.jobReference || "—"}</p>
-                    <p className="text-xs text-slate-700">{cust?.name || "—"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{p.jobReference || "â€”"}</p>
+                    <p className="text-xs text-slate-700">{cust?.name || "â€”"}</p>
                     <p className="mt-1 text-[10px] text-slate-400">Tickets: {cnt}</p>
                   </button>
                 );
@@ -258,7 +258,7 @@ export default function BulkPackingPage() {
           </div>
         </div>
 
-        {/* ── Right: Selected pack detail + tickets ── */}
+        {/* â”€â”€ Right: Selected pack detail + tickets â”€â”€ */}
         <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           {!selectedPack ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
@@ -271,17 +271,17 @@ export default function BulkPackingPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-bold text-slate-900">
-                      Pack #{selectedPack.id} · {selectedPack.jobReference || "—"}
+                      Pack #{selectedPack.id} Â· {selectedPack.jobReference || "â€”"}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      {customer?.name} · {commodity?.description} · {selectedPack.importExport}
+                      {customer?.name} Â· {commodity?.description} Â· {selectedPack.importExport}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      Destination: {selectedPack.destinationCountry || "—"}{" "}
-                      {selectedPack.destinationPort ? `· ${selectedPack.destinationPort}` : ""}
+                      Destination: {selectedPack.destinationCountry || "â€”"}{" "}
+                      {selectedPack.destinationPort ? `Â· ${selectedPack.destinationPort}` : ""}
                     </p>
                     <p className="mt-0.5 text-[11px] text-slate-400">
-                      Test required: {selectedPack.testRequired ? "Yes" : "No"} · Shrink taken: {selectedPack.shrinkTaken ? "Yes" : "No"}
+                      Test required: {selectedPack.testRequired ? "Yes" : "No"} Â· Shrink taken: {selectedPack.shrinkTaken ? "Yes" : "No"}
                     </p>
                   </div>
                   {selectedPack.status === "Pending" && (
@@ -330,14 +330,14 @@ export default function BulkPackingPage() {
                           const canComplete = net > 0 && bt.grossWeight != null && bt.tareWeight != null && bt.locationId;
                           return (
                             <tr key={bt.id} className="border-b border-slate-50">
-                              <td className="px-3 py-2.5 text-slate-800">{bt.date || "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{truck?.name || "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{bt.grossWeight ?? "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{bt.tareWeight ?? "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.date || "â€”"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{truck?.name || "â€”"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.grossWeight ?? "â€”"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.tareWeight ?? "â€”"}</td>
                               <td className="px-3 py-2.5 font-semibold text-emerald-600">
-                                {net > 0 ? net.toFixed(3) : "—"}
+                                {net > 0 ? net.toFixed(3) : "â€”"}
                               </td>
-                              <td className="px-3 py-2.5 text-slate-800">{loc?.name || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{loc?.name || "â€”"}</td>
                               <td className="px-3 py-2.5">
                                 <StatusBadge status={bt.status} />
                               </td>
@@ -378,7 +378,7 @@ export default function BulkPackingPage() {
         </div>
       </div>
 
-      {/* ── Ticket modal ── */}
+      {/* â”€â”€ Ticket modal â”€â”€ */}
       <Modal
         open={ticketModalOpen}
         title={editingTicketId ? "Edit bulk ticket" : "Add bulk ticket"}
@@ -386,32 +386,32 @@ export default function BulkPackingPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Date" required>
-            <input type="date" className={inputClass} value={ticketForm.date || ""} onChange={(e) => set("date", e.target.value)} />
+            <input suppressHydrationWarning type="date" className={inputClass} value={ticketForm.date || ""} onChange={(e) => set("date", e.target.value)} />
           </FormField>
           <FormField label="Truck">
-            <select className={inputClass} value={ticketForm.truckId ?? ""} onChange={(e) => set("truckId", e.target.value)}>
-              <option value="">— Select —</option>
+            <select suppressHydrationWarning className={inputClass} value={ticketForm.truckId ?? ""} onChange={(e) => set("truckId", e.target.value)}>
+              <option value="">â€” Select â€”</option>
               {MOCK_TRUCKS.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
           </FormField>
           <FormField label="Gross weight (kg)">
-            <input type="number" className={inputClass} value={ticketForm.grossWeight ?? ""} onChange={(e) => set("grossWeight", e.target.value)} placeholder="kg" />
+            <input suppressHydrationWarning type="number" className={inputClass} value={ticketForm.grossWeight ?? ""} onChange={(e) => set("grossWeight", e.target.value)} placeholder="kg" />
           </FormField>
           <FormField label="Tare weight (kg)">
-            <input type="number" className={inputClass} value={ticketForm.tareWeight ?? ""} onChange={(e) => set("tareWeight", e.target.value)} placeholder="kg" />
+            <input suppressHydrationWarning type="number" className={inputClass} value={ticketForm.tareWeight ?? ""} onChange={(e) => set("tareWeight", e.target.value)} placeholder="kg" />
           </FormField>
           <FormField label="Location">
-            <select className={inputClass} value={ticketForm.locationId ?? ""} onChange={(e) => set("locationId", e.target.value)}>
-              <option value="">— Select —</option>
+            <select suppressHydrationWarning className={inputClass} value={ticketForm.locationId ?? ""} onChange={(e) => set("locationId", e.target.value)}>
+              <option value="">â€” Select â€”</option>
               {MOCK_STOCK_LOCATIONS.map((l) => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
           </FormField>
           <FormField label="Signoff">
-            <input className={inputClass} value={ticketForm.signoff || ""} onChange={(e) => set("signoff", e.target.value)} placeholder="Name" />
+            <input suppressHydrationWarning className={inputClass} value={ticketForm.signoff || ""} onChange={(e) => set("signoff", e.target.value)} placeholder="Name" />
           </FormField>
         </div>
         <div className="mt-3">
@@ -443,7 +443,7 @@ export default function BulkPackingPage() {
   );
 }
 
-/* ─── Sub components ─── */
+/* â”€â”€â”€ Sub components â”€â”€â”€ */
 
 function FormField({ label, required, wide, children }) {
   return (
@@ -470,7 +470,7 @@ function Modal({ open, title, onClose, children }) {
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
           <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            ×
+            Ã—
           </button>
         </div>
         <div className="p-4">{children}</div>

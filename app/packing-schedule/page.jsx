@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -32,7 +32,7 @@ const TABLE_COLUMNS = [
 ];
 
 function formatCutoffOrEtdDisplay(value) {
-  if (value == null || String(value).trim() === "") return "—";
+  if (value == null || String(value).trim() === "") return "â€”";
   const str = String(value).trim();
   if (str.includes("T")) {
     const [d, t] = str.split("T");
@@ -60,7 +60,7 @@ function emptyParkRaw(row, parkIdToName) {
 
 function emptyParkDisplay(row, parkIdToName) {
   const s = emptyParkRaw(row, parkIdToName);
-  return s || "—";
+  return s || "â€”";
 }
 export default function PackingSchedulePage() {
   const router = useRouter();
@@ -114,7 +114,7 @@ export default function PackingSchedulePage() {
           ...base,
           type: "text",
           valueGetter: emptyParkGetter,
-          format: (v) => (v ? String(v) : "—"),
+          format: (v) => (v ? String(v) : "â€”"),
         };
       }
       if (column.key === "vesselCutoffDate") {
@@ -147,7 +147,7 @@ export default function PackingSchedulePage() {
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-          <select className={`${inputClass} w-[160px]`} value={importExportFilter} onChange={(e) => setImportExportFilter(e.target.value)}>
+          <select suppressHydrationWarning className={`${inputClass} w-[160px]`} value={importExportFilter} onChange={(e) => setImportExportFilter(e.target.value)}>
             <option value="all">All (Import/Export)</option>
             <option value="Import">Import</option>
             <option value="Export">Export</option>
@@ -155,7 +155,7 @@ export default function PackingSchedulePage() {
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
-                <input type="radio" name="date-filter-mode" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
+                <input suppressHydrationWarning type="radio" name="date-filter-mode" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
@@ -166,7 +166,7 @@ export default function PackingSchedulePage() {
                 </span>
               </label>
               <label className="cursor-pointer">
-                <input type="radio" name="date-filter-mode" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
+                <input suppressHydrationWarning type="radio" name="date-filter-mode" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
@@ -177,7 +177,7 @@ export default function PackingSchedulePage() {
                 </span>
               </label>
             </div>
-            {searchByDate ? <input className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /> : null}
+            {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /> : null}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -279,7 +279,7 @@ function Field({ label, value }) {
   return (
     <div className="space-y-0.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "—"}</div>
+      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "â€”"}</div>
     </div>
   );
 }

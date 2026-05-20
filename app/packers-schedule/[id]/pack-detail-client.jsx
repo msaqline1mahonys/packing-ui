@@ -875,7 +875,7 @@ export default function PackDetailClient({ packId }) {
           </section>
           <section className="rounded-xl border border-slate-200/90 bg-white p-3">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Container list</label>
-            <textarea className={`${inputClass} min-h-[84px] w-full resize-y font-mono text-[12px]`} readOnly value={filteredContainerRows.map((container) => container.containerNo).join("\n")} />
+            <textarea suppressHydrationWarning className={`${inputClass} min-h-[84px] w-full resize-y font-mono text-[12px]`} readOnly value={filteredContainerRows.map((container) => container.containerNo).join("\n")} />
           </section>
         </aside>
 
@@ -1360,7 +1360,7 @@ function LabeledSelect({ label, value, options, onChange, placeholder = "Select 
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
-      <select className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+      <select suppressHydrationWarning className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
         <option value="">{options.length ? placeholder : "—"}</option>
         {options.map((option) => (
           <option key={option} value={option}>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -642,7 +642,7 @@ export default function GeneralPackPricingPage() {
         onSave={saveCp}
       >
         <FormRow label="Commodity" required>
-          <select className={inputClass} value={cpForm.commodityId} onChange={(event) => setCpForm({ ...cpForm, commodityId: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={cpForm.commodityId} onChange={(event) => setCpForm({ ...cpForm, commodityId: event.target.value })}>
             <option value="">Select commodity</option>
             {commodities.map((item) => {
               const type = commodityTypes.find((typeItem) => typeItem.id === item.commodityTypeId);
@@ -655,7 +655,7 @@ export default function GeneralPackPricingPage() {
           </select>
         </FormRow>
         <FormRow label="Container size" required>
-          <select className={inputClass} value={cpForm.containerSize} onChange={(event) => setCpForm({ ...cpForm, containerSize: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={cpForm.containerSize} onChange={(event) => setCpForm({ ...cpForm, containerSize: event.target.value })}>
             {containerSizes.map((size) => (
               <option key={size} value={size}>
                 {size}
@@ -684,7 +684,7 @@ export default function GeneralPackPricingPage() {
         onSave={saveCtcp}
       >
         <FormRow label="Customer" required>
-          <select className={inputClass} value={ctcpForm.customerId} onChange={(event) => setCtcpForm({ ...ctcpForm, customerId: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={ctcpForm.customerId} onChange={(event) => setCtcpForm({ ...ctcpForm, customerId: event.target.value })}>
             <option value="">Select customer</option>
             {customers.map((item) => (
               <option key={item.id} value={item.id}>
@@ -708,7 +708,7 @@ export default function GeneralPackPricingPage() {
           </select>
         </FormRow>
         <FormRow label="Container size" required>
-          <select className={inputClass} value={ctcpForm.containerSize} onChange={(event) => setCtcpForm({ ...ctcpForm, containerSize: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={ctcpForm.containerSize} onChange={(event) => setCtcpForm({ ...ctcpForm, containerSize: event.target.value })}>
             {containerSizes.map((size) => (
               <option key={size} value={size}>
                 {size}
@@ -737,7 +737,7 @@ export default function GeneralPackPricingPage() {
         onSave={saveCcp}
       >
         <FormRow label="Customer" required>
-          <select className={inputClass} value={ccpForm.customerId} onChange={(event) => setCcpForm({ ...ccpForm, customerId: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={ccpForm.customerId} onChange={(event) => setCcpForm({ ...ccpForm, customerId: event.target.value })}>
             <option value="">Select customer</option>
             {customers.map((item) => (
               <option key={item.id} value={item.id}>
@@ -747,7 +747,7 @@ export default function GeneralPackPricingPage() {
           </select>
         </FormRow>
         <FormRow label="Commodity" required>
-          <select className={inputClass} value={ccpForm.commodityId} onChange={(event) => setCcpForm({ ...ccpForm, commodityId: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={ccpForm.commodityId} onChange={(event) => setCcpForm({ ...ccpForm, commodityId: event.target.value })}>
             <option value="">Select commodity</option>
             {commodities.map((item) => {
               const type = commodityTypes.find((typeItem) => typeItem.id === item.commodityTypeId);
@@ -760,7 +760,7 @@ export default function GeneralPackPricingPage() {
           </select>
         </FormRow>
         <FormRow label="Container size" required>
-          <select className={inputClass} value={ccpForm.containerSize} onChange={(event) => setCcpForm({ ...ccpForm, containerSize: event.target.value })}>
+          <select suppressHydrationWarning className={inputClass} value={ccpForm.containerSize} onChange={(event) => setCcpForm({ ...ccpForm, containerSize: event.target.value })}>
             {containerSizes.map((size) => (
               <option key={size} value={size}>
                 {size}

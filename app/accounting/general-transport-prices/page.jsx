@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -278,10 +278,10 @@ export default function GeneralTransportPricesPage() {
                           isSelected ? "bg-brand/[0.07]" : "hover:bg-slate-50/90"
                         )}
                       >
-                        <td className="px-3 py-2.5 text-slate-700">{transporter?.label || "—"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.containerSize || "—"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.lineItemDescription || "—"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.price != null ? Number(row.price) : "—"}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{transporter?.label || "â€”"}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.containerSize || "â€”"}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.lineItemDescription || "â€”"}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.price != null ? Number(row.price) : "â€”"}</td>
                       </tr>
                     );
                   })
@@ -303,7 +303,7 @@ export default function GeneralTransportPricesPage() {
                   aria-label="Clear selection"
                   className="rounded px-1 text-lg leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
-                  ×
+                  Ã—
                 </button>
               ) : null}
             </div>
@@ -399,7 +399,7 @@ function Modal({ open, title, onClose, width, children }) {
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-sm font-bold text-[#20314d]">{title}</h2>
           <button type="button" onClick={onClose} className="rounded px-1 text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700">
-            ×
+            Ã—
           </button>
         </div>
         <div className="space-y-3 px-6 py-4">{children}</div>
@@ -421,11 +421,11 @@ function FormRow({ label, required, children }) {
 }
 
 function Input({ className, ...props }) {
-  return <input className={cn(inputClass, className)} {...props} />;
+  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function Select({ className, ...props }) {
-  return <select className={cn(inputClass, className)} {...props} />;
+  return <select suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

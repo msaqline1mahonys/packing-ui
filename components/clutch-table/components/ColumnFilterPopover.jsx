@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useMemo } from 'react'
 import {
@@ -19,9 +19,9 @@ const TEXT_OPS = [
 const NUMBER_OPS = [
   { value: 'equals', label: '=' },
   { value: 'gt', label: '>' },
-  { value: 'gte', label: '≥' },
+  { value: 'gte', label: 'â‰¥' },
   { value: 'lt', label: '<' },
-  { value: 'lte', label: '≤' },
+  { value: 'lte', label: 'â‰¤' },
   { value: 'between', label: 'Between' },
   { value: 'empty', label: 'Is empty' },
   { value: 'notEmpty', label: 'Is not empty' },
@@ -119,7 +119,7 @@ export function ColumnFilterPopover({ anchorEl, onClose, column, rows, currentFi
           <>
             <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
               <InputLabel>Operator</InputLabel>
-              <Select label="Operator" value={operator}
+              <Select label="Operator" value={operator} inputProps={{ suppressHydrationWarning: true }}
                 onChange={(e) => setOperator(e.target.value)}>
                 {ops.map((op) => (
                   <MenuItem key={op.value} value={op.value}>{op.label}</MenuItem>

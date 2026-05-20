@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -330,14 +330,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     }));
                   }}
                 >
-                  <option value="">— Select CMO —</option>
+                  <option value="">â€” Select CMO â€”</option>
                   {cmos
                     .filter((c) => c.direction === cmoDirection)
                     .map((c) => {
                       const cCommodity = commodities.find((com) => com.id === c.commodityId);
                       return (
                         <option key={c.id} value={c.id}>
-                          {c.cmoReference} — {cCommodity?.description || "Unknown"}
+                          {c.cmoReference} â€” {cCommodity?.description || "Unknown"}
                         </option>
                       );
                     })}
@@ -361,19 +361,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 <div className="mt-2 grid gap-2 text-xs text-slate-800 sm:grid-cols-2">
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Reference</div>
-                    <div className="font-semibold text-[#0f1e3d]">{cmo.cmoReference || "—"}</div>
+                    <div className="font-semibold text-[#0f1e3d]">{cmo.cmoReference || "â€”"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Customer / account</div>
-                    <div>{customer?.name || "—"}</div>
+                    <div>{customer?.name || "â€”"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">CMO commodity</div>
-                    <div>{cmoCommodity ? `${cmoCommodity.commodityCode || cmoCommodity.description || "—"}` : "—"}</div>
+                    <div>{cmoCommodity ? `${cmoCommodity.commodityCode || cmoCommodity.description || "â€”"}` : "â€”"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Status</div>
-                    <div>{cmo.status || "—"}</div>
+                    <div>{cmo.status || "â€”"}</div>
                   </div>
                 </div>
                 {getRemainingTonnage(ticket.cmoId) ? (
@@ -402,7 +402,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 disabled={isCompleted}
                 onChange={(e) => set("customerId", Number(e.target.value))}
               >
-                <option value="">— Select Customer / Account —</option>
+                <option value="">â€” Select Customer / Account â€”</option>
                 <optgroup label="Customers">
                   {customers.map((c) => (
                     <option key={`cust-${c.id}`} value={c.id}>
@@ -431,7 +431,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   set("commodityId", null);
                 }}
               >
-                <option value="">— Select Commodity Type —</option>
+                <option value="">â€” Select Commodity Type â€”</option>
                 {commodityTypes.map((ct) => (
                   <option key={ct.id} value={ct.id}>
                     {ct.name}
@@ -450,7 +450,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   set("commodityId", v ? Number(v) : null);
                 }}
               >
-                <option value="">— Select Commodity —</option>
+                <option value="">â€” Select Commodity â€”</option>
                 {commodities
                   .filter(
                     (c) =>
@@ -478,7 +478,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       set("truck", t || null);
                     }}
                   >
-                    <option value="">— Select Truck —</option>
+                    <option value="">â€” Select Truck â€”</option>
                     {trucks.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} ({t.driver})
@@ -571,7 +571,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 {netTotal > 0 ? (commodity?.unitType === "MT" ? netTotal / 1000 : netTotal).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 3,
-                }) : "—"}{" "}
+                }) : "â€”"}{" "}
                 <span className="text-[10px]">{commodity?.unitType === "MT" ? "t" : "kg"}</span>
               </span>
             </div>
@@ -610,7 +610,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.ticketReference}
                 disabled={isCompleted}
                 onChange={(e) => set("ticketReference", e.target.value)}
-                placeholder="Enter ticket reference…"
+                placeholder="Enter ticket referenceâ€¦"
               />
             </FormRow>
             <FormRow label="Additional Reference">
@@ -619,12 +619,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.additionalReference}
                 disabled={isCompleted}
                 onChange={(e) => set("additionalReference", e.target.value)}
-                placeholder="Enter additional reference…"
+                placeholder="Enter additional referenceâ€¦"
               />
             </FormRow>
             <FormRow label="Signoff">
-              <select className={inputClass} value={ticket.signoff} disabled={isCompleted} onChange={(e) => set("signoff", e.target.value)}>
-                <option value="">— Select User —</option>
+              <select suppressHydrationWarning className={inputClass} value={ticket.signoff} disabled={isCompleted} onChange={(e) => set("signoff", e.target.value)}>
+                <option value="">â€” Select User â€”</option>
                 {users
                   .filter((u) => u.active)
                   .map((u) => (
@@ -645,14 +645,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   setLocationWarning(locId ? validateLocationSelection(locId) : null);
                 }}
               >
-                <option value="">— Select Location —</option>
+                <option value="">â€” Select Location â€”</option>
                 {stockLocations
                   .filter((loc) => loc.status === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
                     const stockItems = getLocationStock(loc.id);
                     const stockInfo =
-                      stockItems.length > 0 ? ` — ${stockItems.map((item) => item.commodityTypeName).join(", ")}` : " — Empty";
+                      stockItems.length > 0 ? ` â€” ${stockItems.map((item) => item.commodityTypeName).join(", ")}` : " â€” Empty";
                     return (
                       <option key={loc.id} value={loc.id}>
                         {loc.name} ({loc.locationType}){stockInfo}
@@ -673,7 +673,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.notes}
                 disabled={isCompleted}
                 onChange={(e) => set("notes", e.target.value)}
-                placeholder="Add notes…"
+                placeholder="Add notesâ€¦"
               />
             </FormRow>
           </Card>
@@ -729,7 +729,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             value={newCmo.customerId}
             onChange={(e) => setNewCmo({ ...newCmo, customerId: e.target.value })}
           >
-            <option value="">— Select Customer / Account —</option>
+            <option value="">â€” Select Customer / Account â€”</option>
             <optgroup label="Customers">
               {customers.map((c) => (
                 <option key={`cust-${c.id}`} value={c.id}>
@@ -752,7 +752,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             value={newCmo.commodityTypeId}
             onChange={(e) => setNewCmo({ ...newCmo, commodityTypeId: e.target.value, commodityId: "" })}
           >
-            <option value="">— Select Commodity Type —</option>
+            <option value="">â€” Select Commodity Type â€”</option>
             {commodityTypes.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
@@ -767,7 +767,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             disabled={!newCmo.commodityTypeId}
             onChange={(e) => setNewCmo({ ...newCmo, commodityId: e.target.value })}
           >
-            <option value="">— Select Commodity —</option>
+            <option value="">â€” Select Commodity â€”</option>
             {commodities
               .filter(
                 (c) =>
@@ -885,7 +885,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             onClick={() => {
               if (newTruck.name.trim()) {
                 const nextId = Math.max(0, ...trucks.map((t) => t.id)) + 1;
-                setTrucks((prev) => [...prev, { id: nextId, name: newTruck.name.trim(), driver: newTruck.driver.trim() || "—" }]);
+                setTrucks((prev) => [...prev, { id: nextId, name: newTruck.name.trim(), driver: newTruck.driver.trim() || "â€”" }]);
                 setShowTruckModal(false);
                 setNewTruck({ name: "", driver: "", tare: "" });
               }
@@ -1061,8 +1061,8 @@ function CommodityIdentificationBody({
                       </span>
                       <span>
                         Value:{" "}
-                        <strong className={test.pass ? "text-emerald-700" : "text-red-700"}>{test.hasValue ? test.value : "—"}</strong>
-                        {" · "}
+                        <strong className={test.pass ? "text-emerald-700" : "text-red-700"}>{test.hasValue ? test.value : "â€”"}</strong>
+                        {" Â· "}
                         Range:{" "}
                         <strong>
                           {test.min}-{test.max}
@@ -1083,7 +1083,7 @@ function CommodityIdentificationBody({
           value={ticket.commodityId || ""}
           onChange={(e) => set("commodityId", Number(e.target.value))}
         >
-          <option value="">— Select Commodity —</option>
+          <option value="">â€” Select Commodity â€”</option>
           {commodities
             .filter((c) => c.commodityTypeId === ticket.commodityTypeId && c.status === "active")
             .map((comm) => {
@@ -1104,7 +1104,7 @@ function CommodityIdentificationBody({
             className={cn(inputClass, "min-h-[72px] resize-y")}
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}
-            placeholder="Explain why you're selecting a different commodity…"
+            placeholder="Explain why you're selecting a different commodityâ€¦"
             rows={3}
           />
         </FormRow>
@@ -1213,7 +1213,7 @@ function WeightSection({
                   className="h-8 self-end px-1 text-lg leading-none text-red-600 hover:text-red-800"
                   aria-label="Remove line"
                 >
-                  ×
+                  Ã—
                 </button>
               ) : null}
             </div>
@@ -1275,7 +1275,7 @@ function Modal({ open, title, wide, onClose, children }) {
             {title}
           </h2>
           <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            ×
+            Ã—
           </button>
         </div>
         <div className="p-4">{children}</div>

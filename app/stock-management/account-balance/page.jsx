@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
@@ -17,9 +17,9 @@ const TABS = [
 ];
 
 const MOCK_STOCK = [
-  { key: "cust-1-1-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 1, locationName: "Bay 1 – Main Shed", quantity: 180.5, unit: "MT" },
-  { key: "cust-1-2-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 2, commodityName: "Barley", locationId: 1, locationName: "Bay 1 – Main Shed", quantity: 60.0, unit: "MT" },
-  { key: "cust-2-3-2", accountKey: "cust-2", accountName: "GrainLink", accountType: "customer", commodityId: 3, commodityName: "Chickpeas", locationId: 2, locationName: "Bay 2 – Overflow", quantity: 22.5, unit: "MT" },
+  { key: "cust-1-1-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 1, locationName: "Bay 1 â€“ Main Shed", quantity: 180.5, unit: "MT" },
+  { key: "cust-1-2-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 2, commodityName: "Barley", locationId: 1, locationName: "Bay 1 â€“ Main Shed", quantity: 60.0, unit: "MT" },
+  { key: "cust-2-3-2", accountKey: "cust-2", accountName: "GrainLink", accountType: "customer", commodityId: 3, commodityName: "Chickpeas", locationId: 2, locationName: "Bay 2 â€“ Overflow", quantity: 22.5, unit: "MT" },
   { key: "cust-3-1-3", accountKey: "cust-3", accountName: "Southern Export", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 3, locationName: "Silo A", quantity: 45.0, unit: "MT" },
   { key: "cust-4-4-3", accountKey: "cust-4", accountName: "Pacific Traders", accountType: "customer", commodityId: 4, commodityName: "Canola", locationId: 3, locationName: "Silo A", quantity: 85.0, unit: "MT" },
   { key: "int-99-2-4", accountKey: "int-99", accountName: "Shrinkage Account", accountType: "internal", commodityId: 2, commodityName: "Barley", locationId: 4, locationName: "Silo B", quantity: 119.2, unit: "MT" },
@@ -73,7 +73,7 @@ export default function AccountBalancePage() {
     const commTotals = {};
     flattenedStock.forEach((r) => { commTotals[r.commodityName] = (commTotals[r.commodityName] || 0) + r.quantity; });
     const topComm = Object.entries(commTotals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
-    return { totalStock, accountCount, topCommodity: topComm ? topComm[0] : "—" };
+    return { totalStock, accountCount, topCommodity: topComm ? topComm[0] : "â€”" };
   }, [flattenedStock]);
 
   /* Groupings */
@@ -186,22 +186,22 @@ export default function AccountBalancePage() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <select className={cn(inputClass, "w-40")} value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
+        <select suppressHydrationWarning className={cn(inputClass, "w-40")} value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
           <option value="">All Accounts</option>
           {accounts.map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}
         </select>
-        <select className={cn(inputClass, "w-40")} value={filterCommodity} onChange={(e) => setFilterCommodity(e.target.value)}>
+        <select suppressHydrationWarning className={cn(inputClass, "w-40")} value={filterCommodity} onChange={(e) => setFilterCommodity(e.target.value)}>
           <option value="">All Commodities</option>
           {commodities.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
         </select>
-        <select className={cn(inputClass, "w-40")} value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)}>
+        <select suppressHydrationWarning className={cn(inputClass, "w-40")} value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)}>
           <option value="">All Locations</option>
           {locations.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
         </select>
 
         <div className="flex items-center gap-4 text-sm">
-          <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={showInternal} onChange={(e) => setShowInternal(e.target.checked)} /> Show Internal</label>
-          <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={showZeroBalances} onChange={(e) => setShowZeroBalances(e.target.checked)} /> Show Zero Balances</label>
+          <label className="flex cursor-pointer items-center gap-2"><input suppressHydrationWarning type="checkbox" checked={showInternal} onChange={(e) => setShowInternal(e.target.checked)} /> Show Internal</label>
+          <label className="flex cursor-pointer items-center gap-2"><input suppressHydrationWarning type="checkbox" checked={showZeroBalances} onChange={(e) => setShowZeroBalances(e.target.checked)} /> Show Zero Balances</label>
         </div>
 
         <div className="ml-auto text-sm text-slate-500">{flattenedStock.length} record(s) found</div>
@@ -237,7 +237,7 @@ export default function AccountBalancePage() {
                 return (
                   <div key={grp.key} className="mb-4 overflow-hidden rounded-lg border border-slate-200">
                     <div onClick={() => toggleExpanded(grp.key)} className="flex cursor-pointer items-center justify-between bg-slate-50 p-3 hover:bg-slate-100">
-                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "▼" : "▶"}</span>{grp.name} <Badge type={grp.type} /></span>
+                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "â–¼" : "â–¶"}</span>{grp.name} <Badge type={grp.type} /></span>
                       <span className={cn("font-bold", qtyColor(grp.total))}>{grp.total.toFixed(3)} MT</span>
                     </div>
                     {isExp && (
@@ -270,7 +270,7 @@ export default function AccountBalancePage() {
                 return (
                   <div key={grp.key} className="mb-4 overflow-hidden rounded-lg border border-slate-200">
                     <div onClick={() => toggleExpanded(grp.key)} className="flex cursor-pointer items-center justify-between bg-slate-50 p-3 hover:bg-slate-100">
-                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "▼" : "▶"}</span>{grp.name}</span>
+                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "â–¼" : "â–¶"}</span>{grp.name}</span>
                       <span className={cn("font-bold", qtyColor(grp.total))}>{grp.total.toFixed(3)} {grp.unit}</span>
                     </div>
                     {isExp && (
@@ -303,7 +303,7 @@ export default function AccountBalancePage() {
                 return (
                   <div key={grp.key} className="mb-4 overflow-hidden rounded-lg border border-slate-200">
                     <div onClick={() => toggleExpanded(grp.key)} className="flex cursor-pointer items-center justify-between bg-slate-50 p-3 hover:bg-slate-100">
-                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "▼" : "▶"}</span>{grp.name}</span>
+                      <span className="font-semibold text-slate-900"><span className="mr-2 text-[10px] text-slate-500">{isExp ? "â–¼" : "â–¶"}</span>{grp.name}</span>
                       <span className={cn("font-bold", qtyColor(grp.total))}>{grp.total.toFixed(3)} MT</span>
                     </div>
                     {isExp && (
@@ -345,7 +345,7 @@ export default function AccountBalancePage() {
                       <td className="p-3 font-semibold">{pivotData.accNames[a]} <Badge type={pivotData.accTypes[a]} /></td>
                       {pivotData.locs.map(l => {
                         const v = pivotData.cells[`${a}|${l}`] || 0;
-                        return <td key={l} className={cn("p-3 text-right font-medium", qtyColor(v))}>{v ? v.toFixed(2) : "—"}</td>;
+                        return <td key={l} className={cn("p-3 text-right font-medium", qtyColor(v))}>{v ? v.toFixed(2) : "â€”"}</td>;
                       })}
                       <td className={cn("bg-slate-50 p-3 text-right font-bold", qtyColor(pivotData.rowT[a]))}>{pivotData.rowT[a].toFixed(2)}</td>
                     </tr>

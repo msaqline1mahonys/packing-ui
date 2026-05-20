@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -72,8 +72,8 @@ export default function ContainerFormSections({
           <div className="space-y-1 md:col-span-2 xl:col-span-1">
             <label className="text-xs font-medium text-slate-600">Start Time (24-hour)</label>
             <div className="grid grid-cols-[1fr_92px_92px] gap-2">
-              <input className={inputClass} type="date" value={getValue(container, names, "startDate")} onChange={(event) => setField("startDate", event.target.value)} />
-              <select className={inputClass} value={getValue(container, names, "startHour")} onChange={(event) => setField("startHour", event.target.value)}>
+              <input suppressHydrationWarning className={inputClass} type="date" value={getValue(container, names, "startDate")} onChange={(event) => setField("startDate", event.target.value)} />
+              <select suppressHydrationWarning className={inputClass} value={getValue(container, names, "startHour")} onChange={(event) => setField("startHour", event.target.value)}>
                 <option value="">HH</option>
                 {Array.from({ length: 24 }).map((_, hour) => {
                   const option = String(hour).padStart(2, "0");
@@ -84,7 +84,7 @@ export default function ContainerFormSections({
                   );
                 })}
               </select>
-              <select className={inputClass} value={getValue(container, names, "startMinute")} onChange={(event) => setField("startMinute", event.target.value)}>
+              <select suppressHydrationWarning className={inputClass} value={getValue(container, names, "startMinute")} onChange={(event) => setField("startMinute", event.target.value)}>
                 <option value="">MM</option>
                 {["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map((minute) => (
                   <option key={minute} value={minute}>
@@ -165,7 +165,7 @@ export default function ContainerFormSections({
         </div>
         <div className="px-3 pb-3">
           <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark</label>
-          <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
+          <textarea suppressHydrationWarning className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
         </div>
       </div>
     </>
@@ -192,8 +192,8 @@ function PemsSelect({ label, value, options, onChange, inputClass }) {
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
-      <select className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)}>
-        <option value="">{options.length ? "Select option" : "—"}</option>
+      <select suppressHydrationWarning className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)}>
+        <option value="">{options.length ? "Select option" : "â€”"}</option>
         {options.map((option) => (
           <option key={option} value={option}>
             {option}

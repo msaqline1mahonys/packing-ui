@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 
@@ -24,7 +24,7 @@ const SAMPLE_TX = [
     id: 44020,
     transactionDate: "2026-05-01",
     ticketId: 8814,
-    account: "Internal — Screenings",
+    account: "Internal â€” Screenings",
     commodity: "Screenings mix",
     location: "Shed C",
     ticketType: "out",
@@ -96,20 +96,20 @@ export default function TransactionsClient() {
           className={`${inputClass} min-w-[180px] flex-1`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search transactions…"
+          placeholder="Search transactionsâ€¦"
         />
-        <select className={inputClass} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+        <select suppressHydrationWarning className={inputClass} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="all">All types</option>
           <option value="in">Incoming</option>
           <option value="out">Outgoing</option>
         </select>
-        <select className={inputClass} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+        <select suppressHydrationWarning className={inputClass} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           <option value="all">All statuses</option>
           <option value="active">Active</option>
           <option value="adjusted">Adjusted</option>
           <option value="reversed">Reversed</option>
         </select>
-        <input className={inputClass} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+        <input suppressHydrationWarning className={inputClass} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
         {selectedDate ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedDate("")}>
             Clear date

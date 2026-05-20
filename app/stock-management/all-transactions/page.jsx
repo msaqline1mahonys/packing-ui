@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-/* ─── Mock data ─── */
+/* â”€â”€â”€ Mock data â”€â”€â”€ */
 const MOCK_TRANSACTIONS = [
   { id: 1, transactionDate: "2026-05-10T09:14:00", ticketId: 201, ticketType: "in", transactionType: "deposit", accountId: 1, accountType: "customer", commodityId: 1, locationId: 1, quantity: 45.0, status: "active", reference: "TXN-001", notes: "" },
   { id: 2, transactionDate: "2026-05-10T09:14:00", ticketId: 201, ticketType: "in", transactionType: "shrinkage", accountId: 1, accountType: "customer", commodityId: 1, locationId: 1, quantity: -4.5, status: "active", reference: "TXN-001-S", notes: "10% shrinkage" },
@@ -36,23 +36,23 @@ const MOCK_COMMODITIES = [
   { id: 4, name: "Canola" },
 ];
 const MOCK_LOCATIONS = [
-  { id: 1, name: "Bay 1 – Main Shed" },
-  { id: 2, name: "Bay 2 – Overflow" },
+  { id: 1, name: "Bay 1 â€“ Main Shed" },
+  { id: 2, name: "Bay 2 â€“ Overflow" },
   { id: 3, name: "Silo A" },
   { id: 4, name: "Silo B" },
 ];
 
-/* ─── Helpers ─── */
+/* â”€â”€â”€ Helpers â”€â”€â”€ */
 const lookupAccount = (id, type) => {
   if (type === "customer") return MOCK_CUSTOMERS.find((c) => c.id === id)?.name ?? "Unknown";
   return MOCK_INTERNAL.find((a) => a.id === id)?.name ?? "Unknown";
 };
-const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "—";
-const lookupLocation = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "—";
-const fmtDate = (d) => (d ? (d.includes("T") ? d.split("T")[0] : d) : "—");
+const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "â€”";
+const lookupLocation = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "â€”";
+const fmtDate = (d) => (d ? (d.includes("T") ? d.split("T")[0] : d) : "â€”");
 const fmtQty = (q) => `${q >= 0 ? "+" : ""}${q.toFixed(3)}`;
 
-/* ─── Grid column definitions for clutch-table ─── */
+/* â”€â”€â”€ Grid column definitions for clutch-table â”€â”€â”€ */
 const gridColumns = [
   { key: "reference", header: "Reference", type: "text", sortable: true, filterable: true, resizable: true },
   { key: "date", header: "Date", type: "text", sortable: true, filterable: true, resizable: true },
@@ -66,7 +66,7 @@ const gridColumns = [
   { key: "status", header: "Status", type: "text", sortable: true, filterable: true, resizable: true },
 ];
 
-/* ─── Detail sidebar columns ─── */
+/* â”€â”€â”€ Detail sidebar columns â”€â”€â”€ */
 const DETAIL_COLUMNS = [
   { key: "reference", label: "Reference" },
   { key: "date", label: "Date" },
@@ -81,14 +81,14 @@ const DETAIL_COLUMNS = [
   { key: "notes", label: "Notes" },
 ];
 
-/* ─── Main ─── */
+/* â”€â”€â”€ Main â”€â”€â”€ */
 export default function AllTransactionsPage() {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("active");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedId, setSelectedId] = useState(null);
 
-  /* Base filter (everything except status — so summary reflects actual stock) */
+  /* Base filter (everything except status â€” so summary reflects actual stock) */
   const baseFiltered = useMemo(() => {
     return MOCK_TRANSACTIONS.filter((t) => {
       if (filterType !== "all" && t.ticketType !== filterType) return false;
@@ -97,7 +97,7 @@ export default function AllTransactionsPage() {
     });
   }, [filterType, selectedDate]);
 
-  /* Table rows — apply status filter + transform for Grid display */
+  /* Table rows â€” apply status filter + transform for Grid display */
   const displayRows = useMemo(() => {
     return baseFiltered
       .filter((t) => filterStatus === "all" || t.status === filterStatus)
@@ -112,11 +112,11 @@ export default function AllTransactionsPage() {
         ticketTypeDisplay: t.ticketType.toUpperCase(),
         transactionType: t.transactionType.charAt(0).toUpperCase() + t.transactionType.slice(1),
         quantityDisplay: fmtQty(t.quantity),
-        notes: t.notes || "—",
+        notes: t.notes || "â€”",
       }));
   }, [baseFiltered, filterStatus]);
 
-  /* Summary totals — always actual stock */
+  /* Summary totals â€” always actual stock */
   const totals = useMemo(() => {
     const eligible = baseFiltered.filter((t) => t.status === "active" || t.status === "reversed" || t.status === "adjusted");
     const deposits = eligible.filter((t) => t.quantity > 0).reduce((s, t) => s + t.quantity, 0);
@@ -135,25 +135,25 @@ export default function AllTransactionsPage() {
         <div>
           <p className="text-xs text-slate-500">Stock Management / All Transactions</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Transaction Ledger</h1>
-          <p className="mt-1 text-xs text-slate-500">Complete ledger of all stock movements — deposits, withdrawals, shrinkage, and adjustments.</p>
+          <p className="mt-1 text-xs text-slate-500">Complete ledger of all stock movements â€” deposits, withdrawals, shrinkage, and adjustments.</p>
         </div>
         <Link href="/stock-management/account-balance" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Account Balances</Link>
       </div>
 
       {/* Toolbar: filters + summary */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-        <select className={cn(inputClass, "w-36")} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+        <select suppressHydrationWarning className={cn(inputClass, "w-36")} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="all">All Types</option>
           <option value="in">Incoming</option>
           <option value="out">Outgoing</option>
         </select>
-        <select className={cn(inputClass, "w-36")} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+        <select suppressHydrationWarning className={cn(inputClass, "w-36")} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           <option value="all">All Statuses</option>
           <option value="active">Active</option>
           <option value="adjusted">Adjusted</option>
           <option value="reversed">Reversed</option>
         </select>
-        <input type="date" className={cn(inputClass, "w-40")} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+        <input suppressHydrationWarning type="date" className={cn(inputClass, "w-40")} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
         {selectedDate && <button type="button" onClick={() => setSelectedDate("")} className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-200">Clear Date</button>}
 
         <div className="ml-auto flex flex-wrap gap-4 text-xs">
@@ -197,11 +197,11 @@ export default function AllTransactionsPage() {
       <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
         <h3 className="mb-3 text-sm font-bold text-slate-900">Grain Bank System</h3>
         <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-          <p><strong>Incoming Tickets:</strong> 3 transactions — (1) DEPOSIT net weight to customer, (2) DEDUCT shrinkage from customer, (3) ADD shrinkage to shrink account.</p>
-          <p><strong>Outgoing Tickets:</strong> 1 transaction — WITHDRAW net weight from customer account. No shrinkage.</p>
+          <p><strong>Incoming Tickets:</strong> 3 transactions â€” (1) DEPOSIT net weight to customer, (2) DEDUCT shrinkage from customer, (3) ADD shrinkage to shrink account.</p>
+          <p><strong>Outgoing Tickets:</strong> 1 transaction â€” WITHDRAW net weight from customer account. No shrinkage.</p>
           <p><strong>Deposit:</strong> Stock added to customer account (positive quantity)</p>
           <p><strong>Withdrawal:</strong> Stock removed from customer account (negative quantity)</p>
-          <p><strong>Shrinkage:</strong> Handling loss — only on incoming tickets, calculated as % of net weight</p>
+          <p><strong>Shrinkage:</strong> Handling loss â€” only on incoming tickets, calculated as % of net weight</p>
           <p><strong>Adjustment:</strong> When a ticket weight is updated, old entries are marked Adjusted and new entries created</p>
           <p><strong>Active:</strong> Current valid transaction entries</p>
           <p><strong>Reversed:</strong> Cancelled due to ticket deletion</p>
@@ -215,7 +215,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
     </div>
   );
 }

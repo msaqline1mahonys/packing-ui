@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 
@@ -182,7 +182,7 @@ export default function InternalAccountsPage() {
             ) : (
               <div className="mt-4 space-y-3 text-sm">
                 <DetailItem label="Account Name" value={selected.name} highlight />
-                <DetailItem label="Description" value={selected.description || "—"} />
+                <DetailItem label="Description" value={selected.description || "â€”"} />
                 <DetailItem label="Shrink Applied" value={selected.shrinkApplied ? "Yes" : "No"} />
                 <DetailItem label="Shrink Receival Account" value={selected.shrinkReceivalAccount ? "Yes" : "No"} highlight={selected.shrinkReceivalAccount} />
 
@@ -306,9 +306,9 @@ function MobileList({ rows, selectedId, onSelect, search }) {
             >
               <p className="text-sm font-semibold text-slate-800">
                 {row.shrinkReceivalAccount ? <span className="me-1 text-amber-500">*</span> : null}
-                {row.name || "—"}
+                {row.name || "â€”"}
               </p>
-              <p className="mt-1 text-xs text-slate-600">{row.description || "—"}</p>
+              <p className="mt-1 text-xs text-slate-600">{row.description || "â€”"}</p>
               <p className="mt-1 text-[11px] text-slate-500">
                 Shrink applied: {row.shrinkApplied ? "Yes" : "No"}
                 {row.shrinkReceivalAccount ? " | Shrink receival account" : ""}
@@ -325,7 +325,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
     </div>
   );
 }
@@ -369,7 +369,7 @@ function FormRow({ label, required, children }) {
 }
 
 function Input({ className, ...props }) {
-  return <input className={cn(inputClass, className)} {...props} />;
+  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

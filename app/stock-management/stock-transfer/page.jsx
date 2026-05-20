@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-/* ─── Mock data ─── */
+/* â”€â”€â”€ Mock data â”€â”€â”€ */
 const MOCK_COMMODITY_TYPES = [
   { id: 1, name: "Grain" },
   { id: 2, name: "Pulse" },
@@ -22,8 +22,8 @@ const MOCK_COMMODITIES = [
   { id: 4, name: "Canola", code: "CNL", typeId: 3 },
 ];
 const MOCK_LOCATIONS = [
-  { id: 1, name: "Bay 1 – Main Shed", type: "Bay", stock: { 1: 180.5, 2: 60.0 } },
-  { id: 2, name: "Bay 2 – Overflow", type: "Bay", stock: { 3: 22.5 } },
+  { id: 1, name: "Bay 1 â€“ Main Shed", type: "Bay", stock: { 1: 180.5, 2: 60.0 } },
+  { id: 2, name: "Bay 2 â€“ Overflow", type: "Bay", stock: { 3: 22.5 } },
   { id: 3, name: "Silo A", type: "Silo", stock: { 1: 45.0, 4: 85.0 } },
   { id: 4, name: "Silo B", type: "Silo", stock: { 2: 119.2 } },
 ];
@@ -49,7 +49,7 @@ const gridColumns = [
   { key: "status", header: "Status", type: "text", sortable: true, filterable: true, resizable: true },
 ];
 
-/* ─── Main page ─── */
+/* â”€â”€â”€ Main page â”€â”€â”€ */
 export default function StockTransferPage() {
   const [transfers, setTransfers] = useState(() => [...INITIAL_TRANSFERS]);
   const [form, setForm] = useState(() => blankForm());
@@ -83,8 +83,8 @@ export default function StockTransferPage() {
   const fromLoc = MOCK_LOCATIONS.find((l) => l.id === Number(form.fromLocationId));
   const toLoc = MOCK_LOCATIONS.find((l) => l.id === Number(form.toLocationId));
   const selectedComm = MOCK_COMMODITIES.find((c) => c.id === Number(form.commodityId));
-  const lookupLoc = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "—";
-  const lookupComm = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "—";
+  const lookupLoc = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "â€”";
+  const lookupComm = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "â€”";
 
   function executeTransfer() {
     if (!canTransfer) return;
@@ -125,7 +125,7 @@ export default function StockTransferPage() {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Stock Transfer</h1>
         </div>
         <div className="flex gap-2">
-          <Link href="/stock-management/account-balance" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">← Account Balances</Link>
+          <Link href="/stock-management/account-balance" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">â† Account Balances</Link>
           <Link href="/stock-management/all-transactions" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">View Transactions</Link>
         </div>
       </div>
@@ -140,20 +140,20 @@ export default function StockTransferPage() {
         <h2 className="mb-4 text-sm font-bold text-slate-900">New Transfer</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Commodity Type" required>
-            <select className={inputClass} value={form.commodityTypeId} onChange={(e) => { set("commodityTypeId", e.target.value); set("commodityId", ""); }}>
-              <option value="">— Select Commodity Type —</option>
+            <select suppressHydrationWarning className={inputClass} value={form.commodityTypeId} onChange={(e) => { set("commodityTypeId", e.target.value); set("commodityId", ""); }}>
+              <option value="">â€” Select Commodity Type â€”</option>
               {MOCK_COMMODITY_TYPES.map((ct) => <option key={ct.id} value={ct.id}>{ct.name}</option>)}
             </select>
           </Field>
           <Field label="Commodity" required>
-            <select className={inputClass} value={form.commodityId} onChange={(e) => set("commodityId", e.target.value)} disabled={!form.commodityTypeId}>
-              <option value="">— Select Commodity —</option>
+            <select suppressHydrationWarning className={inputClass} value={form.commodityId} onChange={(e) => set("commodityId", e.target.value)} disabled={!form.commodityTypeId}>
+              <option value="">â€” Select Commodity â€”</option>
               {availableCommodities.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
             </select>
           </Field>
           <Field label="From Location" required>
-            <select className={inputClass} value={form.fromLocationId} onChange={(e) => set("fromLocationId", e.target.value)}>
-              <option value="">— Select Source Location —</option>
+            <select suppressHydrationWarning className={inputClass} value={form.fromLocationId} onChange={(e) => set("fromLocationId", e.target.value)}>
+              <option value="">â€” Select Source Location â€”</option>
               {MOCK_LOCATIONS.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
             </select>
             {form.fromLocationId && form.commodityId && (
@@ -161,22 +161,22 @@ export default function StockTransferPage() {
             )}
           </Field>
           <Field label="To Location" required>
-            <select className={inputClass} value={form.toLocationId} onChange={(e) => set("toLocationId", e.target.value)}>
-              <option value="">— Select Destination Location —</option>
+            <select suppressHydrationWarning className={inputClass} value={form.toLocationId} onChange={(e) => set("toLocationId", e.target.value)}>
+              <option value="">â€” Select Destination Location â€”</option>
               {toLocations.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
             </select>
           </Field>
           <Field label="Quantity (tonnes)" required>
-            <input type="number" step="0.01" min="0.01" className={inputClass} value={form.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="0.00" />
+            <input suppressHydrationWarning type="number" step="0.01" min="0.01" className={inputClass} value={form.quantity} onChange={(e) => set("quantity", e.target.value)} placeholder="0.00" />
             {form.quantity && qty > availableStock && (
               <p className="mt-1 text-[11px] font-semibold text-red-500">Exceeds available stock</p>
             )}
           </Field>
           <Field label="Reference">
-            <input className={inputClass} value={form.reference} onChange={(e) => set("reference", e.target.value)} placeholder="Optional reference number" />
+            <input suppressHydrationWarning className={inputClass} value={form.reference} onChange={(e) => set("reference", e.target.value)} placeholder="Optional reference number" />
           </Field>
           <Field label="Reason" wide>
-            <textarea className={cn(inputClass, "min-h-16 resize-y")} value={form.reason} onChange={(e) => set("reason", e.target.value)} placeholder="Reason for transfer…" rows={2} />
+            <textarea suppressHydrationWarning className={cn(inputClass, "min-h-16 resize-y")} value={form.reason} onChange={(e) => set("reason", e.target.value)} placeholder="Reason for transferâ€¦" rows={2} />
           </Field>
         </div>
       </div>
@@ -223,7 +223,7 @@ export default function StockTransferPage() {
       {showConfirmation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="max-w-sm rounded-xl bg-white p-8 text-center shadow-2xl">
-            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-600">✓</div>
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-600">âœ“</div>
             <h3 className="text-lg font-bold text-slate-900">Transfer Complete!</h3>
             <p className="mt-2 text-sm text-slate-500">
               {qty.toFixed(2)} t of {selectedComm?.name} has been transferred from {fromLoc?.name} to {toLoc?.name}
@@ -235,7 +235,7 @@ export default function StockTransferPage() {
   );
 }
 
-/* ─── Sub components ─── */
+/* â”€â”€â”€ Sub components â”€â”€â”€ */
 function Field({ label, required, wide, children }) {
   return (
     <div className={cn("space-y-1", wide && "sm:col-span-2")}>

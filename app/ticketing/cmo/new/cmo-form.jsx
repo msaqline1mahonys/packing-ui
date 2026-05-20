@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -112,10 +112,10 @@ export default function CmoForm() {
 
       <section className={sectionClass}>
         <div className="space-y-4">
-          <input className="h-10 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500" value="CMO reference will be auto-generated" disabled readOnly />
+          <input suppressHydrationWarning className="h-10 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500" value="CMO reference will be auto-generated" disabled readOnly />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Field label="Direction" required>
-              <select className={inputClass} value={form.direction} onChange={(e) => setField("direction", e.target.value)}>
+              <select suppressHydrationWarning className={inputClass} value={form.direction} onChange={(e) => setField("direction", e.target.value)}>
                 {DIRECTION_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -125,8 +125,8 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Customer / Account" required>
-              <select className={inputClass} value={form.customer} onChange={(e) => setField("customer", e.target.value)}>
-                <option value="">— Select Customer / Account —</option>
+              <select suppressHydrationWarning className={inputClass} value={form.customer} onChange={(e) => setField("customer", e.target.value)}>
+                <option value="">â€” Select Customer / Account â€”</option>
                 {CUSTOMER_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -136,8 +136,8 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Status" required>
-              <select className={inputClass} value={form.status} onChange={(e) => setField("status", e.target.value)}>
-                <option value="">— Select Status —</option>
+              <select suppressHydrationWarning className={inputClass} value={form.status} onChange={(e) => setField("status", e.target.value)}>
+                <option value="">â€” Select Status â€”</option>
                 {STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
                     {status}
@@ -155,7 +155,7 @@ export default function CmoForm() {
                   setField("commodity", "");
                 }}
               >
-                <option value="">— Select Commodity Type —</option>
+                <option value="">â€” Select Commodity Type â€”</option>
                 {COMMODITY_TYPE_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -165,8 +165,8 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Commodity" required>
-              <select className={inputClass} value={form.commodity} onChange={(e) => setField("commodity", e.target.value)} disabled={!form.commodityType}>
-                <option value="">— Select Commodity —</option>
+              <select suppressHydrationWarning className={inputClass} value={form.commodity} onChange={(e) => setField("commodity", e.target.value)} disabled={!form.commodityType}>
+                <option value="">â€” Select Commodity â€”</option>
                 {commodityChoices.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -176,11 +176,11 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Estimated Amount (T)">
-              <input className={inputClass} inputMode="decimal" value={form.estimatedAmount} onChange={(e) => setField("estimatedAmount", e.target.value)} />
+              <input suppressHydrationWarning className={inputClass} inputMode="decimal" value={form.estimatedAmount} onChange={(e) => setField("estimatedAmount", e.target.value)} />
             </Field>
 
             <Field label="Actual Amount Delivered (T)">
-              <input className={inputClass} inputMode="decimal" value={form.actualAmountDelivered} onChange={(e) => setField("actualAmountDelivered", e.target.value)} />
+              <input suppressHydrationWarning className={inputClass} inputMode="decimal" value={form.actualAmountDelivered} onChange={(e) => setField("actualAmountDelivered", e.target.value)} />
             </Field>
           </div>
         </div>
@@ -190,7 +190,7 @@ export default function CmoForm() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Field label="Additional References">
             <div className="flex gap-2">
-              <input className={inputClass} value={form.additionalReferenceDraft} onChange={(e) => setField("additionalReferenceDraft", e.target.value)} placeholder="e.g. REF-2024-001" />
+              <input suppressHydrationWarning className={inputClass} value={form.additionalReferenceDraft} onChange={(e) => setField("additionalReferenceDraft", e.target.value)} placeholder="e.g. REF-2024-001" />
               <Button type="button" variant="secondary" onClick={addAdditionalReference}>
                 + Add
               </Button>
@@ -240,7 +240,7 @@ export default function CmoForm() {
 
         <div className="mt-4">
           <Field label="Note">
-            <textarea className={`${inputClass} min-h-[90px] resize-y`} value={form.note} onChange={(e) => setField("note", e.target.value)} />
+            <textarea suppressHydrationWarning className={`${inputClass} min-h-[90px] resize-y`} value={form.note} onChange={(e) => setField("note", e.target.value)} />
           </Field>
         </div>
       </section>

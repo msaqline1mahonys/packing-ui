@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 
@@ -50,7 +50,7 @@ function toDisplayRow(row) {
     ...row,
     email: row.email || "",
     contacts,
-    contactsCount: contacts.length ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "—",
+    contactsCount: contacts.length ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "â€”",
   };
 }
 
@@ -198,15 +198,15 @@ export default function TransporterPage() {
               <p className="mt-4 text-sm leading-relaxed text-slate-500">Select a transporter to view details.</p>
             ) : (
               <div className="mt-4 space-y-3 text-sm">
-                <DetailItem label="Code" value={selected.code || "—"} />
+                <DetailItem label="Code" value={selected.code || "â€”"} />
                 <DetailItem label="Name" value={selected.name} highlight />
-                <DetailItem label="Email" value={selected.email || "—"} />
+                <DetailItem label="Email" value={selected.email || "â€”"} />
                 <DetailItem
                   label="Contact(s)"
                   value={
                     selected.contacts?.length
-                      ? selected.contacts.map((contact) => [contact.name, contact.email, contact.phone].filter(Boolean).join(" · ")).join(" | ")
-                      : "—"
+                      ? selected.contacts.map((contact) => [contact.name, contact.email, contact.phone].filter(Boolean).join(" Â· ")).join(" | ")
+                      : "â€”"
                   }
                 />
               </div>
@@ -218,11 +218,11 @@ export default function TransporterPage() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit transporter" : "Add transporter"} width={500}>
         <div className="space-y-3">
           <FormRow label="Code (optional)">
-            <Input value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
+            <input suppressHydrationWarning value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
           </FormRow>
 
           <FormRow label="Name" required>
-            <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Company name" />
+            <input suppressHydrationWarning value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Company name" />
           </FormRow>
 
           <FormRow label="Email">
@@ -257,9 +257,9 @@ export default function TransporterPage() {
                     Remove
                   </button>
                 </div>
-                <Input value={contact.name} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
-                <Input type="email" value={contact.email} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
-                <Input type="tel" value={contact.phone} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
+                <input suppressHydrationWarning value={contact.name} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
+                <input suppressHydrationWarning type="email" value={contact.email} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
+                <input suppressHydrationWarning type="tel" value={contact.phone} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
               </div>
             ))}
           </div>
@@ -306,9 +306,9 @@ function MobileList({ rows, selectedId, onSelect, search }) {
               onClick={() => onSelect(isSelected ? null : row.id)}
               className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
             >
-              <p className="text-xs font-bold text-blue-600">{row.code || "—"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "—"}</p>
-              <p className="mt-1 text-xs text-slate-600">{row.email || "—"}</p>
+              <p className="text-xs font-bold text-blue-600">{row.code || "â€”"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
+              <p className="mt-1 text-xs text-slate-600">{row.email || "â€”"}</p>
               <p className="mt-1 text-[11px] text-slate-500">{row.contactsCount}</p>
             </button>
           );
@@ -322,7 +322,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
     </div>
   );
 }
@@ -366,7 +366,7 @@ function FormRow({ label, required, children }) {
 }
 
 function Input({ className, ...props }) {
-  return <input className={cn(inputClass, className)} {...props} />;
+  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

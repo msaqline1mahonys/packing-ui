@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -330,7 +330,7 @@ export default function TrucksPage() {
                   disabled={!selected || isLoading || isDeleting}
                   onClick={removeSelected}
                 >
-                  {isDeleting ? "Deleting…" : "Delete"}
+                  {isDeleting ? "Deletingâ€¦" : "Delete"}
                 </Button>
               </div>
               <MobileList
@@ -355,7 +355,7 @@ export default function TrucksPage() {
               fileName={config.title}
               visibleRows={12}
               loading={isLoading}
-              emptyMessage={isLoading ? "Loading trucks…" : "No trucks found."}
+              emptyMessage={isLoading ? "Loading trucksâ€¦" : "No trucks found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
@@ -375,7 +375,7 @@ export default function TrucksPage() {
                     disabled={!selected || isLoading || isDeleting}
                     onClick={removeSelected}
                   >
-                    {isDeleting ? "Deleting…" : "Delete"}
+                    {isDeleting ? "Deletingâ€¦" : "Delete"}
                   </Button>
                 </div>
               }
@@ -424,7 +424,7 @@ export default function TrucksPage() {
             Cancel
           </Button>
           <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
-            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
+            {isSaving ? "Savingâ€¦" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
       </Modal>
@@ -436,7 +436,7 @@ export default function TrucksPage() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="fixed bottom-5 right-5 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-brand to-blue-500 text-xl text-white shadow-lg shadow-blue-500/30"
         >
-          ↑
+          â†‘
         </button>
       ) : null}
     </div>
@@ -451,7 +451,7 @@ function FormField({ field, value, onChange, disabled }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+        <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
           <option value="">Select...</option>
           {field.options?.map((option) => (
             <option key={option} value={option}>
@@ -484,7 +484,7 @@ function FormField({ field, value, onChange, disabled }) {
 
 function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
   const emptyMessage = isLoading
-    ? `Loading ${title.toLowerCase()}…`
+    ? `Loading ${title.toLowerCase()}â€¦`
     : search
       ? `No ${title.toLowerCase()} match your search.`
       : `No ${title.toLowerCase()} found. Add your first one!`;
@@ -498,7 +498,7 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
+          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" Â· ");
           return (
             <button
               key={row.id}
@@ -509,9 +509,9 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "—"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "—"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "—"}</p>
+              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{summary || "â€”"}</p>
             </button>
           );
         })
@@ -524,7 +524,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
     </div>
   );
 }

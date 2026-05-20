@@ -1,14 +1,14 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-/* ─── Constants ─── */
+/* â”€â”€â”€ Constants â”€â”€â”€ */
 const DAYS_OPTIONS = [7, 14, 21, 28];
 const DEFAULT_DAYS = 14;
 
-/* ─── Mock data ─── */
+/* â”€â”€â”€ Mock data â”€â”€â”€ */
 const MOCK_PACKERS = [
   { id: 1, name: "James Turner", status: "active" },
   { id: 2, name: "Sarah Mitchell", status: "active" },
@@ -38,7 +38,7 @@ const MOCK_PACKS = [
   { id: 105, jobReference: "JOB-2026-005", customerId: 1, commodityId: 1, assignedPackerIds: [4], status: "Scheduled", date: "2026-05-16", packType: "container", containersRequired: 5, mtTotal: 125 },
 ];
 
-/* ─── Helpers ─── */
+/* â”€â”€â”€ Helpers â”€â”€â”€ */
 function fmtDate(d) { return d.toISOString().split("T")[0]; }
 function fmtDisplay(d) {
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -49,7 +49,7 @@ function genDates(start, n) { const a = []; for (let i = 0; i < n; i++) { const 
 function isWeekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
 function isToday(d) { return d.toDateString() === new Date().toDateString(); }
 
-/* ─── Status helpers ─── */
+/* â”€â”€â”€ Status helpers â”€â”€â”€ */
 const STATUS_CLS = {
   Pending: "bg-amber-100 border-amber-300 text-amber-800",
   Scheduled: "bg-blue-100 border-blue-300 text-blue-800",
@@ -62,11 +62,11 @@ function StatusBadge({ status }) {
   return <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", STATUS_CLS[status] || "bg-slate-100 text-slate-500")}>{status}</span>;
 }
 
-/* ─── Lookup helpers ─── */
-const lookupCustomer = (id) => MOCK_CUSTOMERS.find((c) => c.id === id)?.name ?? "—";
-const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "—";
+/* â”€â”€â”€ Lookup helpers â”€â”€â”€ */
+const lookupCustomer = (id) => MOCK_CUSTOMERS.find((c) => c.id === id)?.name ?? "â€”";
+const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "â€”";
 
-/* ─── Main ─── */
+/* â”€â”€â”€ Main â”€â”€â”€ */
 export default function SchedulePage() {
   const [startDate, setStartDate] = useState(() => fmtDate(new Date()));
   const [daysCount, setDaysCount] = useState(DEFAULT_DAYS);
@@ -158,9 +158,9 @@ export default function SchedulePage() {
         <h1 className="text-base font-bold text-brand-ink">Packer Schedule</h1>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <span className="font-medium">Start date</span>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none focus:border-brand/40 focus:ring-1 focus:ring-brand/20" />
+          <input suppressHydrationWarning type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none focus:border-brand/40 focus:ring-1 focus:ring-brand/20" />
         </label>
-        <select value={daysCount} onChange={(e) => setDaysCount(Number(e.target.value))} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-600 outline-none focus:border-brand/40">
+        <select suppressHydrationWarning value={daysCount} onChange={(e) => setDaysCount(Number(e.target.value))} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-600 outline-none focus:border-brand/40">
           {DAYS_OPTIONS.map((d) => <option key={d} value={d}>{d} days</option>)}
         </select>
         <span className="hidden text-xs text-slate-400 lg:inline">Packers on Y axis, dates on X axis</span>
@@ -193,8 +193,8 @@ export default function SchedulePage() {
                   className={cn("w-full rounded-lg border px-3 py-2.5 text-left text-xs transition-colors", selectedUnassigned === p.id ? "border-brand bg-brand/5 ring-1 ring-brand/30" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50")}>
                   <div className="font-bold text-brand">#{p.id}</div>
                   <div className="mt-1 text-slate-700">{lookupCustomer(p.customerId)}</div>
-                  <div className="text-slate-400">{lookupCommodity(p.commodityId)} · {p.jobReference || "—"}</div>
-                  <div className="mt-1 text-slate-400">{p.containersRequired || 0} ctrs · {p.mtTotal || 0} MT</div>
+                  <div className="text-slate-400">{lookupCommodity(p.commodityId)} Â· {p.jobReference || "â€”"}</div>
+                  <div className="mt-1 text-slate-400">{p.containersRequired || 0} ctrs Â· {p.mtTotal || 0} MT</div>
                   <div className="mt-1"><StatusBadge status={p.status} /></div>
                 </button>
               ))}
@@ -225,7 +225,7 @@ export default function SchedulePage() {
                     const t = dayTotals[d] || { cnt: 0, mt: 0 };
                     return (
                       <td key={d} className="border-l border-slate-200/60 px-1.5 py-1.5 text-center text-[10px] font-semibold text-slate-500">
-                        {t.cnt > 0 || t.mt > 0 ? <>{t.cnt} cnt<br />{t.mt} MT</> : "—"}
+                        {t.cnt > 0 || t.mt > 0 ? <>{t.cnt} cnt<br />{t.mt} MT</> : "â€”"}
                       </td>
                     );
                   })}
@@ -238,7 +238,7 @@ export default function SchedulePage() {
                     <tr key={packer.id} className="border-t border-slate-100">
                       <td className="sticky left-0 z-10 bg-white px-3 py-2.5 border-r border-slate-200">
                         <div className="text-sm font-medium text-slate-800">{packer.name}</div>
-                        {(pt.cnt > 0 || pt.mt > 0) && <div className="mt-0.5 text-[9px] text-slate-400">{pt.cnt} cnt · {pt.mt} MT</div>}
+                        {(pt.cnt > 0 || pt.mt > 0) && <div className="mt-0.5 text-[9px] text-slate-400">{pt.cnt} cnt Â· {pt.mt} MT</div>}
                       </td>
                       {dates.map((d) => {
                         const ds = fmtDate(d);
@@ -251,21 +251,21 @@ export default function SchedulePage() {
                             <div className="space-y-1">
                               {cellPacks.map((p) => (
                                 <div key={p.id} className={cn("relative rounded-md border px-2 py-1.5 text-[11px] leading-tight transition-shadow hover:shadow-md", STATUS_CLS[p.status] || STATUS_CLS.Pending)}
-                                  title={`${p.jobReference} · ${lookupCustomer(p.customerId)} · ${lookupCommodity(p.commodityId)} · ${p.containersRequired} ctrs · ${p.mtTotal} MT`}>
+                                  title={`${p.jobReference} Â· ${lookupCustomer(p.customerId)} Â· ${lookupCommodity(p.commodityId)} Â· ${p.containersRequired} ctrs Â· ${p.mtTotal} MT`}>
                                   {/* Unassign button */}
                                   <button type="button" onClick={(e) => { e.stopPropagation(); unassignPack(p.id, packer.id); }}
                                     title="Remove from packer"
                                     className="absolute right-1 top-1 flex size-4 items-center justify-center rounded bg-red-50 text-[10px] text-red-500 hover:bg-red-100">
-                                    ×
+                                    Ã—
                                   </button>
                                   <div className="pr-5 font-bold">#{p.id}</div>
                                   <div className="mt-0.5 truncate opacity-80">{lookupCustomer(p.customerId)}</div>
-                                  <div className="mt-0.5 truncate text-[9px] opacity-60">{lookupCommodity(p.commodityId)} · {p.jobReference}</div>
+                                  <div className="mt-0.5 truncate text-[9px] opacity-60">{lookupCommodity(p.commodityId)} Â· {p.jobReference}</div>
                                   <div className="mt-1"><StatusBadge status={p.status} /></div>
                                 </div>
                               ))}
                               {cellPacks.length === 0 && (
-                                <span className="text-[10px] text-slate-300">{canAssign ? "Click to assign" : "—"}</span>
+                                <span className="text-[10px] text-slate-300">{canAssign ? "Click to assign" : "â€”"}</span>
                               )}
                             </div>
                           </td>
@@ -287,7 +287,7 @@ function FilterSelect({ label, value, onChange, options, allLabel }) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 outline-none focus:border-brand/40">
+      <select suppressHydrationWarning value={value} onChange={(e) => onChange(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 outline-none focus:border-brand/40">
         <option value="">{allLabel}</option>
         {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
       </select>

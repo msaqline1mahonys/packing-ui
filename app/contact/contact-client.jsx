@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 
@@ -38,18 +38,18 @@ export default function ContactClient() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase text-slate-500">Name</label>
-            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase text-slate-500">Email</label>
-            <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase text-slate-500">Role</label>
-            <input className={inputClass} value={role} onChange={(e) => setRole(e.target.value)} placeholder="Administrator, Warehouse..." />
+            <input suppressHydrationWarning className={inputClass} value={role} onChange={(e) => setRole(e.target.value)} placeholder="Administrator, Warehouse..." />
           </div>
           <label className="flex cursor-pointer items-center gap-2 pt-6 text-sm text-slate-700">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="rounded border-slate-300" />
+            <input suppressHydrationWarning type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="rounded border-slate-300" />
             Active
           </label>
         </div>
@@ -62,7 +62,7 @@ export default function ContactClient() {
       </section>
 
       <section className="space-y-3">
-        <input className={`${inputClass} max-w-md`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." />
+        <input suppressHydrationWarning className={`${inputClass} max-w-md`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." />
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <table className="w-full border-collapse text-left text-sm">
             <thead>

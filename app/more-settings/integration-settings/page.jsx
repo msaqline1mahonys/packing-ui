@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ export default function IntegrationSettingsPage() {
   const [sharedDraft, setSharedDraft] = useState({});
 
   const siteLabel = useMemo(
-    () => siteOptions.find((option) => option.id === selectedSiteId)?.label || "—",
+    () => siteOptions.find((option) => option.id === selectedSiteId)?.label || "â€”",
     [siteOptions, selectedSiteId]
   );
 
@@ -623,7 +623,7 @@ function Panel({ title, action, children, notConfigured }) {
 function ToggleRow({ label, checked, onChange }) {
   return (
     <label className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <input suppressHydrationWarning type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       {label}
     </label>
   );

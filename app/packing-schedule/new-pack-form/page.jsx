@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -68,7 +68,7 @@ const inputClass =
 const gridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
 const sectionClass = "rounded-xl border border-slate-200/95 bg-white p-5 shadow-sm";
 
-/** Site & import + Sample collapsible strips — quiet tint, barely-there brand */
+/** Site & import + Sample collapsible strips â€” quiet tint, barely-there brand */
 const accentDetailsClass =
   "group !mt-1.5 !mb-1.5 rounded-lg border border-slate-200/95 bg-gradient-to-br from-slate-50 via-sky-50/50 to-slate-50/90 px-2.5 py-1.5 shadow-sm open:border-slate-300/90 open:shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]";
 const accentDetailsRule = "border-t border-slate-200/80";
@@ -78,12 +78,12 @@ const accentChevronClass =
   "size-3 shrink-0 text-slate-400 transition-transform duration-200 ease-out group-open:rotate-180";
 
 function safeValue(value) {
-  if (value == null || String(value).trim() === "") return "—";
+  if (value == null || String(value).trim() === "") return "â€”";
   return String(value);
 }
 
 function formatDateTimeValue(value) {
-  if (value == null || String(value).trim() === "") return "—";
+  if (value == null || String(value).trim() === "") return "â€”";
   const str = String(value).trim();
   if (!str.includes("T")) return str;
   const [datePart, timePart] = str.split("T");
@@ -665,29 +665,29 @@ export default function NewPackFormPage() {
         if (park) parts.push(park);
         const tr = transporters.find((t) => t.id === Number(row.transporterId))?.name;
         if (tr) parts.push(tr);
-        return parts.length ? parts.join(" · ") : null;
+        return parts.length ? parts.join(" Â· ") : null;
       })
       .filter(Boolean);
 
     return {
-      customer: customerName || "—",
-      jobRef: String(pack.jobReference || "").trim() || "—",
-      commodity: commodityName || "—",
-      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim() || "—",
+      customer: customerName || "â€”",
+      jobRef: String(pack.jobReference || "").trim() || "â€”",
+      commodity: commodityName || "â€”",
+      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim() || "â€”",
       packWarning:
         pack.packWarningRequired && String(pack.packWarning || "").trim()
           ? String(pack.packWarning).trim()
-          : "—",
-      releases: releaseLines.length ? releaseLines.join(" • ") : "—",
+          : "â€”",
+      releases: releaseLines.length ? releaseLines.join(" â€¢ ") : "â€”",
       containers:
-        pack.containersRequired === "" || pack.containersRequired == null ? "—" : String(pack.containersRequired),
-      containerCode: String(pack.containerCode || "").trim() || "—",
-      mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : "—",
-      vessel: selectedVessel?.vessel?.trim() || "—",
-      etd: String(pack.etd || "").trim() || "—",
-      transshipment: String(pack.transshipmentPort || "").trim() || "—",
-      rfp: String(pack.rfp || "").trim() || "—",
-      edn: String(pack.edn || "").trim() || "—",
+        pack.containersRequired === "" || pack.containersRequired == null ? "â€”" : String(pack.containersRequired),
+      containerCode: String(pack.containerCode || "").trim() || "â€”",
+      mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : "â€”",
+      vessel: selectedVessel?.vessel?.trim() || "â€”",
+      etd: String(pack.etd || "").trim() || "â€”",
+      transshipment: String(pack.transshipmentPort || "").trim() || "â€”",
+      rfp: String(pack.rfp || "").trim() || "â€”",
+      edn: String(pack.edn || "").trim() || "â€”",
     };
   }, [
     pack.customerId,
@@ -920,19 +920,19 @@ export default function NewPackFormPage() {
       <section className={sectionClass} aria-label="Pack basics">
         <div className={gridClass}>
           <FormRow label="Pack type">
-            <select className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
               <option value="container">Container</option>
               <option value="bulk">Bulk</option>
             </select>
           </FormRow>
           <FormRow label="Import / Export">
-            <select className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
               <option value="Import">Import</option>
               <option value="Export">Export</option>
             </select>
           </FormRow>
           <FormRow label="Status">
-            <select className={inputClass} value={pack.status} onChange={(e) => set("status", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.status} onChange={(e) => set("status", e.target.value)}>
               {PACK_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -950,18 +950,18 @@ export default function NewPackFormPage() {
         </summary>
         <div className={cn("mt-1.5 grid gap-2 pt-2 sm:grid-cols-2 md:grid-cols-3", accentDetailsRule)}>
           <FormRow label="Site">
-            <input className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
+            <input suppressHydrationWarning className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
           </FormRow>
           {pack.packType === "bulk" ? (
             <FormRow label="Test required">
-              <select className={inputClass} value={pack.testRequired ? "yes" : "no"} onChange={(e) => set("testRequired", e.target.value === "yes")}>
+              <select suppressHydrationWarning className={inputClass} value={pack.testRequired ? "yes" : "no"} onChange={(e) => set("testRequired", e.target.value === "yes")}>
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
               </select>
             </FormRow>
           ) : null}
           <FormRow label="Shrink taken (Import jobs)">
-            <select className={inputClass} value={pack.shrinkTaken ? "yes" : "no"} onChange={(e) => set("shrinkTaken", e.target.value === "yes")}>
+            <select suppressHydrationWarning className={inputClass} value={pack.shrinkTaken ? "yes" : "no"} onChange={(e) => set("shrinkTaken", e.target.value === "yes")}>
               <option value="no">No</option>
               <option value="yes">Yes</option>
             </select>
@@ -972,7 +972,7 @@ export default function NewPackFormPage() {
       <section className={cn(sectionClass, "!mt-2")} aria-label="Basic details">
         <div className={gridClass}>
           <FormRow label="Customer">
-            <select className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
               <option value="">- Select -</option>
               {customerOptions.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -982,7 +982,7 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Exporter">
-            <select className={inputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
               <option value="">- Select -</option>
               {customerOptions.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -1014,13 +1014,13 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Job reference">
-            <input className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
+            <input suppressHydrationWarning className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
           </FormRow>
           <FormRow label="Packing start date">
-            <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
           </FormRow>
           <FormRow label="Pack confirmed">
-            <select className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
+            <select suppressHydrationWarning className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
               <option value="no">No</option>
               <option value="yes">Yes</option>
             </select>
@@ -1080,7 +1080,7 @@ export default function NewPackFormPage() {
               ) : null}
               {pack.fumigationRequired ? (
                 <FormRow label="DAFF Permission">
-                  <select className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
+                  <select suppressHydrationWarning className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
                     {DAFF_PERMISSION_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
@@ -1127,7 +1127,7 @@ export default function NewPackFormPage() {
                 className={`${inputClass} min-h-[88px] resize-y`}
                 value={pack.packWarning || ""}
                 onChange={(e) => set("packWarning", e.target.value)}
-                placeholder="Enter pack warning…"
+                placeholder="Enter pack warningâ€¦"
               />
             </FormRow>
           ) : null}
@@ -1268,13 +1268,13 @@ export default function NewPackFormPage() {
         <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/40 p-4">
           <div className="grid gap-3 md:grid-cols-[200px_180px_minmax(0,1fr)]">
             <FormRow label="Containers Required">
-              <input className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
+              <input suppressHydrationWarning className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
             </FormRow>
             <FormRow label="Containers Left To Pack">
-              <input className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
+              <input suppressHydrationWarning className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
             </FormRow>
             <FormRow label="Container Code">
-              <select className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
+              <select suppressHydrationWarning className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
                 <option value="">Find items</option>
                 {DEFAULT_CONTAINER_SIZES.map((size) => (
                   <option key={size} value={size}>
@@ -1312,8 +1312,8 @@ export default function NewPackFormPage() {
                 className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
                 readOnly
                 value={computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : ""}
-                placeholder="—"
-                title="Containers required × required tonnes per container"
+                placeholder="â€”"
+                title="Containers required Ã— required tonnes per container"
               />
             </FormRow>
           </div>
@@ -1323,7 +1323,7 @@ export default function NewPackFormPage() {
               Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
             </p>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Release number <span className="font-normal normal-case text-slate-400">· Release lines: {releaseRows.length}</span>
+              Release number <span className="font-normal normal-case text-slate-400">Â· Release lines: {releaseRows.length}</span>
             </p>
             {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
               <div key={`release-row-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
@@ -1403,7 +1403,7 @@ export default function NewPackFormPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Destination & shipping</h2>
         <div className={gridClass}>
           <FormRow label="Destination country">
-            <select className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
               <option value="">- Select country -</option>
               {countryOptions.map((country) => (
                 <option key={country} value={country}>
@@ -1413,16 +1413,16 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Destination port">
-            <input className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
+            <input suppressHydrationWarning className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
           </FormRow>
           <FormRow label="Transshipment port">
-            <input className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
+            <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
           </FormRow>
           <FormRow label="Transshipment port code">
-            <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
+            <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
           </FormRow>
           <FormRow label="Shipping line">
-            <select className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
+            <select suppressHydrationWarning className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
               <option value="">- Select -</option>
               {shippingLines.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -1457,10 +1457,10 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Voyage number">
-            <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
+            <input suppressHydrationWarning className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
           </FormRow>
           <FormRow label="Lloyd ID">
-            <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
+            <input suppressHydrationWarning className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
           </FormRow>
           <FormRow label="Add from CSV schedule">
             <select
@@ -1498,16 +1498,16 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Cut-off">
-            <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
           </FormRow>
           <FormRow label="ETD">
-            <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
           </FormRow>
           {selectedVessel ? (
             <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 sm:col-span-2 md:col-span-3">
               <span className="font-semibold text-slate-800">Vessel schedule: </span>
               {selectedVessel.vessel} {selectedVessel.voyageNumber ? `(${selectedVessel.voyageNumber})` : ""}
-              {selectedVessel.vesselCutoffDate ? ` · Cut-off: ${selectedVessel.vesselCutoffDate}` : ""}
+              {selectedVessel.vesselCutoffDate ? ` Â· Cut-off: ${selectedVessel.vesselCutoffDate}` : ""}
             </div>
           ) : null}
         </div>
@@ -1527,10 +1527,10 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="Import permit number">
-            <input className={inputClass} value={pack.importPermitNumber} onChange={(e) => set("importPermitNumber", e.target.value)} placeholder="Number" />
+            <input suppressHydrationWarning className={inputClass} value={pack.importPermitNumber} onChange={(e) => set("importPermitNumber", e.target.value)} placeholder="Number" />
           </FormRow>
           <FormRow label="Import permit date">
-            <input className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
           </FormRow>
         </div>
         <FormRow label="Import permit file(s)" className="mt-4">
@@ -1551,10 +1551,10 @@ export default function NewPackFormPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">RFP</h2>
         <div className={gridClass}>
           <FormRow label="RFP">
-            <input className={inputClass} value={pack.rfp} onChange={(e) => set("rfp", e.target.value)} placeholder="RFP reference" />
+            <input suppressHydrationWarning className={inputClass} value={pack.rfp} onChange={(e) => set("rfp", e.target.value)} placeholder="RFP reference" />
           </FormRow>
           <FormRow label="EDN">
-            <input className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
+            <input suppressHydrationWarning className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
           </FormRow>
           <FormRow label="RFP additional declaration required">
             <select
@@ -1567,13 +1567,13 @@ export default function NewPackFormPage() {
             </select>
           </FormRow>
           <FormRow label="RFP comment">
-            <input className={inputClass} value={pack.rfpComment} onChange={(e) => set("rfpComment", e.target.value)} placeholder="Comment" />
+            <input suppressHydrationWarning className={inputClass} value={pack.rfpComment} onChange={(e) => set("rfpComment", e.target.value)} placeholder="Comment" />
           </FormRow>
           <FormRow label="RFP expiry">
-            <input className={inputClass} type="date" value={pack.rfpExpiry} onChange={(e) => set("rfpExpiry", e.target.value)} />
+            <input suppressHydrationWarning className={inputClass} type="date" value={pack.rfpExpiry} onChange={(e) => set("rfpExpiry", e.target.value)} />
           </FormRow>
           <FormRow label="RFP commodity code">
-            <input className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
+            <input suppressHydrationWarning className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
           </FormRow>
         </div>
         <FormRow label="RFP file(s)" className="mt-4">
@@ -1625,7 +1625,7 @@ export default function NewPackFormPage() {
           />
         </FormRow>
         <FormRow label="Job notes" className="mt-4">
-          <textarea className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
+          <textarea suppressHydrationWarning className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
         </FormRow>
       </section>
       </>
@@ -1678,7 +1678,7 @@ export default function NewPackFormPage() {
               />
             </FormRow>
             <FormRow label="AO signoff">
-              <input className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
+              <input suppressHydrationWarning className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
             </FormRow>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2 lg:col-span-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
@@ -1767,7 +1767,7 @@ export default function NewPackFormPage() {
                       <span className="ms-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">{statusLabel}</span>
                     </div>
                     <div className="mt-0.5 text-[10px] text-slate-500">
-                      Seal {safeValue(container.sealNumber)} · Release {safeValue(container.releaseNumber)}
+                      Seal {safeValue(container.sealNumber)} Â· Release {safeValue(container.releaseNumber)}
                     </div>
                     <button
                       type="button"
@@ -1864,7 +1864,7 @@ export default function NewPackFormPage() {
                         <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
                       </div>
                       <p className="mt-0.5 text-[11px] text-slate-600">
-                        {safeValue(row.recordType)} · Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
+                        {safeValue(row.recordType)} Â· Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
                       </p>
                     </div>
                   ))}
@@ -1985,8 +1985,8 @@ export default function NewPackFormPage() {
                 {selectedFumigationMethodology.name}
                 {selectedFumigationMethodology.version ? ` ${selectedFumigationMethodology.version}` : ""}
               </p>
-              <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "—"}</p>
-              <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "—"}</p>
+              <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "â€”"}</p>
+              <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "â€”"}</p>
             </div>
           ) : null}
 

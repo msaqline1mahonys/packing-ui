@@ -88,10 +88,6 @@ This guide maps front-end data structures in `lib/Data.js` to backend schema exp
     - `(customer_id, commodity_type_id, container_size)`
     - `(customer_id, commodity_id, container_size)`
 
-- `GENERAL_TRANSPORT_PRICE_ROWS`
-  - Keys: `transporterId`, `containerSize`, `lineItemDescription`, `price`
-  - Suggested unique key: `(transporter_id, container_size, line_item_description)`
-
 - `FEES_AND_CHARGES_ROWS`
   - Keys: `chargeName`, `chargeDescription`, `chargeRate`, `chargeType`, `chargeClassification`, `accountCode`, `applyToAllPacks`
   - Enum/reference tables:

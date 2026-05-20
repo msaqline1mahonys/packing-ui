@@ -480,6 +480,7 @@ export default function NewPackFormPage() {
   const { dock, verticalExpanded } = useNavDock();
   const mode = searchParams.get("mode") === "edit" ? "edit" : "add";
   const editId = Number(searchParams.get("id"));
+  const requestedTab = searchParams.get("tab");
   const currentSite = Number(activeSiteId) || 1;
   const [vesselDepartures, setVesselDepartures] = useState([]);
   const [fumigants] = useState(() => loadFumigants());
@@ -493,7 +494,9 @@ export default function NewPackFormPage() {
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [samplePanelOpen, setSamplePanelOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(() =>
+    ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
+  );
   const [editingContainerId, setEditingContainerId] = useState(null);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
@@ -501,6 +504,11 @@ export default function NewPackFormPage() {
   const prevSampleRequiredRef = useRef(undefined);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
+
+  useEffect(() => {
+    if (!["general", "fumigation", "accounting", "pems"].includes(requestedTab || "")) return;
+    setActiveTab(requestedTab);
+  }, [requestedTab]);
   function addFiles(key, files) {
     const nextEntries = toFileEntries(files);
     if (!nextEntries.length) return;

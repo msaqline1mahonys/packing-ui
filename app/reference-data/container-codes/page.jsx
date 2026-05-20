@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { DEFAULT_CONTAINER_SIZES, REFERENCE_CONTAINER_CODE_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -22,28 +23,7 @@ const config = {
     { key: "maxWeight", label: "Max (t)", numeric: true },
     { key: "averageEmptyTare", label: "Tare (t)", numeric: true },
   ],
-  rows: [
-    {
-      id: 1,
-      isoCode: "22G1",
-      containerSize: "20ft",
-      description: "Dry freight",
-      cubicMeters: "33.2",
-      averageWeight: "21.5",
-      maxWeight: "28.0",
-      averageEmptyTare: "2.3",
-    },
-    {
-      id: 2,
-      isoCode: "42G1",
-      containerSize: "40ft",
-      description: "Dry freight high cube",
-      cubicMeters: "67.7",
-      averageWeight: "26.0",
-      maxWeight: "30.5",
-      averageEmptyTare: "3.8",
-    },
-  ],
+  rows: REFERENCE_CONTAINER_CODE_ROWS,
   formFields: [
     { key: "isoCode", label: "ISO Code", required: true, placeholder: "e.g. 22G1" },
     {
@@ -51,7 +31,7 @@ const config = {
       label: "Container Size",
       required: true,
       type: "select",
-      options: ["10ft", "20ft", "40ft", "45ft", "48ft", "53ft"],
+      options: DEFAULT_CONTAINER_SIZES,
     },
     { key: "description", label: "Description", placeholder: "Container description" },
     { key: "cubicMeters", label: "Cubic Meters (M3)", type: "number", placeholder: "0.0" },

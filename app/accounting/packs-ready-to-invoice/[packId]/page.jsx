@@ -51,7 +51,7 @@ export default function PackInvoiceBreakdownPage() {
   if (!selectedPack) {
     return (
       <div className="space-y-4">
-        <p className="text-xs text-slate-500">Accounting / Packs Ready To Invoice / Breakdown</p>
+        <p className="text-xs text-slate-500">Accounting / Ready To Invoice / Breakdown</p>
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
           Pack not found.{" "}
           <Link href="/accounting/packs-ready-to-invoice" className="font-semibold text-brand hover:underline">
@@ -67,7 +67,7 @@ export default function PackInvoiceBreakdownPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-slate-500">Accounting / Packs Ready To Invoice / Breakdown</p>
+          <p className="text-xs text-slate-500">Accounting / Ready To Invoice / Breakdown</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">
             Invoice Breakdown - {selectedPack.id}
           </h1>

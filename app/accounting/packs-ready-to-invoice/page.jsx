@@ -28,8 +28,8 @@ export default function PacksReadyToInvoicePage() {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-xs text-slate-500">Accounting / Packs Ready To Invoice</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Packs Ready To Invoice</h1>
+        <p className="text-xs text-slate-500">Accounting / Ready To Invoice</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Ready To Invoice</h1>
         <p className="mt-1 text-xs text-slate-500">
           Click a pack row to expand and view guideline cost lines, then use Edit Breakdown to update unit prices.
         </p>

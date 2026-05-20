@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
-import { INTERNAL_ACCOUNT_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const INTERNAL_ACCOUNTS_ENDPOINT = `${API_BASE_URL}/contacts/internal-accounts`;
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 const textareaClass =
@@ -19,7 +23,6 @@ const columns = [
   { key: "shrinkReceivalLabel", label: "Shrink Receival" },
 ];
 
-// Column definitions for clutch-table Grid
 const gridColumns = columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -29,16 +32,79 @@ const gridColumns = columns.map((col) => ({
   resizable: true,
 }));
 
-const initialRows = INTERNAL_ACCOUNT_ROWS;
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
 
-function toDisplayRow(row) {
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
   return {
-    ...row,
-    description: row.description || "",
-    shrinkApplied: row.shrinkApplied === true,
-    shrinkReceivalAccount: row.shrinkReceivalAccount === true,
-    shrinkAppliedLabel: row.shrinkApplied ? "Yes" : "No",
-    shrinkReceivalLabel: row.shrinkReceivalAccount ? "Yes" : "No",
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function internalAccountRequest(path = "", options = {}) {
+  const response = await fetch(`${INTERNAL_ACCOUNTS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Internal account request failed."));
+  }
+  return result;
+}
+
+function fromApiInternalAccount(row) {
+  if (!row) return null;
+
+  const shrinkApplied = Boolean(row.shrink_applied ?? row.shrinkApplied);
+  const shrinkReceivalAccount = Boolean(row.shrink_receival_account ?? row.shrinkReceivalAccount);
+
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    description: row.description ?? "",
+    shrinkApplied,
+    shrinkReceivalAccount,
+    shrinkAppliedLabel: shrinkApplied ? "Yes" : "No",
+    shrinkReceivalLabel: shrinkReceivalAccount ? "Yes" : "No",
+  };
+}
+
+function toApiPayload(formData) {
+  const tenant = getTenantPayload();
+
+  return {
+    ...tenant,
+    name: formData.name.trim(),
+    description: formData.description.trim() || null,
+    shrink_applied: formData.shrinkApplied === "yes",
+    shrink_receival_account: formData.shrinkReceivalAccount === "yes",
   };
 }
 
@@ -51,6 +117,7 @@ function buildFormData(row) {
       shrinkReceivalAccount: "no",
     };
   }
+
   return {
     name: row.name || "",
     description: row.description || "",
@@ -60,13 +127,40 @@ function buildFormData(row) {
 }
 
 export default function InternalAccountsPage() {
-  const [rows, setRows] = useState(() => initialRows.map(toDisplayRow));
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const loadInternalAccounts = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const result = await internalAccountRequest("?per_page=500");
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+      setRows(apiRows.map(fromApiInternalAccount).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load internal accounts.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadInternalAccounts();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadInternalAccounts]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -85,8 +179,11 @@ export default function InternalAccountsPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalOpen ? error : "";
 
   function openCreateModal() {
+    setError("");
+    setNotice("");
     setEditMode(false);
     setFormData(buildFormData());
     setModalOpen(true);
@@ -94,27 +191,35 @@ export default function InternalAccountsPage() {
 
   function openEditModal() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setEditMode(true);
     setFormData(buildFormData(selected));
     setModalOpen(true);
   }
 
-  function handleSubmit() {
+  function closeModal() {
+    if (isSaving) return;
+    setModalOpen(false);
+    setError("");
+  }
+
+  async function handleSubmit() {
     if (!formData.name.trim()) {
-      window.alert("Account Name is required.");
+      setError("Account name is required.");
       return;
     }
 
-    const nextRow = toDisplayRow({
-      id: editMode && selected ? selected.id : Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1,
-      name: formData.name.trim(),
-      description: formData.description.trim(),
-      shrinkApplied: formData.shrinkApplied === "yes",
-      shrinkReceivalAccount: formData.shrinkReceivalAccount === "yes",
-    });
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save an internal account.");
+      return;
+    }
 
-    if (nextRow.shrinkReceivalAccount) {
-      const existing = rows.find((row) => row.shrinkReceivalAccount && row.id !== nextRow.id);
+    if (formData.shrinkReceivalAccount === "yes") {
+      const existing = rows.find(
+        (row) => row.shrinkReceivalAccount && row.id !== (editMode && selected ? selected.id : null)
+      );
       if (existing) {
         const confirmed = window.confirm(
           `"${existing.name}" is currently set as the shrink receival account. Setting this account as the shrink receival account will remove that designation from "${existing.name}". Continue?`
@@ -123,36 +228,121 @@ export default function InternalAccountsPage() {
       }
     }
 
-    setRows((prev) => {
-      const withRow = editMode && selected ? prev.map((row) => (row.id === selected.id ? nextRow : row)) : [nextRow, ...prev];
-      if (!nextRow.shrinkReceivalAccount) return withRow;
-      return withRow.map((row) => (row.id === nextRow.id ? row : { ...row, shrinkReceivalAccount: false, shrinkReceivalLabel: "No" }));
-    });
+    setIsSaving(true);
+    setError("");
+    setNotice("");
 
-    setModalOpen(false);
-    setFormData(buildFormData());
-    setSelectedId(nextRow.id);
+    try {
+      const body = toApiPayload(formData);
+
+      if (!editMode) {
+        const result = await internalAccountRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiInternalAccount(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => {
+          const next = [nextRow, ...prev];
+          if (!nextRow.shrinkReceivalAccount) return next;
+          return next.map((row) =>
+            row.id === nextRow.id ? row : { ...row, shrinkReceivalAccount: false, shrinkReceivalLabel: "No" }
+          );
+        });
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Internal account created successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+        return;
+      }
+
+      if (selected) {
+        const result = await internalAccountRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiInternalAccount(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => {
+          const next = prev.map((row) => (row.id === selected.id ? nextRow : row));
+          if (!nextRow.shrinkReceivalAccount) return next;
+          return next.map((row) =>
+            row.id === nextRow.id ? row : { ...row, shrinkReceivalAccount: false, shrinkReceivalLabel: "No" }
+          );
+        });
+        setNotice(result.message || "Internal account updated successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save internal account.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function removeSelected() {
-    if (!selected) return;
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
     if (!window.confirm(`Delete internal account "${selected.name}" permanently?`)) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await internalAccountRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Internal account deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete internal account.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
+
+  const toolbarActions = (
+    <div className="flex flex-wrap gap-2">
+      <BtnPrimary type="button" onClick={openCreateModal} disabled={isLoading}>
+        + Add
+      </BtnPrimary>
+      <BtnSecondary type="button" onClick={loadInternalAccounts} disabled={isLoading}>
+        Refresh
+      </BtnSecondary>
+      <BtnSecondary type="button" disabled={!selected || isLoading} onClick={openEditModal}>
+        Edit
+      </BtnSecondary>
+      <BtnDanger type="button" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
+        {isDeleting ? "Deleting…" : "Delete"}
+      </BtnDanger>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
       <div>
         <p className="text-xs text-slate-500">Contacts / Internal Accounts</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Internal Accounts</h1>
-        {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage internal accounts and shrink handling designations.</p> : null}
+        {!isMobile ? (
+          <p className="mt-1 text-xs text-slate-500">Manage internal accounts and shrink handling designations.</p>
+        ) : null}
       </div>
+
+      {!modalOpen && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
 
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" />
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
+              <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" isLoading={isLoading} />
+            </>
           ) : (
             <Grid
               columns={gridColumns}
@@ -162,14 +352,10 @@ export default function InternalAccountsPage() {
               density="standard"
               fileName="Internal Accounts"
               visibleRows={12}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading internal accounts…" : "No internal accounts found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-              toolbarActions={
-                <div className="flex flex-wrap gap-2">
-                  <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>
-                  <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>Edit</BtnSecondary>
-                  <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>Delete</BtnDanger>
-                </div>
-              }
+              toolbarActions={toolbarActions}
             />
           )}
         </div>
@@ -184,7 +370,11 @@ export default function InternalAccountsPage() {
                 <DetailItem label="Account Name" value={selected.name} highlight />
                 <DetailItem label="Description" value={selected.description || "—"} />
                 <DetailItem label="Shrink Applied" value={selected.shrinkApplied ? "Yes" : "No"} />
-                <DetailItem label="Shrink Receival Account" value={selected.shrinkReceivalAccount ? "Yes" : "No"} highlight={selected.shrinkReceivalAccount} />
+                <DetailItem
+                  label="Shrink Receival Account"
+                  value={selected.shrinkReceivalAccount ? "Yes" : "No"}
+                  highlight={selected.shrinkReceivalAccount}
+                />
 
                 {selected.shrinkReceivalAccount ? (
                   <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
@@ -200,11 +390,16 @@ export default function InternalAccountsPage() {
                 ) : null}
 
                 <div className="mt-4 flex gap-2 border-t border-slate-200 pt-4">
-                  <BtnSecondary type="button" className="flex-1 justify-center" onClick={openEditModal}>
+                  <BtnSecondary type="button" className="flex-1 justify-center" disabled={isLoading} onClick={openEditModal}>
                     Edit Account
                   </BtnSecondary>
-                  <BtnDanger type="button" className="flex-1 justify-center" onClick={removeSelected}>
-                    Delete Account
+                  <BtnDanger
+                    type="button"
+                    className="flex-1 justify-center"
+                    disabled={isLoading || isDeleting}
+                    onClick={removeSelected}
+                  >
+                    {isDeleting ? "Deleting…" : "Delete Account"}
                   </BtnDanger>
                 </div>
               </div>
@@ -213,11 +408,20 @@ export default function InternalAccountsPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit Internal Account" : "Add New Internal Account"} width={600}>
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title={editMode ? "Edit Internal Account" : "Add New Internal Account"}
+        width={600}
+      >
+        {modalError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="space-y-3 pe-2">
           <FormRow label="Account Name" required>
             <Input
               value={formData.name}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, name: event.target.value })}
               placeholder="e.g., Quality Control"
             />
@@ -226,6 +430,7 @@ export default function InternalAccountsPage() {
           <FormRow label="Account Description">
             <textarea
               value={formData.description}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, description: event.target.value })}
               placeholder="Enter a description for this internal account"
               rows={3}
@@ -237,18 +442,22 @@ export default function InternalAccountsPage() {
             <select
               className={inputClass}
               value={formData.shrinkApplied}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, shrinkApplied: event.target.value })}
             >
               <option value="no">No</option>
               <option value="yes">Yes</option>
             </select>
-            <p className="mt-1 text-[11px] italic text-slate-500">Specifies whether shrink is applied on tickets being received for this account.</p>
+            <p className="mt-1 text-[11px] italic text-slate-500">
+              Specifies whether shrink is applied on tickets being received for this account.
+            </p>
           </FormRow>
 
           <FormRow label="Shrink Receival Account?">
             <select
               className={inputClass}
               value={formData.shrinkReceivalAccount}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, shrinkReceivalAccount: event.target.value })}
             >
               <option value="no">No</option>
@@ -261,10 +470,10 @@ export default function InternalAccountsPage() {
         </div>
 
         <div className="mt-5 flex gap-2 border-t border-slate-200 pt-4">
-          <BtnPrimary type="button" className="flex-1 justify-center" onClick={handleSubmit}>
-            {editMode ? "Update Account" : "Add Account"}
+          <BtnPrimary type="button" className="flex-1 justify-center" onClick={handleSubmit} disabled={isSaving}>
+            {isSaving ? "Saving…" : editMode ? "Update Account" : "Add Account"}
           </BtnPrimary>
-          <BtnSecondary type="button" className="flex-1 justify-center" onClick={() => setModalOpen(false)}>
+          <BtnSecondary type="button" className="flex-1 justify-center" onClick={closeModal} disabled={isSaving}>
             Cancel
           </BtnSecondary>
         </div>
@@ -284,8 +493,12 @@ export default function InternalAccountsPage() {
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search }) {
-  const emptyMessage = search ? "No internal accounts match your search." : "No internal accounts found. Add your first one!";
+function MobileList({ rows, selectedId, onSelect, search, isLoading }) {
+  const emptyMessage = isLoading
+    ? "Loading internal accounts…"
+    : search
+      ? "No internal accounts match your search."
+      : "No internal accounts found. Add your first one!";
   return (
     <div className="space-y-2 p-3">
       <div className="px-0.5 text-xs font-semibold text-slate-600">Internal Accounts ({rows.length})</div>
@@ -346,7 +559,11 @@ function Modal({ open, title, onClose, children, width = 640 }) {
           <h2 id="internal-accounts-modal-title" className="text-sm font-semibold text-slate-900">
             {title}
           </h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
             x
           </button>
         </div>

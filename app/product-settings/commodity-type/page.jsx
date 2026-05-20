@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import { COMMODITY_TYPE_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const COMMODITY_TYPES_ENDPOINT = `${API_BASE_URL}/reference-data/commodity-types`;
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
@@ -19,12 +23,6 @@ const config = {
     { key: "acosCode", label: "ACOS CODE" },
     { key: "testRequired", label: "TEST REQUIRED" },
   ],
-  rows: COMMODITY_TYPE_MASTER_ROWS.map((row) => ({
-    id: row.id,
-    name: row.name,
-    acosCode: row.acosCode,
-    testRequired: row.testRequired,
-  })),
   formFields: [
     { key: "name", label: "NAME", required: true, placeholder: "e.g., Wheat" },
     { key: "acosCode", label: "ACOS CODE", required: true, placeholder: "e.g., WHT001" },
@@ -38,7 +36,6 @@ const config = {
   ],
 };
 
-// Column definitions for clutch-table Grid
 const gridColumns = config.columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -48,10 +45,77 @@ const gridColumns = config.columns.map((col) => ({
   resizable: true,
 }));
 
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function commodityTypeRequest(path = "", options = {}) {
+  const response = await fetch(`${COMMODITY_TYPES_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Commodity type request failed."));
+  }
+  return result;
+}
+
+function fromApiCommodityType(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    acosCode: row.acos_code ?? row.acosCode ?? "",
+    testRequired: row.test_required ?? row.testRequired ?? "No",
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  return {
+    ...tenant,
+    name: String(draft.name ?? "").trim(),
+    acos_code: String(draft.acosCode ?? "").trim(),
+    test_required: draft.testRequired === "Yes" ? "Yes" : "No",
+  };
+}
+
 function buildDraft(row) {
-  const next = {};
+  const next = { testRequired: "No" };
   for (const field of config.formFields) {
-    next[field.key] = row?.[field.key] ?? "";
+    next[field.key] = row?.[field.key] ?? (field.key === "testRequired" ? "No" : "");
   }
   return next;
 }
@@ -64,12 +128,39 @@ function parseFieldValue(field, value) {
 }
 
 export default function CommodityTypePage() {
-  const [rows, setRows] = useState(() => [...config.rows]);
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const loadCommodityTypes = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const result = await commodityTypeRequest("?per_page=500");
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+      setRows(apiRows.map(fromApiCommodityType).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load commodity types.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadCommodityTypes();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadCommodityTypes]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -90,69 +181,167 @@ export default function CommodityTypePage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalMode ? error : "";
 
   function openAddModal() {
+    setError("");
+    setNotice("");
     setDraft(buildDraft());
     setModalMode("add");
   }
 
   function openEditModal() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
+    if (isSaving) return;
     setModalMode(null);
+    setError("");
   }
 
-  function saveModal() {
-    const requiredMissing = config.formFields.some((field) => field.required && !String(draft[field.key] ?? "").trim());
-    if (requiredMissing) return;
-    const normalized = {};
-    for (const field of config.formFields) normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
-
-    if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
-      const nextRow = { id: nextId, ...normalized };
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextId);
-      setModalMode(null);
+  async function saveModal() {
+    const requiredMissing = config.formFields.some(
+      (field) => field.required && !String(draft[field.key] ?? "").trim()
+    );
+    if (requiredMissing) {
+      setError("Please fill all required fields.");
       return;
     }
-    if (modalMode === "edit" && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? { ...row, ...normalized } : row)));
-      setModalMode(null);
+
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a commodity type.");
+      return;
+    }
+
+    const normalized = {};
+    for (const field of config.formFields) {
+      normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload({ ...draft, ...normalized });
+
+      if (modalMode === "add") {
+        const result = await commodityTypeRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCommodityType(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Commodity type created successfully.");
+        setModalMode(null);
+        return;
+      }
+
+      if (modalMode === "edit" && selected) {
+        const result = await commodityTypeRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCommodityType(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Commodity type updated successfully.");
+        setModalMode(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save commodity type.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
+    const shouldDelete = window.confirm(
+      `Delete commodity type "${selected.name || selected.acosCode || selected.id}"?`
+    );
+    if (!shouldDelete) return;
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await commodityTypeRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Commodity type deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete commodity type.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
+
+  const toolbarActions = (
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" onClick={openAddModal} disabled={isLoading}>
+        + Add
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={loadCommodityTypes} disabled={isLoading}>
+        Refresh
+      </Button>
+      <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEditModal}>
+        Edit
+      </Button>
+      <Button
+        type="button"
+        variant="destructive"
+        size="sm"
+        disabled={!selected || isLoading || isDeleting}
+        onClick={removeSelected}
+      >
+        {isDeleting ? "Deleting…" : "Delete"}
+      </Button>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-xs text-slate-500">Reference Data / {config.title}</p>
+        <p className="text-xs text-slate-500">Product Settings / {config.title}</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p> : null}
       </div>
 
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
+
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList
-              rows={rows}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              search=""
-              title={config.title}
-              primaryKey={config.columns[0]?.key}
-              secondaryKey={config.columns[2]?.key ?? config.columns[1]?.key}
-              summaryKeys={config.columns.slice(1, 4).map((column) => column.key)}
-            />
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
+              <MobileList
+                rows={rows}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                search=""
+                title={config.title}
+                isLoading={isLoading}
+                primaryKey={config.columns[0]?.key}
+                secondaryKey={config.columns[2]?.key ?? config.columns[1]?.key}
+                summaryKeys={config.columns.slice(1, 4).map((column) => column.key)}
+              />
+            </>
           ) : (
             <Grid
               columns={gridColumns}
@@ -162,14 +351,10 @@ export default function CommodityTypePage() {
               density="standard"
               fileName={config.title}
               visibleRows={12}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading commodity types…" : "No commodity types found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-              toolbarActions={
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={openAddModal}>+ Add</Button>
-                  <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEditModal}>Edit</Button>
-                  <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={removeSelected}>Delete</Button>
-                </div>
-              }
+              toolbarActions={toolbarActions}
             />
           )}
         </div>
@@ -182,7 +367,12 @@ export default function CommodityTypePage() {
             ) : (
               <dl className="mt-4 space-y-3 text-sm">
                 {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
+                  <DetailItem
+                    key={column.key}
+                    label={column.label}
+                    value={selected[column.key]}
+                    highlight={column === config.columns[0]}
+                  />
                 ))}
               </dl>
             )}
@@ -190,15 +380,32 @@ export default function CommodityTypePage() {
         ) : null}
       </div>
 
-      <Modal open={modalMode != null} title={modalMode === "edit" ? `Edit ${config.title}` : `Add ${config.title}`} onClose={closeModal}>
+      <Modal
+        open={modalMode != null}
+        title={modalMode === "edit" ? `Edit ${config.title}` : `Add ${config.title}`}
+        onClose={closeModal}
+      >
+        {modalError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields.map((field) => (
-            <FormField key={field.key} field={field} value={draft[field.key] ?? ""} onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))} />
+            <FormField
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              disabled={isSaving}
+              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+            />
           ))}
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>Cancel</Button>
-          <Button type="button" size="sm" onClick={saveModal}>{modalMode === "edit" ? "Save changes" : "Create"}</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
+          </Button>
         </div>
       </Modal>
 
@@ -216,7 +423,7 @@ export default function CommodityTypePage() {
   );
 }
 
-function FormField({ field, value, onChange }) {
+function FormField({ field, value, onChange, disabled }) {
   return (
     <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
@@ -224,26 +431,53 @@ function FormField({ field, value, onChange }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>
+        <select
+          className={inputClass}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        >
           <option value="">Select...</option>
           {field.options?.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>
+              {option}
+            </option>
           ))}
         </select>
       ) : field.type === "textarea" ? (
-        <textarea className={cn(inputClass, "min-h-20 resize-y")} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
+        <textarea
+          className={cn(inputClass, "min-h-20 resize-y")}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={field.placeholder}
+          rows={3}
+        />
       ) : (
-        <input type={field.type || "text"} className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
+        <input
+          type={field.type || "text"}
+          className={inputClass}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={field.placeholder}
+        />
       )}
     </div>
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys }) {
-  const emptyMessage = search ? `No ${title.toLowerCase()} match your search.` : `No ${title.toLowerCase()} found. Add your first one!`;
+function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
+  const emptyMessage = isLoading
+    ? `Loading ${title.toLowerCase()}…`
+    : search
+      ? `No ${title.toLowerCase()} match your search.`
+      : `No ${title.toLowerCase()} found. Add your first one!`;
   return (
     <div className="space-y-2 p-3">
-      <div className="px-0.5 text-xs font-semibold text-slate-600">{title} ({rows.length})</div>
+      <div className="px-0.5 text-xs font-semibold text-slate-600">
+        {title} ({rows.length})
+      </div>
       {rows.length === 0 ? (
         <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>
       ) : (
@@ -255,7 +489,10 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
               key={row.id}
               type="button"
               onClick={() => onSelect(isSelected ? null : row.id)}
-              className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
+              className={cn(
+                "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+              )}
             >
               <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "—"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "—"}</p>
@@ -282,10 +519,21 @@ function Modal({ open, title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-labelledby="reference-data-modal-title" className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reference-data-modal-title"
+        className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
-          <h2 id="reference-data-modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+          <h2 id="reference-data-modal-title" className="text-sm font-semibold text-slate-900">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
             x
           </button>
         </div>

@@ -5,7 +5,16 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print";
 import { formatDateTime } from "@/lib/fumigation-cert-print";
-import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import { ENCLOSURE_TYPES, FUMIGATION_TARGETS, RECORD_SECTIONS } from "@/lib/fumigation-fields";
+
+const ALL_RECORD_SECTION_KEYS = RECORD_SECTIONS.map((s) => s.key);
+
+/** True when the template enables the named section. Missing array = all enabled (back-compat). */
+function sectionEnabled(template, key) {
+  const sections = template?.sections;
+  if (!Array.isArray(sections)) return true;
+  return sections.includes(key);
+}
 
 function SectionTitle({ letter, title }) {
   return (
@@ -56,6 +65,11 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
   const fumigantName = model.fumigant?.name || "Fumigation";
   const readings = Array.isArray(model.concentrationReadings) ? model.concentrationReadings : [];
   const topUps = Array.isArray(model.topUpEntries) ? model.topUpEntries : [];
+  const template = model.template ?? {};
+  const headerLogo = template.logoDataUrl || "/mahonys-logo.png";
+  const footerLogo = template.footerLogoDataUrl || "";
+  const show = (key) => sectionEnabled(template, key);
+  void ALL_RECORD_SECTION_KEYS;
 
   return (
     <>
@@ -85,7 +99,12 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
         {/* ── HEADER ── */}
         <div className="flex items-start justify-between border-b-2 border-slate-800 pb-4 mb-5">
           <div className="shrink-0">
-            <Image src="/mahonys-logo.png" alt="Mahonys Packing" width={180} height={48} className="h-auto w-[150px] object-contain" priority />
+            {headerLogo.startsWith("data:") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={headerLogo} alt="Header logo" className="h-auto w-[150px] object-contain" />
+            ) : (
+              <Image src={headerLogo} alt="Mahonys Packing" width={180} height={48} className="h-auto w-[150px] object-contain" priority />
+            )}
           </div>
           <div className="text-right text-xs leading-snug text-slate-700">
             {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
@@ -104,6 +123,7 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
         </div>
 
         {/* ── SECTION A ── */}
+        {show("sectionA") && (
         <div className="mb-5">
           <SectionTitle letter="A" title="Fumigator in charge" />
           <table className="w-full text-xs border-collapse">
@@ -113,8 +133,10 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ── SECTION B ── */}
+        {show("sectionB") && (
         <div className="mb-5">
           <SectionTitle letter="B" title="Job details" />
           <table className="w-full text-xs border-collapse">
@@ -141,8 +163,10 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             </div>
           )}
         </div>
+        )}
 
         {/* ── SECTION C ── */}
+        {show("sectionC") && (
         <div className="mb-5">
           <SectionTitle letter="C" title="Fumigation details" />
 
@@ -228,8 +252,10 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             <CheckBox label={`Controlled temperature: Min enclosure temp ${model.actualTemperature || "—"}°C`} checked={model.fumigationType === "controlled"} />
           </div>
         </div>
+        )}
 
         {/* ── SECTION D ── */}
+        {show("sectionD") && (
         <div className="mb-5">
           <SectionTitle letter="D" title="Concentration readings" />
           <p className="text-xs text-gray-500 mb-2">
@@ -315,8 +341,10 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             </div>
           )}
         </div>
+        )}
 
         {/* ── SECTION E ── */}
+        {show("sectionE") && (
         <div className="mb-6">
           <SectionTitle letter="E" title="Fumigator declaration" />
           <p className="text-xs text-gray-700 mb-4 leading-relaxed">
@@ -358,11 +386,18 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             </div>
           )}
         </div>
+        )}
 
-        {/* ── FOOTER ── */}
-        {model.template?.footerText && (
-          <div className="mt-8 border-t border-slate-200 pt-4 text-center">
-            <p className="text-[10px] text-slate-400">{model.template.footerText}</p>
+        {/* ── FOOTER (logo + text) ── */}
+        {(template.footerText || footerLogo) && (
+          <div className="mt-8 border-t border-slate-200 pt-4 flex items-center justify-between gap-4">
+            <div className="flex-1 text-center">
+              {template.footerText && <p className="text-[10px] text-slate-400">{template.footerText}</p>}
+            </div>
+            {footerLogo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={footerLogo} alt="Footer logo" className="h-auto w-[110px] object-contain shrink-0" />
+            )}
           </div>
         )}
       </div>

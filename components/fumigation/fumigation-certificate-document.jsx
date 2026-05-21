@@ -6,7 +6,16 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print";
 import { formatDateTime } from "@/lib/fumigation-cert-print";
-import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import { CERTIFICATE_SECTIONS, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+
+const ALL_CERT_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
+
+/** True when the template enables the named section. Missing array = all enabled (back-compat). */
+function sectionEnabled(template, key) {
+  const sections = template?.sections;
+  if (!Array.isArray(sections)) return true;
+  return sections.includes(key);
+}
 
 /** Display a detail row; hides if value is empty */
 function Row({ label, value, className }) {
@@ -47,6 +56,12 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
   const handlePrint = () => { if (typeof window !== "undefined") window.print(); };
   const addr = model.siteAddress ?? {};
   const fumigantName = model.fumigant?.name || "Fumigation";
+  const template = model.template ?? {};
+  const headerLogo = template.logoDataUrl || "/mahonys-logo.png";
+  const footerLogo = template.footerLogoDataUrl || "";
+  const show = (key) => sectionEnabled(template, key);
+  // suppress unused warning when template defaults to everything
+  void ALL_CERT_SECTION_KEYS;
 
   return (
     <>
@@ -76,7 +91,12 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
         {/* ── HEADER ── */}
         <div className="flex items-start gap-4 border-b-2 border-slate-800 pb-4 mb-5">
           <div className="shrink-0">
-            <Image src="/mahonys-logo.png" alt="Mahonys" width={180} height={48} className="h-auto w-[160px] object-contain" priority />
+            {headerLogo.startsWith("data:") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={headerLogo} alt="Header logo" className="h-auto w-[160px] object-contain" />
+            ) : (
+              <Image src={headerLogo} alt="Mahonys" width={180} height={48} className="h-auto w-[160px] object-contain" priority />
+            )}
           </div>
           <div className="flex-1 text-right text-xs leading-tight text-slate-700">
             {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
@@ -111,6 +131,7 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
         </div>
 
         {/* ── CONSIGNMENT DETAILS ── */}
+        {show("consignment") && (
         <div className="mb-4">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">Consignment details</h2>
           <table className="w-full text-xs border-collapse">
@@ -127,8 +148,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ── TARGET & ENCLOSURE ── */}
+        {show("targetEnclosure") && (
         <div className="mb-4">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">Target of fumigation &amp; enclosure type</h2>
           <div className="flex flex-wrap gap-1 mb-2">
@@ -146,8 +169,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             })}
           </div>
         </div>
+        )}
 
         {/* ── TREATMENT SCHEDULE side-by-side ── */}
+        {show("schedule") && (
         <div className="mb-4 grid grid-cols-2 gap-3">
           <div className="rounded border border-gray-200 p-3">
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Treatment schedule (prescribed)</h2>
@@ -188,8 +213,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </table>
           </div>
         </div>
+        )}
 
         {/* ── TREATMENT DETAILS (always shown — fumigant-agnostic) ── */}
+        {show("treatmentDetails") && (
         <div className="mb-4">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">Treatment details</h2>
           <table className="w-full text-xs border-collapse">
@@ -211,9 +238,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ── END-POINT & CT (SF mandatory; harmless for other fumigants) ── */}
-        {(model.endPointConcentration || model.ctAchieved || model.ctRequired || model.thirdPartySystem) && (
+        {show("endpointCt") && (model.endPointConcentration || model.ctAchieved || model.ctRequired || model.thirdPartySystem) && (
           <div className="mb-4">
             <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">End-point concentration &amp; CT</h2>
             <table className="w-full text-xs border-collapse">
@@ -233,6 +261,7 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
         )}
 
         {/* ── PLACE OF FUMIGATION ── */}
+        {show("place") && (
         <div className="mb-4">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">Place of fumigation</h2>
           <table className="w-full text-xs border-collapse">
@@ -244,8 +273,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ── TIMES ── */}
+        {show("times") && (
         <div className="mb-4">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 border-b border-slate-200 pb-0.5">Treatment times</h2>
           <table className="w-full text-xs border-collapse">
@@ -259,8 +290,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ── DECLARATION ── */}
+        {show("declaration") && (
         <div className="mb-6 rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Declaration</h2>
           <p className="mb-3 leading-relaxed">
@@ -297,11 +330,16 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             </div>
           )}
         </div>
+        )}
 
-        {/* ── FOOTER ── */}
-        {model.template?.footerText && (
-          <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 text-center">
-            {model.template.footerText}
+        {/* ── FOOTER (logo + text) ── */}
+        {(template.footerText || footerLogo) && (
+          <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 flex items-center justify-between gap-4">
+            <div className="flex-1 text-center">{template.footerText}</div>
+            {footerLogo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={footerLogo} alt="Footer logo" className="h-auto w-[110px] object-contain shrink-0" />
+            )}
           </div>
         )}
       </div>

@@ -1,0 +1,545 @@
+"use client";
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { Plus, Trash2 } from "lucide-react";
+import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
+import {
+  EditorToolbar,
+  DocumentPreview,
+  SectionCard,
+  SectionHeading,
+  FormField,
+  inputClass,
+} from "@/components/fumigation/fumigation-form-primitives";
+import {
+  saveFumigationRecordSnapshot as saveRecordSnapshot,
+  loadFumigationRecordSnapshot as loadRecordSnapshot,
+  saveRecordIssue as issueRecord,
+} from "@/lib/fumigation-record-storage";
+import { resolveFumigationRecord } from "@/lib/fumigation-record-print";
+import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+
+// ─── Default concentration readings grid ─────────────────────────────────────
+
+function defaultReadings() {
+  return [
+    { id: 1, phase: "start", phaseLabel: "Start", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+    { id: 2, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+    { id: 3, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+    { id: 4, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+    { id: 5, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+    { id: 6, phase: "end", phaseLabel: "End", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+  ];
+}
+
+// ─── Normalize snapshot to handle older fields ────────────────────────────────
+
+function normalizeRecord(m) {
+  if (!m || typeof m !== "object") return null;
+  return {
+    issuedDate: "",
+    packRef: "",
+    packId: null,
+    // Section A
+    fumigatorName: "",
+    fumigatorAccreditationNumber: "",
+    // Section B
+    treatmentProviderId: "",
+    customerName: "",
+    customerAddress: "",
+    jobIdentificationNumber: "",
+    placeStreet: "",
+    placeSuburb: "",
+    placeCountry: "Australia",
+    placePostcode: "",
+    targetOfFumigation: [],
+    commodityDescription: "",
+    containerNumbers: [],
+    // Section C
+    enclosureType: "",
+    enclosureOtherText: "",
+    enclosureDescription: "",
+    enclosureLengthM: "",
+    enclosureWidthM: "",
+    enclosureHeightM: "",
+    volumeM3: "",
+    consignmentSuitable: null,
+    consignmentRemedialAction: "",
+    prescribedDoseRate: "",
+    prescribedDoseUnit: "g/m3",
+    prescribedExposure: "",
+    prescribedExposureUnit: "hours",
+    prescribedTemperature: "",
+    fumigationType: "ambient",
+    minForecastedTemperature: "",
+    minAmbientTemperature: "",
+    actualTemperature: "",
+    dosageValue: "",
+    dosageUnit: "g/m3",
+    calculatedDosageValue: "",
+    calculatedDosageUnit: "g",
+    actualDosageAppliedValue: "",
+    actualDosageAppliedUnit: "g",
+    chloropicrinUsed: null,
+    chloropicrinPercent: "",
+    heatersUsed: null,
+    endPointConcentration: "",
+    endPointConcentrationUnit: "g/m3",
+    ctRequired: "",
+    ctAchieved: "",
+    thirdPartySystem: false,
+    thirdPartySystemName: "",
+    exposureTimeValue: "",
+    exposureTimeUnit: "hours",
+    // Section D
+    monitoringDeviceSerials: "",
+    dosingFinishAt: "",
+    ventilationStartAt: "",
+    concentrationReadings: defaultReadings(),
+    finalTlvPpm1: "",
+    finalTlvPpm2: "",
+    finalTlvPpm3: "",
+    topUpEntries: [],
+    // Section E
+    fumigationResult: "",
+    governmentOfficerName: "",
+    governmentOfficerSignature: "",
+    // Meta
+    fumigant: null,
+    methodology: null,
+    template: null,
+    site: null,
+    siteAddress: null,
+    ...m,
+    concentrationReadings: m.concentrationReadings?.length ? m.concentrationReadings : defaultReadings(),
+    topUpEntries: Array.isArray(m.topUpEntries) ? m.topUpEntries : [],
+  };
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function FumigationRecordEditorClient({ packId }) {
+  const router = useRouter();
+  const numericPackId = Number(packId);
+
+  const fromPack = useMemo(
+    () => resolveFumigationRecord(numericPackId),
+    [numericPackId]
+  );
+
+  const [rec, setRec] = useState(() => {
+    const snap = loadRecordSnapshot(numericPackId);
+    return normalizeRecord(snap ?? fromPack);
+  });
+
+  useEffect(() => {
+    if (rec) saveRecordSnapshot(numericPackId, rec);
+  }, [rec, numericPackId]);
+
+  const set = useCallback((field, value) => {
+    setRec((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const refreshFromPack = useCallback(() => {
+    const fresh = resolveFumigationRecord(numericPackId);
+    if (fresh) setRec(normalizeRecord(fresh));
+  }, [numericPackId]);
+
+  // Concentration reading helpers
+  const updateReading = useCallback((rowId, col, value) => {
+    setRec((prev) => ({
+      ...prev,
+      concentrationReadings: (prev.concentrationReadings ?? []).map((r) =>
+        r.id === rowId ? { ...r, [col]: value } : r
+      ),
+    }));
+  }, []);
+
+  const addReadingRow = useCallback(() => {
+    setRec((prev) => {
+      const rows = prev.concentrationReadings ?? [];
+      const newId = Math.max(0, ...rows.map((r) => r.id)) + 1;
+      return {
+        ...prev,
+        concentrationReadings: [
+          ...rows,
+          { id: newId, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
+        ],
+      };
+    });
+  }, []);
+
+  const removeReadingRow = useCallback((rowId) => {
+    setRec((prev) => ({
+      ...prev,
+      concentrationReadings: (prev.concentrationReadings ?? []).filter((r) => r.id !== rowId),
+    }));
+  }, []);
+
+  // Top-up entry helpers
+  const addTopUp = useCallback(() => {
+    setRec((prev) => {
+      const entries = prev.topUpEntries ?? [];
+      const newId = Math.max(0, ...entries.map((e) => e.id)) + 1;
+      return { ...prev, topUpEntries: [...entries, { id: newId, amountGm3: "", time: "", concentrationGm3: "" }] };
+    });
+  }, []);
+
+  const updateTopUp = useCallback((id, col, value) => {
+    setRec((prev) => ({
+      ...prev,
+      topUpEntries: (prev.topUpEntries ?? []).map((e) => e.id === id ? { ...e, [col]: value } : e),
+    }));
+  }, []);
+
+  const removeTopUp = useCallback((id) => {
+    setRec((prev) => ({
+      ...prev,
+      topUpEntries: (prev.topUpEntries ?? []).filter((e) => e.id !== id),
+    }));
+  }, []);
+
+  const handleSaveAndPrint = useCallback(() => {
+    const final = { ...rec, issuedDate: rec.issuedDate || new Date().toLocaleDateString("en-AU") };
+    setRec(final);
+    issueRecord(numericPackId, final);
+    router.push(`/fumigation/records/${packId}/print`);
+  }, [rec, numericPackId, packId, router]);
+
+  const handleDiscard = useCallback(() => {
+    const fresh = resolveFumigationRecord(numericPackId);
+    if (fresh) setRec(normalizeRecord(fresh));
+  }, [numericPackId]);
+
+  if (!rec) {
+    return (
+      <div className="px-4 py-16 text-center text-sm text-slate-600">
+        No pack found for ID {packId}.
+      </div>
+    );
+  }
+
+  const smallInput = `${inputClass} text-[11px] py-1 px-1.5`;
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <EditorToolbar
+        title={`Record editor — ${rec.packRef || packId}`}
+        subtitle={rec.fumigant?.name ? `Fumigant: ${rec.fumigant.name}` : undefined}
+        onSaveAndPrint={handleSaveAndPrint}
+        onRefreshFromPack={refreshFromPack}
+        onDiscard={handleDiscard}
+        onBackToPack={() =>
+          router.push(`/packing-schedule/new-pack-form?mode=edit&id=${packId}&tab=fumigation`)
+        }
+      />
+
+      <div className="mx-auto grid max-w-screen-xl grid-cols-1 gap-6 px-4 py-6 xl:grid-cols-[1fr_480px]">
+
+        {/* ── FORM ── */}
+        <div className="space-y-5">
+
+          {/* Section A — Fumigator */}
+          <SectionCard>
+            <SectionHeading>Section A — Fumigator in charge (pre-filled from pack)</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField label="Full name">
+                <input className={inputClass} value={rec.fumigatorName ?? ""} onChange={(e) => set("fumigatorName", e.target.value)} />
+              </FormField>
+              <FormField label="Accreditation number">
+                <input className={inputClass} value={rec.fumigatorAccreditationNumber ?? ""} onChange={(e) => set("fumigatorAccreditationNumber", e.target.value)} />
+              </FormField>
+            </div>
+          </SectionCard>
+
+          {/* Section B — Job details */}
+          <SectionCard>
+            <SectionHeading>Section B — Job details (pre-filled from pack)</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField label="Treatment provider ID">
+                <input className={inputClass} value={rec.treatmentProviderId ?? ""} onChange={(e) => set("treatmentProviderId", e.target.value)} />
+              </FormField>
+              <FormField label="Client name / details">
+                <input className={inputClass} value={rec.customerName ?? ""} onChange={(e) => set("customerName", e.target.value)} />
+              </FormField>
+              <FormField label="Job identification number">
+                <input className={inputClass} value={rec.jobIdentificationNumber ?? ""} onChange={(e) => set("jobIdentificationNumber", e.target.value)} />
+              </FormField>
+              <FormField label="Consignment / Container numbers">
+                <input className={inputClass} value={(rec.containerNumbers ?? []).join(", ")} onChange={(e) => set("containerNumbers", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} placeholder="Comma-separated" />
+              </FormField>
+              <FormField label="Commodity description">
+                <input className={inputClass} value={rec.commodityDescription ?? ""} onChange={(e) => set("commodityDescription", e.target.value)} />
+              </FormField>
+              <FormField label="Target of fumigation" wide>
+                <div className="flex flex-wrap gap-3 pt-0.5">
+                  {FUMIGATION_TARGETS.map((t) => (
+                    <label key={t.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={(rec.targetOfFumigation ?? []).includes(t.value)}
+                        onChange={(e) => {
+                          const prev = rec.targetOfFumigation ?? [];
+                          set("targetOfFumigation", e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value));
+                        }}
+                      />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+            </div>
+          </SectionCard>
+
+          {/* Section C — Fumigation details */}
+          <SectionCard>
+            <SectionHeading>Section C — Fumigation details</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Enclosure type */}
+              <FormField label="Enclosure type" wide>
+                <div className="flex flex-wrap gap-3 pt-0.5">
+                  {ENCLOSURE_TYPES.map((e) => (
+                    <label key={e.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="enclosureType" value={e.value} checked={rec.enclosureType === e.value} onChange={() => set("enclosureType", e.value)} />
+                      {e.label}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+              {rec.enclosureType === "other" && (
+                <FormField label="Other enclosure description" wide>
+                  <input className={inputClass} value={rec.enclosureOtherText ?? ""} onChange={(e) => set("enclosureOtherText", e.target.value)} />
+                </FormField>
+              )}
+              <FormField label="Dimensions (L × W × H) m">
+                <div className="flex gap-2">
+                  <input className={inputClass} value={rec.enclosureLengthM ?? ""} onChange={(e) => set("enclosureLengthM", e.target.value)} placeholder="L" />
+                  <input className={inputClass} value={rec.enclosureWidthM ?? ""} onChange={(e) => set("enclosureWidthM", e.target.value)} placeholder="W" />
+                  <input className={inputClass} value={rec.enclosureHeightM ?? ""} onChange={(e) => set("enclosureHeightM", e.target.value)} placeholder="H" />
+                </div>
+              </FormField>
+              <FormField label="Volume (m3)">
+                <input className={inputClass} type="number" step="0.1" value={rec.volumeM3 ?? ""} onChange={(e) => set("volumeM3", e.target.value)} />
+              </FormField>
+              <FormField label="Consignment suitable?">
+                <div className="flex gap-4 pt-1">
+                  {[{ v: true, l: "Yes" }, { v: false, l: "No" }].map(({ v, l }) => (
+                    <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="recConsSuitable" checked={rec.consignmentSuitable === v} onChange={() => set("consignmentSuitable", v)} />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+              {rec.consignmentSuitable === false && (
+                <FormField label="Remedial action" wide>
+                  <textarea className={inputClass} rows={2} value={rec.consignmentRemedialAction ?? ""} onChange={(e) => set("consignmentRemedialAction", e.target.value)} />
+                </FormField>
+              )}
+              <FormField label="Prescribed dose rate (g/m3)">
+                <input className={inputClass} type="number" step="0.1" value={rec.prescribedDoseRate ?? ""} onChange={(e) => set("prescribedDoseRate", e.target.value)} />
+              </FormField>
+              <FormField label="Prescribed exposure (hours)">
+                <input className={inputClass} type="number" step="1" value={rec.prescribedExposure ?? ""} onChange={(e) => set("prescribedExposure", e.target.value)} />
+              </FormField>
+              <FormField label="Prescribed min temp (°C)">
+                <input className={inputClass} type="number" step="0.5" value={rec.prescribedTemperature ?? ""} onChange={(e) => set("prescribedTemperature", e.target.value)} />
+              </FormField>
+              <FormField label="Fumigation type" wide>
+                <div className="flex gap-4 pt-1">
+                  {[{ v: "ambient", l: "Ambient temperature" }, { v: "controlled", l: "Controlled temperature" }].map(({ v, l }) => (
+                    <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="recFumType" checked={rec.fumigationType === v} onChange={() => set("fumigationType", v)} />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="Min forecast temp (°C)">
+                <input className={inputClass} type="number" step="0.5" value={rec.minForecastedTemperature ?? ""} onChange={(e) => set("minForecastedTemperature", e.target.value)} />
+              </FormField>
+              <FormField label="Actual start temp (°C)">
+                <input className={inputClass} type="number" step="0.5" value={rec.actualTemperature ?? ""} onChange={(e) => set("actualTemperature", e.target.value)} />
+              </FormField>
+              <FormField label="Applied dose rate (g/m3)">
+                <input className={inputClass} type="number" step="0.1" value={rec.dosageValue ?? ""} onChange={(e) => set("dosageValue", e.target.value)} />
+              </FormField>
+              <FormField label="Applied exposure (hours)">
+                <input className={inputClass} type="number" step="1" value={rec.exposureTimeValue ?? ""} onChange={(e) => set("exposureTimeValue", e.target.value)} />
+              </FormField>
+              <FormField label="Calculated dose (g)">
+                <input className={inputClass} type="number" step="0.1" value={rec.calculatedDosageValue ?? ""} onChange={(e) => set("calculatedDosageValue", e.target.value)} />
+              </FormField>
+              <FormField label="Amount of fumigant applied (g)">
+                <input className={inputClass} type="number" step="0.1" value={rec.actualDosageAppliedValue ?? ""} onChange={(e) => set("actualDosageAppliedValue", e.target.value)} />
+              </FormField>
+              <FormField label="Chloropicrin used?">
+                <div className="flex gap-4 pt-1">
+                  {[{ v: true, l: "Yes" }, { v: false, l: "No" }].map(({ v, l }) => (
+                    <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="recChloropicrin" checked={rec.chloropicrinUsed === v} onChange={() => set("chloropicrinUsed", v)} />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+              {rec.chloropicrinUsed === true && (
+                <FormField label="Chloropicrin %">
+                  <input className={inputClass} type="number" step="0.1" value={rec.chloropicrinPercent ?? ""} onChange={(e) => set("chloropicrinPercent", e.target.value)} />
+                </FormField>
+              )}
+              <FormField label="Heaters used?">
+                <div className="flex gap-4 pt-1">
+                  {[{ v: true, l: "Yes" }, { v: false, l: "No" }].map(({ v, l }) => (
+                    <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="recHeaters" checked={rec.heatersUsed === v} onChange={() => set("heatersUsed", v)} />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="End-point concentration (g/m3)">
+                <input className={inputClass} type="number" step="0.01" value={rec.endPointConcentration ?? ""} onChange={(e) => set("endPointConcentration", e.target.value)} />
+              </FormField>
+              <FormField label="CT required (g·h/m3)">
+                <input className={inputClass} type="number" step="0.1" value={rec.ctRequired ?? ""} onChange={(e) => set("ctRequired", e.target.value)} />
+              </FormField>
+              <FormField label="CT achieved (g·h/m3)">
+                <input className={inputClass} type="number" step="0.1" value={rec.ctAchieved ?? ""} onChange={(e) => set("ctAchieved", e.target.value)} />
+              </FormField>
+              <FormField label="Approved 3rd-party CT system?">
+                <label className="flex items-center gap-1.5 text-sm pt-1 cursor-pointer">
+                  <input type="checkbox" checked={Boolean(rec.thirdPartySystem)} onChange={(e) => set("thirdPartySystem", e.target.checked)} />
+                  Used
+                </label>
+              </FormField>
+              {rec.thirdPartySystem && (
+                <FormField label="3rd-party system name" wide>
+                  <input className={inputClass} value={rec.thirdPartySystemName ?? ""} onChange={(e) => set("thirdPartySystemName", e.target.value)} />
+                </FormField>
+              )}
+            </div>
+          </SectionCard>
+
+          {/* Section D — Concentration readings */}
+          <SectionCard>
+            <SectionHeading>Section D — Concentration readings</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-4">
+              <FormField label="Monitoring device serial(s)" wide>
+                <input className={inputClass} value={rec.monitoringDeviceSerials ?? ""} onChange={(e) => set("monitoringDeviceSerials", e.target.value)} placeholder="Comma-separated" />
+              </FormField>
+              <FormField label="Fumigant injection finished">
+                <input className={inputClass} type="datetime-local" value={rec.dosingFinishAt ?? ""} onChange={(e) => set("dosingFinishAt", e.target.value)} />
+              </FormField>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px] border-collapse border border-slate-200 mb-2">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {["Phase", "Date (dd/mm)", "Time (hh:mm)", "Loc 1", "Loc 2", "Loc 3", "Loc 4", "Loc 5", "Eq%", "Std g/m3", "Initials", ""].map((h) => (
+                      <th key={h} className="border border-slate-200 px-1 py-1.5 text-left font-medium text-slate-500 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(rec.concentrationReadings ?? []).map((row) => (
+                    <tr key={row.id}>
+                      <td className="border border-slate-200 px-1 py-1">
+                        <select className="w-full text-[11px] bg-transparent outline-none" value={row.phase} onChange={(e) => updateReading(row.id, "phase", e.target.value)}>
+                          <option value="start">Start</option>
+                          <option value="during">During</option>
+                          <option value="end">End</option>
+                        </select>
+                      </td>
+                      {["date", "time", "location1", "location2", "location3", "location4", "location5", "equilibriumPercent", "standardGm3", "fumigatorInitials"].map((col) => (
+                        <td key={col} className="border border-slate-200 px-0.5 py-0.5">
+                          <input
+                            className={`${smallInput} w-full min-w-0`}
+                            style={{ border: "none", boxShadow: "none" }}
+                            value={row[col] ?? ""}
+                            onChange={(e) => updateReading(row.id, col, e.target.value)}
+                          />
+                        </td>
+                      ))}
+                      <td className="border border-slate-200 px-1 py-1 text-center">
+                        <button type="button" onClick={() => removeReadingRow(row.id)} className="text-slate-400 hover:text-red-500">
+                          <Trash2 className="size-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                type="button"
+                onClick={addReadingRow}
+                className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 font-medium mb-4"
+              >
+                <Plus className="size-3" /> Add reading row
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
+              <FormField label="Enclosure ventilation start">
+                <input className={inputClass} type="datetime-local" value={rec.ventilationStartAt ?? ""} onChange={(e) => set("ventilationStartAt", e.target.value)} />
+              </FormField>
+              <FormField label="Final TLV reading 1 (ppm)">
+                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm1 ?? ""} onChange={(e) => set("finalTlvPpm1", e.target.value)} />
+              </FormField>
+              <FormField label="Final TLV reading 2 (ppm)">
+                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm2 ?? ""} onChange={(e) => set("finalTlvPpm2", e.target.value)} />
+              </FormField>
+              <FormField label="Final TLV reading 3 (ppm)">
+                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm3 ?? ""} onChange={(e) => set("finalTlvPpm3", e.target.value)} />
+              </FormField>
+            </div>
+
+            {/* Top-up entries */}
+            <div>
+              <p className="text-xs font-medium text-slate-700 mb-2">Top-up details (if applicable)</p>
+              {(rec.topUpEntries ?? []).map((entry) => (
+                <div key={entry.id} className="flex items-center gap-2 mb-2">
+                  <input className={`${inputClass} flex-1`} placeholder="Amount (g/m3)" value={entry.amountGm3 ?? ""} onChange={(e) => updateTopUp(entry.id, "amountGm3", e.target.value)} />
+                  <input className={`${inputClass} flex-1`} placeholder="Time (hh:mm)" value={entry.time ?? ""} onChange={(e) => updateTopUp(entry.id, "time", e.target.value)} />
+                  <input className={`${inputClass} flex-1`} placeholder="Conc. (g/m3)" value={entry.concentrationGm3 ?? ""} onChange={(e) => updateTopUp(entry.id, "concentrationGm3", e.target.value)} />
+                  <button type="button" onClick={() => removeTopUp(entry.id)} className="text-slate-400 hover:text-red-500">
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={addTopUp} className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 font-medium">
+                <Plus className="size-3" /> Add top-up row
+              </button>
+            </div>
+          </SectionCard>
+
+          {/* Section E — Declaration */}
+          <SectionCard>
+            <SectionHeading>Section E — Declaration &amp; result</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField label="Fumigation result">
+                <select className={inputClass} value={rec.fumigationResult ?? ""} onChange={(e) => set("fumigationResult", e.target.value)}>
+                  <option value="">— select —</option>
+                  <option value="pass">Pass</option>
+                  <option value="fail">Fail</option>
+                </select>
+              </FormField>
+              <FormField label="Authorised officer (if supervised)">
+                <input className={inputClass} value={rec.governmentOfficerName ?? ""} onChange={(e) => set("governmentOfficerName", e.target.value)} placeholder="Authorised officer name" />
+              </FormField>
+            </div>
+          </SectionCard>
+
+        </div>
+
+        {/* ── LIVE PREVIEW ── */}
+        <DocumentPreview>
+          <FumigationRecordDocument model={rec} hideToolbar />
+        </DocumentPreview>
+
+      </div>
+    </div>
+  );
+}

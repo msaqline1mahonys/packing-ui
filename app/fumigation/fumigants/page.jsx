@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { loadFumigants, saveFumigants, nextLocalEntityId } from "@/lib/fumigation-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -11,29 +12,6 @@ const inputClass =
 
 const PRODUCT_FORMS = ["Cylinder", "Tablet", "Liquid", "Gas", "Granule"];
 const DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
-
-const initialRows = [
-  {
-    id: 1,
-    code: "PH3",
-    name: "Phosphine",
-    chemicalFamily: "Metal phosphide",
-    activeConstituent: "Phosphine gas",
-    productForm: "Cylinder",
-    reEntryPpm: "0.3",
-    defaultUnit: "ppm",
-  },
-  {
-    id: 2,
-    code: "MBR",
-    name: "Methyl Bromide",
-    chemicalFamily: "Halocarbon",
-    activeConstituent: "Bromomethane",
-    productForm: "Gas",
-    reEntryPpm: "5",
-    defaultUnit: "ppm",
-  },
-];
 
 function buildDraft(row) {
   return {
@@ -48,7 +26,10 @@ function buildDraft(row) {
 }
 
 export default function FumigantsPage() {
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    setRows(loadFumigants());
+  }, []);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -102,23 +83,29 @@ export default function FumigantsPage() {
     if (!draft.code.trim() || !draft.name.trim()) return;
 
     if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
+      const nextId = nextLocalEntityId(rows);
       const nextRow = { id: nextId, ...draft };
-      setRows((prev) => [nextRow, ...prev]);
+      const nextRows = [nextRow, ...rows];
+      saveFumigants(nextRows);
+      setRows(nextRows);
       setSelectedId(nextId);
       setModalMode(null);
       return;
     }
 
     if (modalMode === "edit" && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? { ...row, ...draft } : row)));
+      const nextRows = rows.map((row) => (row.id === selected.id ? { ...row, ...draft } : row));
+      saveFumigants(nextRows);
+      setRows(nextRows);
       setModalMode(null);
     }
   }
 
   function removeSelected() {
     if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
+    const nextRows = rows.filter((row) => row.id !== selected.id);
+    saveFumigants(nextRows);
+    setRows(nextRows);
     setSelectedId(null);
   }
 

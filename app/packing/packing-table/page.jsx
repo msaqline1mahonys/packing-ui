@@ -169,12 +169,12 @@ export default function PackingTablePage() {
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
 
   function openCreateForm() {
-    router.push("/packing/packing-table/packing-form?mode=create");
+    router.push("/packing-schedule/new-pack-form?mode=add");
   }
 
   function openEditForm() {
     if (!selected) return;
-    router.push(`/packing/packing-table/packing-form?mode=edit&id=${selected.id}`);
+    router.push(`/packing-schedule/new-pack-form?mode=edit&id=${selected.id}`);
   }
 
   function removeSelected() {

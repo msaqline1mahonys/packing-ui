@@ -21,6 +21,7 @@ const config = {
   columns: [
     { key: "terminalCode", label: "Terminal Code" },
     { key: "terminalName", label: "Terminal Name" },
+    { key: "portOfLoading", label: "Port of loading" },
     { key: "terminalContactsSummary", label: "Terminal Contact(s)" },
     { key: "revenuePrice", label: "Revenue Price", numeric: true },
     { key: "expensePrice", label: "Expense Price", numeric: true },
@@ -28,6 +29,7 @@ const config = {
   formFields: [
     { key: "terminalCode", label: "Terminal Code", required: true, placeholder: "e.g., TRM-01" },
     { key: "terminalName", label: "Terminal Name", required: true, placeholder: "e.g., North Terminal" },
+    { key: "portOfLoading", label: "Port of loading", placeholder: "e.g., Port of Melbourne" },
     { key: "notes", label: "Notes", type: "textarea", placeholder: "Optional notes" },
     { key: "revenuePrice", label: "Revenue Price", type: "number", placeholder: "0.00" },
     { key: "expensePrice", label: "Expense Price", type: "number", placeholder: "0.00" },
@@ -121,6 +123,7 @@ function fromApiTerminal(row) {
     id: row.id,
     terminalCode: row.code ?? row.terminalCode ?? "",
     terminalName: row.name ?? row.terminalName ?? "",
+    portOfLoading: row.port_of_loading ?? row.portOfLoading ?? "",
     notes: row.notes ?? "",
     revenuePrice: formatPrice(row.revenue_price ?? row.revenuePrice),
     expensePrice: formatPrice(row.expense_price ?? row.expensePrice),
@@ -146,6 +149,7 @@ function toApiPayload(draft) {
     ...tenant,
     code: String(draft.terminalCode ?? "").trim(),
     name: String(draft.terminalName ?? "").trim(),
+    port_of_loading: String(draft.portOfLoading ?? "").trim() || null,
     notes: String(draft.notes ?? "").trim() || null,
     revenue_price: draft.revenuePrice === "" ? null : draft.revenuePrice,
     expense_price: draft.expensePrice === "" ? null : draft.expensePrice,

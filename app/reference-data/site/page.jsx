@@ -24,6 +24,7 @@ const config = {
     { key: "status", label: "Status" },
     { key: "email", label: "Email" },
     { key: "phone", label: "Phone" },
+    { key: "treatmentProviderId", label: "Treatment provider ID" },
     { key: "isHeadOffice", label: "Head office" },
   ],
   formFields: [
@@ -31,6 +32,7 @@ const config = {
     { key: "code", label: "Code", placeholder: "Site code" },
     { key: "phone", label: "Phone", placeholder: "+61 …" },
     { key: "email", label: "Email", type: "email", placeholder: "contact@example.com" },
+    { key: "treatmentProviderId", label: "Treatment provider ID", placeholder: "ABF/AQIS registration / AEI / AA / ERE" },
     { key: "address", label: "Address", type: "textarea", placeholder: "Street, city…" },
     {
       key: "status",
@@ -109,6 +111,7 @@ function fromApiSite(site) {
     email: site.email ?? "",
     address: site.address ?? "",
     status: site.status ?? "",
+    treatmentProviderId: site.treatment_provider_id ?? site.treatmentProviderId ?? "",
     isHeadOffice: Boolean(site.is_head_office),
     organizationName: site.organization?.name ?? "",
     organizationId: site.organization_id ?? "",
@@ -125,6 +128,7 @@ function toApiCreateBody(draft) {
     address: String(draft.address ?? "").trim() || null,
     code: String(draft.code ?? "").trim() || null,
     status: String(draft.status ?? "active").trim() || "active",
+    treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
   };
 }
@@ -137,6 +141,7 @@ function toApiUpdateBody(draft) {
     address: String(draft.address ?? "").trim() || null,
     code: String(draft.code ?? "").trim() || null,
     status: String(draft.status ?? "active").trim() || "active",
+    treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
   };
 }

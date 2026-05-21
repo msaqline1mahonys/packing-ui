@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
@@ -14,7 +14,9 @@ import {
   PACK_FORM_LOOKUPS,
   PACK_STATUSES,
   PACK_TEMPLATE,
+  REFERENCE_CONTAINER_CODE_ROWS,
   REFERENCE_COUNTRIES_ROWS,
+  REFERENCE_TERMINAL_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
 import {
@@ -23,6 +25,7 @@ import {
   loadMethodologies,
   loadRecordTemplates,
 } from "@/lib/fumigation-store";
+import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
@@ -34,7 +37,7 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { readSiteRows } from "@/lib/site-data";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -150,27 +153,60 @@ function toRoundedNumber(value) {
 function blankFumigationDetail() {
   return {
     applicationMethod: "in-container",
+    fumigationType: "ambient",
+    targetOfFumigation: ["commodity"],
+    enclosureType: "",
+    enclosureOtherText: "",
     enclosureDescription: "",
+    enclosureLengthM: "",
+    enclosureWidthM: "",
+    enclosureHeightM: "",
     volumeM3: "",
+    consignmentSuitable: true,
+    consignmentRemedialAction: "",
     actualTonnage: "",
     minForecastedTemperature: "",
     minAmbientTemperature: "",
     actualTemperature: "",
+    prescribedDoseRate: "",
+    prescribedDoseUnit: "g/m3",
+    prescribedExposure: "",
+    prescribedExposureUnit: "hours",
+    prescribedTemperature: "",
     dosageValue: "",
-    dosageUnit: "ppm",
+    dosageUnit: "g/m3",
     calculatedDosageValue: "",
     calculatedDosageUnit: "g",
     specificDosageRateValue: "",
-    specificDosageRateUnit: "ppm",
+    specificDosageRateUnit: "g/m3",
     actualDosageAppliedValue: "",
     actualDosageAppliedUnit: "g",
+    chloropicrinUsed: null,
+    chloropicrinPercent: "",
+    heatersUsed: null,
+    endPointConcentration: "",
+    endPointConcentrationUnit: "g/m3",
+    ctRequired: "",
+    ctAchieved: "",
+    thirdPartySystem: false,
+    thirdPartySystemName: "",
     exposureTimeValue: "",
     exposureTimeUnit: "hours",
-    dosingFinishAt: "",
     fumigationStartAt: "",
+    dosingFinishAt: "",
     fumigationEndAt: "",
+    ventilationStartAt: "",
+    monitoringDeviceSerials: "",
+    finalTlvPpm1: "",
+    finalTlvPpm2: "",
+    finalTlvPpm3: "",
     clearanceValue: "",
+    topUpEntries: [],
     fumigatorName: "",
+    fumigationResult: "pass",
+    governmentOfficerName: "",
+    governmentOfficerSignature: "",
+    additionalDeclarations: "",
     fumigationNotes: "",
   };
 }
@@ -352,6 +388,11 @@ function rowToPack(row, siteId) {
     containerCode: row.containerCode || "",
     releaseDetails: Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
     destinationCountry: row.destinationCountry || "",
+    terminalId: row.terminalId ?? "",
+    portOfLoading: row.portOfLoading || "",
+    commodityCountryOfOrigin: row.commodityCountryOfOrigin || "Australia",
+    treatmentProviderId: row.treatmentProviderId || "",
+    fumigatorAccreditationNumber: row.fumigatorAccreditationNumber || "",
     vesselDepartureId: null,
     vesselName: row.vessel || "",
     packingStartDate: row.packingStartDate || "",
@@ -362,6 +403,7 @@ function rowToPack(row, siteId) {
     etd: row.etd || "",
     fumigation: row.fumigation || "",
     fumigationRequired: Boolean(row.fumigationRequired),
+    fumigationTiming: row.fumigationTiming || "",
     fumigantId: row.fumigantId ?? null,
     methodologyId: row.methodologyId ?? null,
     certificateTemplateId: row.certificateTemplateId ?? null,
@@ -426,6 +468,11 @@ function packToScheduleRow(pack, existingRow) {
     transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
     exporter: exporterName,
     destinationCountry: pack.destinationCountry || "",
+    terminalId: pack.terminalId ?? "",
+    portOfLoading: pack.portOfLoading || "",
+    commodityCountryOfOrigin: pack.commodityCountryOfOrigin || "Australia",
+    treatmentProviderId: pack.treatmentProviderId || "",
+    fumigatorAccreditationNumber: pack.fumigatorAccreditationNumber || "",
     vessel: pack.vesselName || existingRow?.vessel || "",
     packingStartDate: pack.packingStartDate || "",
     packConfirmed: Boolean(pack.packConfirmed),
@@ -435,6 +482,7 @@ function packToScheduleRow(pack, existingRow) {
     etd: pack.etd || "",
     fumigation: fumigationSummary,
     fumigationRequired: Boolean(pack.fumigationRequired),
+    fumigationTiming: pack.fumigationTiming || "",
     fumigantId: pack.fumigantId ? Number(pack.fumigantId) : null,
     methodologyId: pack.methodologyId ? Number(pack.methodologyId) : null,
     certificateTemplateId: pack.certificateTemplateId ? Number(pack.certificateTemplateId) : null,
@@ -501,6 +549,14 @@ const GPPIR_WEIGHT_UNIT = "M/TONS";
 const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
 
 export default function NewPackFormPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewPackFormPageInner />
+    </Suspense>
+  );
+}
+
+function NewPackFormPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { siteId: activeSiteId, site } = useSite();
@@ -572,6 +628,155 @@ export default function NewPackFormPage() {
     if (!methodologyId) return null;
     return methodologies.find((item) => Number(item.id) === methodologyId) || null;
   }, [pack.methodologyId, methodologies]);
+
+  /** Match a temperature value against the methodology's dosage bands (half-open [min, max)). */
+  const findBandForTemp = useCallback(
+    (rawTemp) => {
+      const ranges = selectedFumigationMethodology?.dosageRanges;
+      if (!Array.isArray(ranges) || ranges.length === 0) return null;
+      const t = Number(rawTemp);
+      if (!Number.isFinite(t)) return null;
+      return ranges.find((r) => Number(r.minTempC) <= t && t < Number(r.maxTempC)) ?? null;
+    },
+    [selectedFumigationMethodology],
+  );
+
+  // Prescribed schedule lookup is keyed off the forecast minimum temperature
+  const matchedPrescribedRange = useMemo(
+    () => findBandForTemp(fd.minForecastedTemperature),
+    [findBandForTemp, fd.minForecastedTemperature],
+  );
+  // Applied schedule lookup is keyed off the actual measured start temperature
+  const matchedAppliedRange = useMemo(
+    () => findBandForTemp(fd.actualTemperature),
+    [findBandForTemp, fd.actualTemperature],
+  );
+  // Reference-panel highlight uses whichever temperature the user has entered most recently
+  // (actual takes priority, falls back to forecast)
+  const matchedDosageRange = matchedAppliedRange ?? matchedPrescribedRange;
+
+  // Auto-prefill prescribed dose rate / exposure from the band matched against min forecast temp.
+  // Only writes when the prescribed field is currently empty so we don't clobber user edits.
+  useEffect(() => {
+    if (!matchedPrescribedRange) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.prescribedDoseRate) && !empty(current.prescribedExposure)) return;
+    updateFumigationDetail({
+      prescribedDoseRate: empty(current.prescribedDoseRate)
+        ? String(matchedPrescribedRange.dosageValue)
+        : current.prescribedDoseRate,
+      prescribedDoseUnit: matchedPrescribedRange.dosageUnit || "g/m3",
+      prescribedExposure: empty(current.prescribedExposure)
+        ? String(matchedPrescribedRange.exposureValue)
+        : current.prescribedExposure,
+      prescribedExposureUnit: matchedPrescribedRange.exposureUnit || "hours",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedPrescribedRange?.id]);
+
+  // Auto-prefill applied dose rate / exposure from the band matched against actual start temp.
+  useEffect(() => {
+    if (!matchedAppliedRange) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.dosageValue) && !empty(current.exposureTimeValue)) return;
+    updateFumigationDetail({
+      dosageValue: empty(current.dosageValue) ? String(matchedAppliedRange.dosageValue) : current.dosageValue,
+      dosageUnit: matchedAppliedRange.dosageUnit || "g/m3",
+      exposureTimeValue: empty(current.exposureTimeValue)
+        ? String(matchedAppliedRange.exposureValue)
+        : current.exposureTimeValue,
+      exposureTimeUnit: matchedAppliedRange.exposureUnit || "hours",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedAppliedRange?.id]);
+
+  // ── Derived values: volume, tonnage, calculated dose, amount applied ──────
+  const matchedContainerCode = useMemo(() => {
+    const code = String(pack.containerCode || "").trim().toUpperCase();
+    if (!code) return null;
+    return REFERENCE_CONTAINER_CODE_ROWS.find((row) => String(row.containerSize || "").toUpperCase() === code) ?? null;
+  }, [pack.containerCode]);
+
+  const derivedVolumeM3 = useMemo(() => {
+    const containers = Number(pack.containersRequired || 0);
+    const m3PerContainer = Number(matchedContainerCode?.cubicMeters || 0);
+    if (!containers || !m3PerContainer) return null;
+    return Number((containers * m3PerContainer).toFixed(2));
+  }, [pack.containersRequired, matchedContainerCode]);
+
+  const derivedActualTonnageMT = useMemo(() => {
+    const containers = Array.isArray(pack.containers) ? pack.containers : [];
+    if (!containers.length) return null;
+    const totalNettKg = containers.reduce((acc, c) => {
+      const nett = Number(c?.nettWeight);
+      return acc + (Number.isFinite(nett) ? nett : 0);
+    }, 0);
+    if (!totalNettKg) return null;
+    return Number((totalNettKg / 1000).toFixed(3));
+  }, [pack.containers]);
+
+  // Auto-fill volume when blank
+  useEffect(() => {
+    if (derivedVolumeM3 == null) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.volumeM3)) return;
+    updateFumigationDetail({ volumeM3: String(derivedVolumeM3) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedVolumeM3]);
+
+  // Auto-fill actual tonnage when blank
+  useEffect(() => {
+    if (derivedActualTonnageMT == null) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.actualTonnage)) return;
+    updateFumigationDetail({ actualTonnage: String(derivedActualTonnageMT) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedActualTonnageMT]);
+
+  // Auto-fill calculated dose = prescribedDoseRate × volume (g) when blank
+  useEffect(() => {
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.calculatedDosageValue)) return;
+    const rate = Number(current.prescribedDoseRate);
+    const volume = Number(current.volumeM3);
+    if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    updateFumigationDetail({
+      calculatedDosageValue: String(Number((rate * volume).toFixed(2))),
+      calculatedDosageUnit: "g",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fd.prescribedDoseRate, fd.volumeM3]);
+
+  // Auto-fill amount of fumigant applied = appliedDoseRate × volume (g) when blank
+  useEffect(() => {
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.actualDosageAppliedValue)) return;
+    const rate = Number(current.dosageValue);
+    const volume = Number(current.volumeM3);
+    if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    updateFumigationDetail({
+      actualDosageAppliedValue: String(Number((rate * volume).toFixed(2))),
+      actualDosageAppliedUnit: "g",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fd.dosageValue, fd.volumeM3]);
+
+  // ── Employee lists for Fumigator + Authorised Officer dropdowns ──────────
+  const contactUsers = useMemo(() => loadContactUsers(), []);
+  const fumigatorOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.isFumigator && u.active !== false),
+    [contactUsers],
+  );
+  const aoOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.aoActive && u.active !== false),
+    [contactUsers],
+  );
 
   function updateFumigationDetail(patch) {
     setPack((prev) => {
@@ -742,6 +947,16 @@ export default function NewPackFormPage() {
     const byId = siteRows.find((row) => Number(row.id) === Number(pack.siteId));
     return byId || siteRows[0] || null;
   }, [siteRows, pack.siteId]);
+
+  // Treatment Provider ID auto-derive from the pack's selected site (only when blank)
+  useEffect(() => {
+    const site = selectedPackSite;
+    if (!site?.treatmentProviderId) return;
+    if (String(pack.treatmentProviderId ?? "").trim()) return;
+    setPack((prev) => ({ ...prev, treatmentProviderId: site.treatmentProviderId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPackSite?.id]);
+
   const aoNumberByName = useMemo(() => {
     const map = new Map();
     loadContactUsers().forEach((row) => {
@@ -1227,6 +1442,7 @@ export default function NewPackFormPage() {
                     setPack((prev) => ({
                       ...prev,
                       fumigationRequired: enabled,
+                      fumigationTiming: enabled ? prev.fumigationTiming : "",
                       fumigantId: enabled ? prev.fumigantId : null,
                       methodologyId: enabled ? prev.methodologyId : null,
                       certificateTemplateId: enabled ? prev.certificateTemplateId : null,
@@ -1605,6 +1821,32 @@ export default function NewPackFormPage() {
           </FormRow>
           <FormRow label="Destination port">
             <input className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
+          </FormRow>
+          <FormRow label="Terminal (port of loading)">
+            <select
+              className={inputClass}
+              value={pack.terminalId ?? ""}
+              onChange={(e) => {
+                const terminalId = e.target.value ? Number(e.target.value) : "";
+                const matched = terminalId ? REFERENCE_TERMINAL_ROWS.find((t) => Number(t.id) === Number(terminalId)) : null;
+                setPack((prev) => ({
+                  ...prev,
+                  terminalId,
+                  // Auto-fill port of loading from terminal's portOfLoading, unless user already set one.
+                  portOfLoading:
+                    matched?.portOfLoading && !String(prev.portOfLoading ?? "").trim()
+                      ? matched.portOfLoading
+                      : prev.portOfLoading,
+                }));
+              }}
+            >
+              <option value="">- Select -</option>
+              {REFERENCE_TERMINAL_ROWS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.terminalName} ({t.terminalCode})
+                </option>
+              ))}
+            </select>
           </FormRow>
           <FormRow label="Transshipment port">
             <input className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
@@ -2364,10 +2606,20 @@ export default function NewPackFormPage() {
 
       {activeTab === "fumigation" && pack.fumigationRequired ? (
       <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Fumigant">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
+        <p className="mb-4 text-xs text-slate-500">
+          Section layout mirrors the AU Government fumigation cert/record template. Every field here pre-fills into the
+          Certificate &amp; Record editors when you click Generate.
+        </p>
+        <div className="space-y-6">
+
+          {/* ─── Section A — Fumigator in charge ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+              Section A — Fumigator in charge
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormRow label="Fumigant">
               <select
                 className={inputClass}
                 value={pack.fumigantId ?? ""}
@@ -2413,44 +2665,224 @@ export default function NewPackFormPage() {
                 ))}
               </select>
             </FormRow>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Certificate template">
+            <FormRow label="Fumigation timing">
               <select
                 className={inputClass}
-                value={pack.certificateTemplateId ?? ""}
-                onChange={(e) =>
-                  set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
-                }
+                value={pack.fumigationTiming ?? ""}
+                onChange={(e) => set("fumigationTiming", e.target.value)}
               >
-                <option value="">- Select -</option>
-                {certificateTemplates.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Record template">
-              <select
-                className={inputClass}
-                value={pack.recordTemplateId ?? ""}
-                onChange={(e) =>
-                  set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
-                }
-              >
-                <option value="">- Select -</option>
-                {recordTemplates.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+                <option value="">Select timing…</option>
+                <option value="pre-pack">Pre-Pack</option>
+                <option value="post-pack">Post-Pack</option>
               </select>
             </FormRow>
           </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <FormRow label="Fumigator name">
+                <select
+                  className={inputClass}
+                  value={fd.fumigatorName || ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    const matched = fumigatorOptions.find((u) => u.name === name) || null;
+                    setPack((prev) => {
+                      const detail = (prev.fumigationDetail && typeof prev.fumigationDetail === "object")
+                        ? prev.fumigationDetail
+                        : blankFumigationDetail();
+                      // Pre-fill accreditation (fumigatorLicence) on selection; user can still override.
+                      const accreditation = matched?.fumigatorLicence ?? prev.fumigatorAccreditationNumber ?? "";
+                      return {
+                        ...prev,
+                        fumigatorAccreditationNumber: accreditation,
+                        fumigationDetail: { ...detail, fumigatorName: name },
+                      };
+                    });
+                  }}
+                >
+                  <option value="">- Select fumigator -</option>
+                  {fumigatorOptions.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                      {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow label="Accreditation number">
+                <input
+                  className={inputClass}
+                  value={pack.fumigatorAccreditationNumber ?? ""}
+                  onChange={(e) => setPack((p) => ({ ...p, fumigatorAccreditationNumber: e.target.value }))}
+                  placeholder="Pre-filled from fumigator's licence"
+                />
+              </FormRow>
+              <FormRow label="Treatment provider ID">
+                <input
+                  className={inputClass}
+                  value={pack.treatmentProviderId ?? ""}
+                  onChange={(e) => setPack((p) => ({ ...p, treatmentProviderId: e.target.value }))}
+                  placeholder={
+                    selectedPackSite?.treatmentProviderId
+                      ? "Pre-filled from site — edit to override"
+                      : "Set on the Site reference data, or enter here"
+                  }
+                />
+              </FormRow>
+            </div>
+          </div>
 
-          {selectedFumigationMethodology ? (
+          {/* ─── Section B — Job & consignment details ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+              Section B — Job &amp; consignment details
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <PemsStagingField label="Job identification" value={pack.jobReference || "—"} />
+              <PemsStagingField label="Client (from pack)" value={pack.customer || "—"} />
+              <PemsStagingField label="Destination country (from pack)" value={pack.destinationCountry || "—"} />
+              <FormRow label="Port of loading">
+                <input
+                  className={inputClass}
+                  value={pack.portOfLoading ?? ""}
+                  onChange={(e) => setPack((p) => ({ ...p, portOfLoading: e.target.value }))}
+                  placeholder="e.g. Port of Melbourne"
+                />
+              </FormRow>
+              <FormRow label="Commodity country of origin">
+                <input
+                  className={inputClass}
+                  value={pack.commodityCountryOfOrigin ?? ""}
+                  onChange={(e) => setPack((p) => ({ ...p, commodityCountryOfOrigin: e.target.value }))}
+                  placeholder="e.g. Australia"
+                />
+              </FormRow>
+            </div>
+            <FormRow className="mt-3" label="Target of fumigation (pick all that apply)">
+              <div className="flex flex-wrap gap-4 pt-1">
+                {FUMIGATION_TARGETS.map((t) => (
+                  <label key={t.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(fd.targetOfFumigation ?? []).includes(t.value)}
+                      onChange={(e) => {
+                        const prev = fd.targetOfFumigation ?? [];
+                        updateFumigationDetail({
+                          targetOfFumigation: e.target.checked
+                            ? [...prev, t.value]
+                            : prev.filter((v) => v !== t.value),
+                        });
+                      }}
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+            </FormRow>
+          </div>
+
+          {/* ─── Section C — Fumigation details ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+              Section C — Fumigation details (enclosure &amp; dose)
+            </p>
+
+            {/* Enclosure type */}
+            <FormRow label="Enclosure type">
+              <div className="flex flex-wrap gap-4 pt-1">
+                {ENCLOSURE_TYPES.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="packEnclosureType"
+                      value={opt.value}
+                      checked={fd.enclosureType === opt.value}
+                      onChange={() => updateFumigationDetail({ enclosureType: opt.value })}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </FormRow>
+            {fd.enclosureType === "other" && (
+              <FormRow className="mt-2" label="Other enclosure description">
+                <input
+                  className={inputClass}
+                  value={fd.enclosureOtherText || ""}
+                  onChange={(e) => updateFumigationDetail({ enclosureOtherText: e.target.value })}
+                />
+              </FormRow>
+            )}
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+              <FormRow label="Length (m)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="any"
+                  value={fd.enclosureLengthM ?? ""}
+                  onChange={(e) => updateFumigationDetail({ enclosureLengthM: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Width (m)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="any"
+                  value={fd.enclosureWidthM ?? ""}
+                  onChange={(e) => updateFumigationDetail({ enclosureWidthM: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Height (m)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="any"
+                  value={fd.enclosureHeightM ?? ""}
+                  onChange={(e) => updateFumigationDetail({ enclosureHeightM: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Total volume (m³)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="any"
+                  value={fd.volumeM3 ?? ""}
+                  onChange={(e) => updateFumigationDetail({ volumeM3: e.target.value })}
+                />
+              </FormRow>
+            </div>
+
+            <FormRow className="mt-3" label="Consignment suitable for fumigation?">
+              <div className="flex flex-wrap gap-4 pt-1">
+                {[
+                  { v: true, l: "Yes — suitable" },
+                  { v: false, l: "No — remedial action taken" },
+                ].map(({ v, l }) => (
+                  <label key={String(v)} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="packConsignmentSuitable"
+                      checked={fd.consignmentSuitable === v}
+                      onChange={() => updateFumigationDetail({ consignmentSuitable: v })}
+                    />
+                    {l}
+                  </label>
+                ))}
+              </div>
+            </FormRow>
+            {fd.consignmentSuitable === false && (
+              <FormRow className="mt-2" label="Remedial action taken">
+                <textarea
+                  className={inputClass}
+                  rows={2}
+                  value={fd.consignmentRemedialAction ?? ""}
+                  onChange={(e) => updateFumigationDetail({ consignmentRemedialAction: e.target.value })}
+                />
+              </FormRow>
+            )}
+
+            {/* Methodology reference panel — kept inside Section C */}
+            {selectedFumigationMethodology ? (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
               <p className="font-semibold text-slate-800">
                 {selectedFumigationMethodology.name}
@@ -2458,134 +2890,651 @@ export default function NewPackFormPage() {
               </p>
               <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "—"}</p>
               <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "—"}</p>
+              {/* Dosage ranges reference table */}
+              {Array.isArray(selectedFumigationMethodology?.dosageRanges) &&
+                selectedFumigationMethodology.dosageRanges.length > 0 && (
+                  <div className="mt-3">
+                    {matchedDosageRange && (
+                      <div className="mb-2 rounded bg-amber-50 px-3 py-1.5 text-xs text-amber-800 ring-1 ring-amber-200">
+                        Suggested at{" "}
+                        {fd.actualTemperature ?? fd.minAmbientTemperature ?? fd.minForecastedTemperature}°C:{" "}
+                        <strong>
+                          {matchedDosageRange.dosageValue} {matchedDosageRange.dosageUnit}
+                        </strong>{" "}
+                        for{" "}
+                        <strong>
+                          {matchedDosageRange.exposureValue} {matchedDosageRange.exposureUnit}
+                        </strong>
+                      </div>
+                    )}
+                    <p className="mb-1 text-xs font-medium text-slate-600">Dosage guide by temperature</p>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          <th className="pb-1 text-left font-medium text-slate-500">Temp band (°C)</th>
+                          <th className="pb-1 text-left font-medium text-slate-500">Dosage</th>
+                          <th className="pb-1 text-left font-medium text-slate-500">Exposure</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedFumigationMethodology.dosageRanges.map((r) => (
+                          <tr
+                            key={r.id}
+                            className={cn(
+                              "border-b border-slate-100",
+                              matchedDosageRange?.id === r.id
+                                ? "bg-amber-100 ring-1 ring-inset ring-amber-300"
+                                : ""
+                            )}
+                          >
+                            <td className="py-0.5 pr-4">
+                              {r.minTempC}–{r.maxTempC}
+                            </td>
+                            <td className="py-0.5 pr-4">
+                              {r.dosageValue} {r.dosageUnit}
+                            </td>
+                            <td className="py-0.5">
+                              {r.exposureValue} {r.exposureUnit}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-xs italic text-slate-400">
+                      Upper bound is exclusive — e.g. 25°C is in the 25–35 band.
+                    </p>
+                  </div>
+                )}
             </div>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Application method">
-              <select
-                className={inputClass}
-                value={fd.applicationMethod || "in-container"}
-                onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
-              >
-                {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
-                  <option key={method} value={method}>
-                    {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
-                  </option>
+            <FormRow className="mt-3" label="Fumigation type">
+              <div className="flex flex-wrap gap-4 pt-1">
+                {[
+                  { v: "ambient", l: "Ambient temperature (forecast)" },
+                  { v: "controlled", l: "Controlled temperature (heated enclosure)" },
+                ].map(({ v, l }) => (
+                  <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="packFumigationType"
+                      checked={fd.fumigationType === v}
+                      onChange={() => updateFumigationDetail({ fumigationType: v })}
+                    />
+                    {l}
+                  </label>
                 ))}
-              </select>
+              </div>
             </FormRow>
-            <FormRow label="Fumigator">
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <FormRow label="Min forecast temperature (°C)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.5"
+                  value={fd.minForecastedTemperature ?? ""}
+                  onChange={(e) => updateFumigationDetail({ minForecastedTemperature: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Actual start temperature (°C)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.5"
+                  value={fd.actualTemperature ?? ""}
+                  onChange={(e) => updateFumigationDetail({ actualTemperature: e.target.value })}
+                />
+              </FormRow>
+            </div>
+
+            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Prescribed treatment schedule
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormRow label="Dose rate (g/m³)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.01"
+                  value={fd.prescribedDoseRate ?? ""}
+                  onChange={(e) => updateFumigationDetail({ prescribedDoseRate: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Exposure (hours)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="1"
+                  value={fd.prescribedExposure ?? ""}
+                  onChange={(e) => updateFumigationDetail({ prescribedExposure: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Min temperature (°C)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.5"
+                  value={fd.prescribedTemperature ?? ""}
+                  onChange={(e) => updateFumigationDetail({ prescribedTemperature: e.target.value })}
+                />
+              </FormRow>
+            </div>
+
+            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Applied dose
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormRow label="Applied dose rate">
+                <div className="flex gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="0.01"
+                    value={fd.dosageValue ?? ""}
+                    onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
+                  />
+                  <select
+                    className={inputClass}
+                    style={{ maxWidth: "5.5rem" }}
+                    value={fd.dosageUnit || "g/m3"}
+                    onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
+                  >
+                    {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+              </FormRow>
+              <FormRow label="Applied exposure">
+                <div className="flex gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="1"
+                    value={fd.exposureTimeValue ?? ""}
+                    onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
+                  />
+                  <select
+                    className={inputClass}
+                    style={{ maxWidth: "5.5rem" }}
+                    value={fd.exposureTimeUnit || "hours"}
+                    onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
+                  >
+                    {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+              </FormRow>
+              <FormRow label="Application method">
+                <select
+                  className={inputClass}
+                  value={fd.applicationMethod || "in-container"}
+                  onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
+                >
+                  {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
+                    <option key={method} value={method}>
+                      {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow label="Calculated dose">
+                <div className="flex gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="0.1"
+                    value={fd.calculatedDosageValue ?? ""}
+                    onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
+                  />
+                  <select
+                    className={inputClass}
+                    style={{ maxWidth: "4.5rem" }}
+                    value={fd.calculatedDosageUnit || "g"}
+                    onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
+                  >
+                    {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+              </FormRow>
+              <FormRow label="Amount of fumigant applied">
+                <div className="flex gap-2">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="0.1"
+                    value={fd.actualDosageAppliedValue ?? ""}
+                    onChange={(e) => updateFumigationDetail({ actualDosageAppliedValue: e.target.value })}
+                  />
+                  <select
+                    className={inputClass}
+                    style={{ maxWidth: "4.5rem" }}
+                    value={fd.actualDosageAppliedUnit || "g"}
+                    onChange={(e) => updateFumigationDetail({ actualDosageAppliedUnit: e.target.value })}
+                  >
+                    {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+              </FormRow>
+              <FormRow label="Actual tonnage (MT)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="any"
+                  value={fd.actualTonnage ?? ""}
+                  onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
+                />
+              </FormRow>
+            </div>
+
+            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Methyl bromide additives
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormRow label="Chloropicrin used?">
+                <div className="flex gap-4 pt-1">
+                  {[
+                    { v: true, l: "Yes" },
+                    { v: false, l: "No" },
+                  ].map(({ v, l }) => (
+                    <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="packChloropicrin"
+                        checked={fd.chloropicrinUsed === v}
+                        onChange={() => updateFumigationDetail({ chloropicrinUsed: v })}
+                      />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormRow>
+              {fd.chloropicrinUsed === true && (
+                <FormRow label="Chloropicrin (%)">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="0.1"
+                    value={fd.chloropicrinPercent ?? ""}
+                    onChange={(e) => updateFumigationDetail({ chloropicrinPercent: e.target.value })}
+                  />
+                </FormRow>
+              )}
+              <FormRow label="Heaters used?">
+                <div className="flex gap-4 pt-1">
+                  {[
+                    { v: true, l: "Yes" },
+                    { v: false, l: "No" },
+                  ].map(({ v, l }) => (
+                    <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="packHeaters"
+                        checked={fd.heatersUsed === v}
+                        onChange={() => updateFumigationDetail({ heatersUsed: v })}
+                      />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </FormRow>
+            </div>
+
+            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Sulfuryl fluoride — end-point &amp; CT
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormRow label="End-point concentration (g/m³)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.01"
+                  value={fd.endPointConcentration ?? ""}
+                  onChange={(e) => updateFumigationDetail({ endPointConcentration: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="CT required (g·h/m³)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.1"
+                  value={fd.ctRequired ?? ""}
+                  onChange={(e) => updateFumigationDetail({ ctRequired: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="CT achieved (g·h/m³)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.1"
+                  value={fd.ctAchieved ?? ""}
+                  onChange={(e) => updateFumigationDetail({ ctAchieved: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Approved 3rd-party CT system?">
+                <label className="flex items-center gap-1.5 text-sm pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(fd.thirdPartySystem)}
+                    onChange={(e) => updateFumigationDetail({ thirdPartySystem: e.target.checked })}
+                  />
+                  Used
+                </label>
+              </FormRow>
+              {fd.thirdPartySystem && (
+                <FormRow className="sm:col-span-2" label="3rd-party system name">
+                  <input
+                    className={inputClass}
+                    value={fd.thirdPartySystemName ?? ""}
+                    onChange={(e) => updateFumigationDetail({ thirdPartySystemName: e.target.value })}
+                  />
+                </FormRow>
+              )}
+            </div>
+
+            <FormRow className="mt-3" label="Free-text enclosure description (legacy / internal)">
               <input
                 className={inputClass}
-                value={fd.fumigatorName || ""}
-                onChange={(e) => updateFumigationDetail({ fumigatorName: e.target.value })}
-                placeholder="Fumigator name"
+                value={fd.enclosureDescription || ""}
+                onChange={(e) => updateFumigationDetail({ enclosureDescription: e.target.value })}
+                placeholder="Container, chamber, sheeted stack..."
               />
-            </FormRow>
-            <FormRow label="Volume (m3)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.volumeM3 ?? ""}
-                onChange={(e) => updateFumigationDetail({ volumeM3: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Actual tonnage (MT)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.actualTonnage ?? ""}
-                onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Dosage value">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.dosageValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Dosage unit">
-              <select
-                className={inputClass}
-                value={fd.dosageUnit || "ppm"}
-                onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
-              >
-                {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Exposure time value">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.exposureTimeValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Exposure time unit">
-              <select
-                className={inputClass}
-                value={fd.exposureTimeUnit || "hours"}
-                onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
-              >
-                {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Calculated dosage (value)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.calculatedDosageValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Calculated dosage (unit)">
-              <select
-                className={inputClass}
-                value={fd.calculatedDosageUnit || "g"}
-                onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
-              >
-                {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
             </FormRow>
           </div>
 
-          <FormRow label="Enclosure description">
-            <input
-              className={inputClass}
-              value={fd.enclosureDescription || ""}
-              onChange={(e) => updateFumigationDetail({ enclosureDescription: e.target.value })}
-              placeholder="Container, chamber, sheeted stack..."
-            />
-          </FormRow>
-          <FormRow label="Clearance">
-            <input
-              className={inputClass}
-              value={fd.clearanceValue ?? ""}
-              onChange={(e) => updateFumigationDetail({ clearanceValue: e.target.value })}
-              placeholder="Clearance period/value"
-            />
-          </FormRow>
+          {/* ─── Section D — Concentration readings & ventilation ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+              Section D — Concentration readings &amp; ventilation
+            </p>
+            <FormRow label="Monitoring device serial(s)">
+              <input
+                className={inputClass}
+                value={fd.monitoringDeviceSerials ?? ""}
+                onChange={(e) => updateFumigationDetail({ monitoringDeviceSerials: e.target.value })}
+                placeholder="Comma-separated serial numbers"
+              />
+            </FormRow>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <FormRow label="Fumigation commenced">
+                <input
+                  className={inputClass}
+                  type="datetime-local"
+                  value={fd.fumigationStartAt ?? ""}
+                  onChange={(e) => updateFumigationDetail({ fumigationStartAt: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Fumigant injection finished">
+                <input
+                  className={inputClass}
+                  type="datetime-local"
+                  value={fd.dosingFinishAt ?? ""}
+                  onChange={(e) => updateFumigationDetail({ dosingFinishAt: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Fumigation completed">
+                <input
+                  className={inputClass}
+                  type="datetime-local"
+                  value={fd.fumigationEndAt ?? ""}
+                  onChange={(e) => updateFumigationDetail({ fumigationEndAt: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Enclosure ventilation start">
+                <input
+                  className={inputClass}
+                  type="datetime-local"
+                  value={fd.ventilationStartAt ?? ""}
+                  onChange={(e) => updateFumigationDetail({ ventilationStartAt: e.target.value })}
+                />
+              </FormRow>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <FormRow label="Final TLV reading 1 (ppm)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.1"
+                  value={fd.finalTlvPpm1 ?? ""}
+                  onChange={(e) => updateFumigationDetail({ finalTlvPpm1: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Final TLV reading 2 (ppm)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.1"
+                  value={fd.finalTlvPpm2 ?? ""}
+                  onChange={(e) => updateFumigationDetail({ finalTlvPpm2: e.target.value })}
+                />
+              </FormRow>
+              <FormRow label="Final TLV reading 3 (ppm)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.1"
+                  value={fd.finalTlvPpm3 ?? ""}
+                  onChange={(e) => updateFumigationDetail({ finalTlvPpm3: e.target.value })}
+                />
+              </FormRow>
+            </div>
+
+            {/* Top-up entries */}
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                Top-up details (if any)
+              </p>
+              {(fd.topUpEntries ?? []).map((entry) => (
+                <div key={entry.id} className="mb-2 flex items-center gap-2">
+                  <input
+                    className={`${inputClass} flex-1`}
+                    placeholder="Amount (g/m³)"
+                    value={entry.amountGm3 ?? ""}
+                    onChange={(e) =>
+                      updateFumigationDetail({
+                        topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                          row.id === entry.id ? { ...row, amountGm3: e.target.value } : row,
+                        ),
+                      })
+                    }
+                  />
+                  <input
+                    className={`${inputClass} flex-1`}
+                    placeholder="Time (hh:mm)"
+                    value={entry.time ?? ""}
+                    onChange={(e) =>
+                      updateFumigationDetail({
+                        topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                          row.id === entry.id ? { ...row, time: e.target.value } : row,
+                        ),
+                      })
+                    }
+                  />
+                  <input
+                    className={`${inputClass} flex-1`}
+                    placeholder="Concentration (g/m³)"
+                    value={entry.concentrationGm3 ?? ""}
+                    onChange={(e) =>
+                      updateFumigationDetail({
+                        topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                          row.id === entry.id ? { ...row, concentrationGm3: e.target.value } : row,
+                        ),
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateFumigationDetail({
+                        topUpEntries: (fd.topUpEntries ?? []).filter((row) => row.id !== entry.id),
+                      })
+                    }
+                    className="text-slate-400 hover:text-red-500"
+                    title="Remove top-up row"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const entries = fd.topUpEntries ?? [];
+                  const newId = Math.max(0, ...entries.map((e) => Number(e.id) || 0)) + 1;
+                  updateFumigationDetail({
+                    topUpEntries: [
+                      ...entries,
+                      { id: newId, amountGm3: "", time: "", concentrationGm3: "" },
+                    ],
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:text-brand/80"
+              >
+                <Plus className="size-3" /> Add top-up row
+              </button>
+            </div>
+          </div>
+
+          {/* ─── Section E — Result & declaration ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+              Section E — Result &amp; declaration
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormRow label="Fumigation result">
+                <select
+                  className={inputClass}
+                  value={fd.fumigationResult ?? ""}
+                  onChange={(e) => updateFumigationDetail({ fumigationResult: e.target.value })}
+                >
+                  <option value="">— select —</option>
+                  <option value="pass">Pass</option>
+                  <option value="fail">Fail</option>
+                </select>
+              </FormRow>
+              <FormRow label="Authorised officer (if supervised)">
+                <select
+                  className={inputClass}
+                  value={fd.governmentOfficerName ?? ""}
+                  onChange={(e) => updateFumigationDetail({ governmentOfficerName: e.target.value })}
+                >
+                  <option value="">- Select AO -</option>
+                  {aoOptions.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                      {u.aoNumber ? ` (${u.aoNumber})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow className="sm:col-span-2" label="Additional declarations (free text)">
+                <textarea
+                  className={inputClass}
+                  rows={3}
+                  value={fd.additionalDeclarations ?? ""}
+                  onChange={(e) => updateFumigationDetail({ additionalDeclarations: e.target.value })}
+                />
+              </FormRow>
+              <FormRow className="sm:col-span-2" label="Internal notes">
+                <textarea
+                  className={inputClass}
+                  rows={2}
+                  value={fd.fumigationNotes ?? ""}
+                  onChange={(e) => updateFumigationDetail({ fumigationNotes: e.target.value })}
+                />
+              </FormRow>
+            </div>
+          </div>
+
+          {/* Template selectors — hidden in a collapsed details so they don't dominate the layout */}
+          <details className="rounded-lg border border-slate-200 bg-white p-4 group">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-slate-500 group-open:mb-3">
+              Advanced — override default certificate / record template
+            </summary>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormRow label="Certificate template">
+                <select
+                  className={inputClass}
+                  value={pack.certificateTemplateId ?? ""}
+                  onChange={(e) =>
+                    set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
+                  }
+                >
+                  <option value="">- Select -</option>
+                  {certificateTemplates.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow label="Record template">
+                <select
+                  className={inputClass}
+                  value={pack.recordTemplateId ?? ""}
+                  onChange={(e) =>
+                    set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
+                  }
+                >
+                  <option value="">- Select -</option>
+                  {recordTemplates.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+            </div>
+          </details>
         </div>
+
+        {/* Generate documents — only when pack is saved and all fumigation fields are set */}
+        {editingRow?.id != null && (
+          <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              disabled={!pack.fumigationRequired || !pack.fumigantId || !pack.methodologyId}
+              onClick={() => router.push(`/fumigation/certificates/${editingRow.id}`)}
+              title={
+                !pack.fumigantId || !pack.methodologyId
+                  ? "Select a fumigant and methodology first"
+                  : "Generate Certificate of Fumigation"
+              }
+              className={cn(
+                "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                pack.fumigationRequired && pack.fumigantId && pack.methodologyId
+                  ? "bg-brand text-white hover:bg-brand/90"
+                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+              )}
+            >
+              Generate Certificate
+            </button>
+            <button
+              type="button"
+              disabled={!pack.fumigationRequired || !pack.fumigantId || !pack.methodologyId}
+              onClick={() => router.push(`/fumigation/records/${editingRow.id}`)}
+              title={
+                !pack.fumigantId || !pack.methodologyId
+                  ? "Select a fumigant and methodology first"
+                  : "Generate Record of Fumigation"
+              }
+              className={cn(
+                "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                pack.fumigationRequired && pack.fumigantId && pack.methodologyId
+                  ? "bg-slate-700 text-white hover:bg-slate-600"
+                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+              )}
+            >
+              Generate Record
+            </button>
+          </div>
+        )}
       </section>
       ) : null}
 
@@ -2693,3 +3642,4 @@ function FileList({ items, onOpen, onRemove }) {
     </div>
   );
 }
+

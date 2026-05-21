@@ -9,19 +9,11 @@ import {
   nextLocalEntityId,
   saveRecordTemplates,
 } from "@/lib/fumigation-store";
+import { RECORD_FIELDS } from "@/lib/fumigation-fields";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
-
-const RECORD_FIELDS = [
-  "Monitoring start",
-  "Monitoring intervals",
-  "Gas readings (top/middle/base)",
-  "Clearance reading",
-  "Fumigator sign-off",
-  "Inspector verification",
-];
 
 function buildDraft(row) {
   return {

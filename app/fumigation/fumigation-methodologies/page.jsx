@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { loadFumigants, loadMethodologies, saveMethodologies, nextLocalEntityId } from "@/lib/fumigation-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -12,33 +13,6 @@ const inputClass =
 const APPLICATION_METHODS = ["Chamber", "In-container", "Sheeted stack", "Silo", "Vacuum chamber"];
 const MIN_EXPOSURE_UNITS = ["hours", "days"];
 const DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
-
-const fumigants = [
-  { id: 1, code: "PH3", name: "Phosphine" },
-  { id: 2, code: "MBR", name: "Methyl Bromide" },
-];
-
-const initialRows = [
-  {
-    id: 1,
-    name: "Container phosphine export",
-    version: "v1.0",
-    effectiveDate: "2026-03-01",
-    fumigantId: 1,
-    applicationMethods: ["In-container"],
-    minTemperature: "10",
-    maxTemperature: "35",
-    minExposureUnit: "hours",
-    minExposure: "24",
-    dosageUnit: "ppm",
-    dosageGuide: "20-35ppm baseline by temperature band",
-    restraint: "Do not vent near occupied packing bays.",
-    ventilationPeriod: "2",
-    withholdingPeriod: "0",
-    reEntryPpm: "0.3",
-    safetyNotes: "Wear calibrated PH3 monitor and PPE.",
-  },
-];
 
 function buildDraft(row) {
   return {
@@ -58,15 +32,22 @@ function buildDraft(row) {
     withholdingPeriod: row?.withholdingPeriod ?? "",
     reEntryPpm: row?.reEntryPpm ?? "",
     safetyNotes: row?.safetyNotes ?? "",
+    dosageRanges: row?.dosageRanges ?? [],
   };
 }
 
 export default function FumigationMethodologiesPage() {
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState([]);
+  const [fumigants, setFumigants] = useState(() => loadFumigants());
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setRows(loadMethodologies());
+  }, []);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -76,7 +57,7 @@ export default function FumigationMethodologiesPage() {
       const text = `${row.name} ${row.version} ${fumigant?.name ?? ""}`.toLowerCase();
       return text.includes(needle);
     });
-  }, [rows, search]);
+  }, [rows, search, fumigants]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
 
@@ -107,22 +88,25 @@ export default function FumigationMethodologiesPage() {
             : "—",
       },
     ],
-    []
+    [fumigants]
   );
 
   function openAdd() {
+    setError(null);
     setDraft(buildDraft());
     setModalMode("add");
   }
 
   function openEdit() {
     if (!selected) return;
+    setError(null);
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
     setModalMode(null);
+    setError(null);
   }
 
   function toggleApplicationMethod(value) {
@@ -134,31 +118,94 @@ export default function FumigationMethodologiesPage() {
     });
   }
 
+  function addDosageRange() {
+    setDraft((d) => ({
+      ...d,
+      dosageRanges: [
+        ...d.dosageRanges,
+        {
+          id: Date.now() + d.dosageRanges.length,
+          minTempC: "",
+          maxTempC: "",
+          dosageValue: "",
+          dosageUnit: d.dosageUnit || "g/m³",
+          exposureValue: "",
+          exposureUnit: d.minExposureUnit || "hours",
+        },
+      ],
+    }));
+  }
+
+  function updateDosageRange(id, patch) {
+    setDraft((d) => ({
+      ...d,
+      dosageRanges: d.dosageRanges.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }));
+  }
+
+  function removeDosageRange(id) {
+    setDraft((d) => ({
+      ...d,
+      dosageRanges: d.dosageRanges.filter((r) => r.id !== id),
+    }));
+  }
+
   function saveModal() {
+    setError(null);
     if (!draft.name.trim() || !draft.fumigantId) return;
 
+    // Validate dosage ranges
+    let finalDraft = draft;
+    if (draft.dosageRanges.length > 0) {
+      for (const r of draft.dosageRanges) {
+        if (r.minTempC === "" || r.maxTempC === "") {
+          setError("All dosage ranges must have Min °C and Max °C values.");
+          return;
+        }
+        if (Number(r.minTempC) >= Number(r.maxTempC)) {
+          setError("Each dosage range Min °C must be less than Max °C.");
+          return;
+        }
+      }
+      // Sort by minTempC
+      const sorted = [...draft.dosageRanges].sort((a, b) => Number(a.minTempC) - Number(b.minTempC));
+      // Half-open overlap check: maxTempC of current must be <= minTempC of next
+      for (let i = 0; i < sorted.length - 1; i++) {
+        if (Number(sorted[i].maxTempC) > Number(sorted[i + 1].minTempC)) {
+          setError(`Dosage ranges overlap: band ending at ${sorted[i].maxTempC}°C overlaps band starting at ${sorted[i + 1].minTempC}°C.`);
+          return;
+        }
+      }
+      // Store sorted
+      finalDraft = { ...draft, dosageRanges: sorted };
+    }
+
     if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
-      const nextRow = { id: nextId, ...draft, fumigantId: Number(draft.fumigantId) };
-      setRows((prev) => [nextRow, ...prev]);
+      const nextId = nextLocalEntityId(rows);
+      const nextRow = { id: nextId, ...finalDraft, fumigantId: Number(finalDraft.fumigantId) };
+      const nextRows = [nextRow, ...rows];
+      saveMethodologies(nextRows);
+      setRows(nextRows);
       setSelectedId(nextId);
       setModalMode(null);
       return;
     }
 
     if (modalMode === "edit" && selected) {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === selected.id ? { ...row, ...draft, fumigantId: Number(draft.fumigantId) } : row
-        )
+      const nextRows = rows.map((row) =>
+        row.id === selected.id ? { ...row, ...finalDraft, fumigantId: Number(finalDraft.fumigantId) } : row
       );
+      saveMethodologies(nextRows);
+      setRows(nextRows);
       setModalMode(null);
     }
   }
 
   function removeSelected() {
     if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
+    const nextRows = rows.filter((row) => row.id !== selected.id);
+    saveMethodologies(nextRows);
+    setRows(nextRows);
     setSelectedId(null);
   }
 
@@ -230,6 +277,10 @@ export default function FumigationMethodologiesPage() {
               <DetailItem label="Methods" value={selected.applicationMethods.join(", ")} />
               <DetailItem label="Dosage" value={`${selected.dosageGuide || "—"} (${selected.dosageUnit})`} />
               <DetailItem label="Safety notes" value={selected.safetyNotes} />
+              <DetailItem
+                label="Dosage ranges"
+                value={`${selected?.dosageRanges?.length ?? 0} band${(selected?.dosageRanges?.length ?? 0) !== 1 ? "s" : ""}`}
+              />
             </dl>
           )}
         </aside>
@@ -397,7 +448,117 @@ export default function FumigationMethodologiesPage() {
               onChange={(event) => setDraft((prev) => ({ ...prev, safetyNotes: event.target.value }))}
             />
           </FormField>
+
+          {/* Dosage Ranges */}
+          <div className="col-span-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-slate-700">Dosage ranges</p>
+              <button
+                type="button"
+                onClick={addDosageRange}
+                className="text-xs text-brand hover:underline"
+              >
+                + Add range
+              </button>
+            </div>
+            {draft.dosageRanges.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Min °C</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Max °C</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Dosage</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Unit</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Exposure</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-600">Unit</th>
+                      <th className="px-2 py-1.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draft.dosageRanges.map((r) => (
+                      <tr key={r.id} className="border-t border-slate-100">
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            value={r.minTempC}
+                            onChange={(e) => updateDosageRange(r.id, { minTempC: e.target.value })}
+                            className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs outline-none focus:border-brand/40"
+                            placeholder="e.g. 10"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            value={r.maxTempC}
+                            onChange={(e) => updateDosageRange(r.id, { maxTempC: e.target.value })}
+                            className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs outline-none focus:border-brand/40"
+                            placeholder="e.g. 15"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            value={r.dosageValue}
+                            onChange={(e) => updateDosageRange(r.id, { dosageValue: e.target.value })}
+                            className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs outline-none focus:border-brand/40"
+                            placeholder="e.g. 2.0"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <select
+                            value={r.dosageUnit}
+                            onChange={(e) => updateDosageRange(r.id, { dosageUnit: e.target.value })}
+                            className="rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-brand/40"
+                          >
+                            {["g/m³", "ppm", "mg/L", "%"].map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="number"
+                            value={r.exposureValue}
+                            onChange={(e) => updateDosageRange(r.id, { exposureValue: e.target.value })}
+                            className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs outline-none focus:border-brand/40"
+                            placeholder="e.g. 168"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <select
+                            value={r.exposureUnit}
+                            onChange={(e) => updateDosageRange(r.id, { exposureUnit: e.target.value })}
+                            className="rounded border border-slate-200 px-1 py-0.5 text-xs outline-none focus:border-brand/40"
+                          >
+                            {["hours", "days"].map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-1 py-1">
+                          <button
+                            type="button"
+                            onClick={() => removeDosageRange(r.id)}
+                            className="text-slate-400 hover:text-red-500"
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {draft.dosageRanges.length === 0 && (
+              <p className="text-xs text-slate-400 italic">No dosage ranges defined. Click "+ Add range" to add one.</p>
+            )}
+            <p className="text-xs text-slate-400">Bands use half-open intervals [Min, Max) — e.g. 15°C falls in [15,20), not [10,15).</p>
+          </div>
         </div>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal}>
             Cancel

@@ -28,10 +28,7 @@ const config = {
     { key: "maxWeight", label: "Max (t)", numeric: true },
     { key: "averageEmptyTare", label: "Tare (t)", numeric: true },
   ],
-<<<<<<< HEAD
   rows: REFERENCE_CONTAINER_CODE_ROWS,
-=======
->>>>>>> 983683ce803b01d761b749f324d03c82818af573
   formFields: [
     { key: "isoCode", label: "ISO Code", required: true, placeholder: "e.g. 22G1" },
     {

@@ -9,22 +9,13 @@ import {
   nextLocalEntityId,
   saveCertificateTemplates,
 } from "@/lib/fumigation-store";
+import { CERTIFICATE_FIELDS } from "@/lib/fumigation-fields";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-const DEFAULT_FIELDS = [
-  "Template name",
-  "Customer",
-  "Commodity",
-  "Fumigant",
-  "Dosage",
-  "Exposure",
-  "Location",
-  "Fumigator",
-  "Date issued",
-];
+const DEFAULT_FIELDS = CERTIFICATE_FIELDS;
 
 function buildDraft(row) {
   return {

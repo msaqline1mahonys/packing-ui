@@ -494,7 +494,10 @@ function PemsStagingFormField({ label, children, labelClassName = "" }) {
 
 const stagingInputClass = cn(inputClass, "min-w-0");
 const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
-const stagingFooterGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5";
+const stagingGrid6Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
+const stagingGrid3Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
+const GPPIR_WEIGHT_UNIT = "M/TONS";
+const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
 
 export default function NewPackFormPage() {
   const router = useRouter();
@@ -2090,7 +2093,7 @@ export default function NewPackFormPage() {
               ) : isGppirPems ? (
                 <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
                   <div className={stagingGridClass}>
-                    <PemsStagingFormField label="RFP">
+                    <PemsStagingFormField label="RFP Number">
                       <input
                         className={stagingInputClass}
                         value={pack.rfp}
@@ -2100,7 +2103,7 @@ export default function NewPackFormPage() {
                     </PemsStagingFormField>
                     <PemsStagingField label="Establishment Name" value={safeValue(selectedPackSite?.name)} />
                     <PemsStagingField label="Establishment Number" value={safeValue(selectedPackSite?.yardNo)} />
-                    <PemsStagingFormField label="Exporter">
+                    <PemsStagingFormField label="Exporter Name">
                       <select className={stagingInputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
                         <option value="">- Select -</option>
                         {customerOptions.map((c) => (
@@ -2111,14 +2114,16 @@ export default function NewPackFormPage() {
                       </select>
                     </PemsStagingFormField>
                   </div>
-                  <div className={stagingGridClass}>
-                    <PemsStagingField label="Total Quantity" value={`${gppirStagingTotalWeight.toFixed(4)} M/TONS`} />
-                    <PemsStagingField label="Estimated Net Metric Weight and Unit" value={`${gppirStagingTotalWeight.toFixed(2)} TONS`} />
+                  <div className={stagingGrid6Class}>
+                    <PemsStagingField label="Original RFP No." value="N/A" />
+                    <PemsStagingField label="Total Quantity" value={gppirStagingTotalWeight.toFixed(4)} />
+                    <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
+                    <PemsStagingField label="Est. Net Metric Weight" value={`${gppirStagingTotalWeight.toFixed(2)} TONS`} />
                     <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                     <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
                   </div>
-                  <div className={stagingGridClass}>
-                    <PemsStagingFormField label="Destination country">
+                  <div className={stagingGrid6Class}>
+                    <PemsStagingFormField label="Destination Country">
                       <select
                         className={stagingInputClass}
                         value={pack.destinationCountry}
@@ -2146,19 +2151,22 @@ export default function NewPackFormPage() {
                     </PemsStagingFormField>
                     <PemsStagingField label="Flow Path Result" value={gppirStagingFlowResult} />
                     <PemsStagingField label="Flow path Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
+                    <PemsStagingField label="Outcome type" value="Packaged" />
                     <PemsStagingField label="Expiry Date" value={stagingExpiryDate} />
                   </div>
                   <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                    <table className="w-full min-w-[1080px] text-left text-xs">
+                    <table className="w-full min-w-[1280px] text-left text-xs">
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
-                          <th className="px-2 py-2 font-semibold">RFP Line No</th>
+                          <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
                           <th className="px-2 py-2 font-semibold">Container Number</th>
                           <th className="px-2 py-2 font-semibold">Source</th>
                           <th className="px-2 py-2 font-semibold">Commodity</th>
-                          <th className="px-2 py-2 font-semibold">Package Number</th>
+                          <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
                           <th className="px-2 py-2 font-semibold">Type</th>
                           <th className="px-2 py-2 font-semibold">Weight</th>
+                          <th className="px-2 py-2 font-semibold">Unit</th>
+                          <th className="px-2 py-2 font-semibold">Line Weight</th>
                           <th className="px-2 py-2 font-semibold">Unit</th>
                           <th className="px-2 py-2 font-semibold">Sampled</th>
                           <th className="px-2 py-2 font-semibold">Result</th>
@@ -2167,16 +2175,20 @@ export default function NewPackFormPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {stagedPemsContainers.map((container) => (
+                        {stagedPemsContainers.map((container) => {
+                          const containerWeight = toRoundedNumber(container.nettWeight);
+                          return (
                           <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                            <td className="px-2 py-2">1</td>
+                            <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
                             <td className="px-2 py-2 font-medium">{safeValue(container.containerNumber)}</td>
                             <td className="px-2 py-2">{safeValue(container.grainLocation || container.stockBayId)}</td>
                             <td className="px-2 py-2">{packPemsCommodityLabel}</td>
-                            <td className="px-2 py-2">1</td>
+                            <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
                             <td className="px-2 py-2">CONTAINER</td>
-                            <td className="px-2 py-2">{toRoundedNumber(container.nettWeight).toFixed(4)}</td>
-                            <td className="px-2 py-2">M/TONS</td>
+                            <td className="px-2 py-2">{containerWeight.toFixed(2)}</td>
+                            <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
+                            <td className="px-2 py-2">{containerWeight.toFixed(4)}</td>
+                            <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
                             <td className="px-2 py-2">N/A</td>
                             <td className="px-2 py-2">
                               {container.grainInspection === "Passed"
@@ -2198,25 +2210,40 @@ export default function NewPackFormPage() {
                               />
                             </td>
                           </tr>
-                        ))}
+                        );
+                        })}
                       </tbody>
                     </table>
                   </div>
-                  <div className={stagingFooterGridClass}>
+                  <div className={stagingGridClass}>
                     <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
                     <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
+                  </div>
+                  <div className={stagingGrid3Class}>
                     <PemsStagingFormField label="Additional Declaration">
                       <select
                         className={stagingInputClass}
                         value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
                         onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
                       >
-                        <option value="no">No</option>
+                        <option value="no">N/A</option>
                         <option value="yes">Yes</option>
                       </select>
                     </PemsStagingFormField>
-                    <PemsStagingField label="Total Passed" value={`${gppirStagingPassedWeight.toFixed(4)} M/TONS`} />
-                    <PemsStagingField label="Total Failed" value={`${gppirStagingFailedWeight.toFixed(4)} M/TONS`} />
+                    <PemsStagingField label="Total Passed" value={gppirStagingPassedWeight.toFixed(4)} />
+                    <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
+                  </div>
+                  <div className={stagingGrid3Class}>
+                    <PemsStagingFormField label="Comments">
+                      <input
+                        className={stagingInputClass}
+                        value={pemsDraft.ecrComments ?? ""}
+                        onChange={(e) => updatePemsDraft({ ecrComments: e.target.value })}
+                        placeholder="N/A"
+                      />
+                    </PemsStagingFormField>
+                    <PemsStagingField label="Total Failed" value={gppirStagingFailedWeight.toFixed(4)} />
+                    <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
                   </div>
                 </div>
               ) : (

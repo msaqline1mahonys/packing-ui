@@ -52,7 +52,10 @@ const inputClass =
   "h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-[15px] text-slate-800 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/40 focus:ring-2";
 const stagingInputClass = cn(inputClass, "!h-9 py-1.5 text-[13px]");
 const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
-const stagingFooterGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5";
+const stagingGrid6Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
+const stagingGrid3Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
+const GPPIR_WEIGHT_UNIT = "M/TONS";
+const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
 const sectionCardClass = "overflow-hidden rounded-xl border border-slate-200/90 bg-white";
 const sectionHeaderClass = "border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800";
 
@@ -1519,7 +1522,7 @@ function PemsTab({
           ) : isGppirRecord ? (
             <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
               <div className={stagingGridClass}>
-                <PemsStagingFormField label="RFP">
+                <PemsStagingFormField label="RFP Number">
                   <input
                     className={stagingInputClass}
                     value={packRow?.rfp || ""}
@@ -1529,7 +1532,7 @@ function PemsTab({
                 </PemsStagingFormField>
                 <Field label="Establishment Name" value={safeValue(siteRow?.name)} />
                 <Field label="Establishment Number" value={safeValue(siteRow?.yardNo)} />
-                <PemsStagingFormField label="Exporter">
+                <PemsStagingFormField label="Exporter Name">
                   <select className={stagingInputClass} value={exporterCustomerId} onChange={(e) => setExporterCustomerId(e.target.value)}>
                     <option value="">- Select -</option>
                     {customerOptions.map((customer) => (
@@ -1540,14 +1543,16 @@ function PemsTab({
                   </select>
                 </PemsStagingFormField>
               </div>
-              <div className={stagingGridClass}>
-                <Field label="Total Quantity" value={`${gppirTotalWeight.toFixed(4)} M/TONS`} />
-                <Field label="Estimated Net Metric Weight and Unit" value={`${gppirTotalWeight.toFixed(2)} TONS`} />
+              <div className={stagingGrid6Class}>
+                <Field label="Original RFP No." value="N/A" />
+                <Field label="Total Quantity" value={gppirTotalWeight.toFixed(4)} />
+                <Field label="Unit" value={GPPIR_WEIGHT_UNIT} />
+                <Field label="Est. Net Metric Weight" value={`${gppirTotalWeight.toFixed(2)} TONS`} />
                 <Field label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                 <Field label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
               </div>
-              <div className={stagingGridClass}>
-                <PemsStagingFormField label="Destination country">
+              <div className={stagingGrid6Class}>
+                <PemsStagingFormField label="Destination Country">
                   <select
                     className={stagingInputClass}
                     value={packRow?.destinationCountry || ""}
@@ -1575,19 +1580,22 @@ function PemsTab({
                 </PemsStagingFormField>
                 <Field label="Flow Path Result" value={gppirFlowResult} />
                 <Field label="Flow path Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
+                <Field label="Outcome type" value="Packaged" />
                 <Field label="Expiry Date" value={expiryDate} />
               </div>
               <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                <table className="w-full min-w-[1200px] text-left text-xs">
+                <table className="w-full min-w-[1280px] text-left text-xs">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
-                      <th className="px-2 py-2 font-semibold">RFP Line No</th>
+                      <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
                       <th className="px-2 py-2 font-semibold">Container Number</th>
                       <th className="px-2 py-2 font-semibold">Source</th>
                       <th className="px-2 py-2 font-semibold">Commodity</th>
-                      <th className="px-2 py-2 font-semibold">Package Number</th>
+                      <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
                       <th className="px-2 py-2 font-semibold">Type</th>
                       <th className="px-2 py-2 font-semibold">Weight</th>
+                      <th className="px-2 py-2 font-semibold">Unit</th>
+                      <th className="px-2 py-2 font-semibold">Line Weight</th>
                       <th className="px-2 py-2 font-semibold">Unit</th>
                       <th className="px-2 py-2 font-semibold">Sampled</th>
                       <th className="px-2 py-2 font-semibold">Result</th>
@@ -1596,16 +1604,20 @@ function PemsTab({
                     </tr>
                   </thead>
                   <tbody>
-                    {stagedContainers.map((container) => (
+                    {stagedContainers.map((container) => {
+                      const containerWeight = toRoundedNumber(container.nettWeight);
+                      return (
                       <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                        <td className="px-2 py-2">1</td>
+                        <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
                         <td className="px-2 py-2 font-medium">{safeValue(container.containerNo)}</td>
                         <td className="px-2 py-2">{safeValue(container.grainLocation || container.stockBayId)}</td>
                         <td className="px-2 py-2">{safeValue(packRow.commodity)}</td>
-                        <td className="px-2 py-2">1</td>
+                        <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
                         <td className="px-2 py-2">CONTAINER</td>
-                        <td className="px-2 py-2">{toRoundedNumber(container.nettWeight).toFixed(4)}</td>
-                        <td className="px-2 py-2">M/TONS</td>
+                        <td className="px-2 py-2">{containerWeight.toFixed(2)}</td>
+                        <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
+                        <td className="px-2 py-2">{containerWeight.toFixed(4)}</td>
+                        <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
                         <td className="px-2 py-2">N/A</td>
                         <td className="px-2 py-2">
                           {container.grainInspection === "Passed" ? "Passed" : container.grainInspection === "Failed" ? "Failed" : "Pending"}
@@ -1621,25 +1633,40 @@ function PemsTab({
                           />
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div className={stagingFooterGridClass}>
+              <div className={stagingGridClass}>
                 <Field label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
                 <Field label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
+              </div>
+              <div className={stagingGrid3Class}>
                 <PemsStagingFormField label="Additional Declaration">
                   <select
                     className={stagingInputClass}
                     value={packRow?.rfpAdditionalDeclarationRequired ? "yes" : "no"}
                     onChange={(e) => setPackField("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
                   >
-                    <option value="no">No</option>
+                    <option value="no">N/A</option>
                     <option value="yes">Yes</option>
                   </select>
                 </PemsStagingFormField>
-                <Field label="Total Passed" value={`${gppirPassedWeight.toFixed(4)} M/TONS`} />
-                <Field label="Total Failed" value={`${gppirFailedWeight.toFixed(4)} M/TONS`} />
+                <Field label="Total Passed" value={gppirPassedWeight.toFixed(4)} />
+                <Field label="Unit" value={GPPIR_WEIGHT_UNIT} />
+              </div>
+              <div className={stagingGrid3Class}>
+                <PemsStagingFormField label="Comments">
+                  <input
+                    className={stagingInputClass}
+                    value={pemsDraft.ecrComments ?? ""}
+                    onChange={(e) => onUpdatePemsDraft?.({ ecrComments: e.target.value })}
+                    placeholder="N/A"
+                  />
+                </PemsStagingFormField>
+                <Field label="Total Failed" value={gppirFailedWeight.toFixed(4)} />
+                <Field label="Unit" value={GPPIR_WEIGHT_UNIT} />
               </div>
             </div>
           ) : (

@@ -18,10 +18,11 @@ import {
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import {
   attachPemsSubmissionSnapshot,
+  downloadPemsSubmissionPdf,
   GPPIR_RECORD_TYPE,
   ECR_RECORD_TYPE,
-  openPemsSubmissionDocument,
 } from "@/lib/pems-staging-snapshot";
+import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
 import {
   CONTAINER_INSPECTION_REMARK_FIELD,
   containerInspectionRemarkPatch,
@@ -305,14 +306,14 @@ export default function PackDetailClient({ packId }) {
   useEffect(() => {
     saveWorkDrafts(workByPack);
     if (!packRow || !workByPack[packRow.id]) return;
-    const containers = (workByPack[packRow.id].containers || []).map((container) =>
-      packContainerFromWorkContainer(container, packRow)
-    );
+    const draft = workByPack[packRow.id];
+    const containers = (draft.containers || []).map((container) => packContainerFromWorkContainer(container, packRow));
+    const pemsSubmissions = Array.isArray(draft.pemsSubmissions) ? draft.pemsSubmissions : [];
     const rows = loadPackScheduleRows();
     savePackScheduleRows(
-      rows.map((row) => (Number(row.id) === Number(packRow.id) ? { ...row, containers } : row))
+      rows.map((row) => (Number(row.id) === Number(packRow.id) ? { ...row, containers, pemsSubmissions } : row))
     );
-  }, [workByPack]);
+  }, [workByPack, packRow]);
 
   const selectedPackDraft = packRow ? workByPack[packRow.id] : null;
   const containerRows = selectedPackDraft?.containers || [];
@@ -660,7 +661,6 @@ export default function PackDetailClient({ packId }) {
           ),
         };
       });
-      openPemsSubmissionDocument(nextSubmission, { autoPrint: true });
     } catch (error) {
       setPemsSubmitError(error?.message || "PEMs submission failed.");
     } finally {
@@ -1168,6 +1168,19 @@ function PemsTab({
   onUpdateContainer,
 }) {
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
+  const [previewSubmission, setPreviewSubmission] = useState(null);
+  const [downloadingBatchId, setDownloadingBatchId] = useState("");
+
+  async function handleDownloadSubmission(submission) {
+    const batchId = submission?.batchId;
+    if (!batchId || downloadingBatchId) return;
+    setDownloadingBatchId(batchId);
+    try {
+      await downloadPemsSubmissionPdf(submission);
+    } finally {
+      setDownloadingBatchId("");
+    }
+  }
   const stagedIds = pemsDraft.stagedContainerIds || [];
   const isGppirRecord = pemsDraft.recordType === GPPIR_RECORD_TYPE;
   const stagedContainers = containers.filter((container) => stagedIds.includes(container.id));
@@ -1293,16 +1306,17 @@ function PemsTab({
                     <button
                       type="button"
                       className="text-[10px] font-medium text-brand-600 hover:underline"
-                      onClick={() => openPemsSubmissionDocument(submission, { autoPrint: false })}
+                      onClick={() => setPreviewSubmission(submission)}
                     >
                       View
                     </button>
                     <button
                       type="button"
-                      className="text-[10px] font-medium text-brand-600 hover:underline"
-                      onClick={() => openPemsSubmissionDocument(submission, { autoPrint: true })}
+                      className="text-[10px] font-medium text-brand-600 hover:underline disabled:opacity-50"
+                      disabled={downloadingBatchId === submission.batchId}
+                      onClick={() => handleDownloadSubmission(submission)}
                     >
-                      PDF
+                      {downloadingBatchId === submission.batchId ? "Downloading…" : "Download PDF"}
                     </button>
                   </span>
                 </div>
@@ -1733,6 +1747,7 @@ function PemsTab({
         </div>
         </section>
       </div>
+      <PemsSubmissionPreviewModal submission={previewSubmission} onClose={() => setPreviewSubmission(null)} />
     </div>
   );
 }

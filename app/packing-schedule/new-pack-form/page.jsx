@@ -26,7 +26,8 @@ import {
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
-import { attachPemsSubmissionSnapshot, openPemsSubmissionDocument } from "@/lib/pems-staging-snapshot";
+import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
+import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
 import {
   CONTAINER_INSPECTION_REMARK_FIELD,
   containerInspectionRemarkPatch,
@@ -526,6 +527,8 @@ export default function NewPackFormPage() {
   const [editingContainerId, setEditingContainerId] = useState(null);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
+  const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
+  const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
   const userClosedSampleWhileRequiredRef = useRef(false);
   const prevSampleRequiredRef = useRef(undefined);
 
@@ -626,6 +629,17 @@ export default function NewPackFormPage() {
     });
   }
 
+  async function handleDownloadPemsSubmission(submission) {
+    const batchId = submission?.batchId;
+    if (!batchId || downloadingPemsBatchId) return;
+    setDownloadingPemsBatchId(batchId);
+    try {
+      await downloadPemsSubmissionPdf(submission);
+    } finally {
+      setDownloadingPemsBatchId("");
+    }
+  }
+
   function submitPemsFromForm() {
     const isGppir = pemsDraft.recordType === GPPIR_RECORD_TYPE;
     const stagedIds = pemsDraft.stagedContainerIds || [];
@@ -681,7 +695,7 @@ export default function NewPackFormPage() {
       const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
       const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
       const stagedSet = new Set(stagedIds);
-      return {
+      const nextPack = {
         ...prev,
         pemsDraft: { ...currentDraft, stagedContainerIds: [] },
         pemsSubmissions: [submission, ...previousSubs],
@@ -692,8 +706,16 @@ export default function NewPackFormPage() {
             : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
         }),
       };
+      const packId = nextPack.id || editingRow?.id;
+      if (packId) {
+        const rows = loadPackScheduleRows();
+        const existingRow = rows.find((row) => Number(row.id) === Number(packId)) || editingRow;
+        if (existingRow) {
+          savePackScheduleRows(rows.map((row) => (Number(row.id) === Number(packId) ? packToScheduleRow(nextPack, existingRow) : row)));
+        }
+      }
+      return nextPack;
     });
-    openPemsSubmissionDocument(submission, { autoPrint: true });
   }
 
   const selectedVessel = useMemo(() => {
@@ -1801,6 +1823,7 @@ export default function NewPackFormPage() {
       ) : null}
 
       {activeTab === "pems" ? (
+      <>
       <div className="space-y-3">
         <section className="rounded-lg border border-slate-200/90 bg-white px-2.5 py-2.5 shadow-none">
           <div className="flex items-center justify-between gap-2">
@@ -1837,16 +1860,17 @@ export default function NewPackFormPage() {
                     <button
                       type="button"
                       className="text-[10px] font-medium text-brand-600 hover:underline"
-                      onClick={() => openPemsSubmissionDocument(row, { autoPrint: false })}
+                      onClick={() => setPreviewPemsSubmission(row)}
                     >
                       View
                     </button>
                     <button
                       type="button"
-                      className="text-[10px] font-medium text-brand-600 hover:underline"
-                      onClick={() => openPemsSubmissionDocument(row, { autoPrint: true })}
+                      className="text-[10px] font-medium text-brand-600 hover:underline disabled:opacity-50"
+                      disabled={downloadingPemsBatchId === row.batchId}
+                      onClick={() => handleDownloadPemsSubmission(row)}
                     >
-                      PDF
+                      {downloadingPemsBatchId === row.batchId ? "Downloading…" : "Download PDF"}
                     </button>
                   </div>
                 </div>
@@ -2319,6 +2343,8 @@ export default function NewPackFormPage() {
           </section>
         </div>
       </div>
+      <PemsSubmissionPreviewModal submission={previewPemsSubmission} onClose={() => setPreviewPemsSubmission(null)} />
+      </>
       ) : null}
 
       {activeTab === "accounting" ? (

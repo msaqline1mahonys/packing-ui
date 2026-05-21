@@ -27,6 +27,7 @@ const STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Cancelled"];
 
 function emptyForm() {
   return {
+    cmoReference: "",
     direction: "incoming",
     customer: "",
     commodityType: "",
@@ -69,14 +70,14 @@ export default function CmoForm() {
     }));
   };
 
-  const canSave = form.customer && form.commodityType && form.commodity && form.status;
+  const canSave = form.cmoReference.trim() && form.customer && form.commodityType && form.commodity && form.status;
 
   const createCmo = () => {
     if (!canSave) return;
 
     const rows = loadCmoRows();
     const id = nextCmoId(rows);
-    const cmoReference = `CMO-${String(id).padStart(4, "0")}`;
+    const cmoReference = form.cmoReference.trim();
 
     const nextRow = {
       id,
@@ -112,8 +113,16 @@ export default function CmoForm() {
 
       <section className={sectionClass}>
         <div className="space-y-4">
-          <input className="h-10 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500" value="CMO reference will be auto-generated" disabled readOnly />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Field label="CMO Reference" required>
+              <input
+                className={inputClass}
+                value={form.cmoReference}
+                onChange={(e) => setField("cmoReference", e.target.value)}
+                placeholder="e.g. CMO-0142"
+              />
+            </Field>
+
             <Field label="Direction" required>
               <select className={inputClass} value={form.direction} onChange={(e) => setField("direction", e.target.value)}>
                 {DIRECTION_OPTIONS.map((option) => (

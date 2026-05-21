@@ -94,6 +94,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [locationWarning, setLocationWarning] = useState(null);
 
   const [newCmo, setNewCmo] = useState({
+    cmoReference: "",
     direction: cmoDirection,
     customerId: "",
     commodityTypeId: "",
@@ -739,9 +740,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       </div>
 
       <Modal open={showCmoModal} title={`Create New CMO (${isIncoming ? "Incoming" : "Outgoing"})`} onClose={() => setShowCmoModal(false)}>
-        <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CMO Reference will be auto-generated</span>
-        </div>
+        <FormRow label="CMO Reference" required>
+          <input
+            className={inputClass}
+            value={newCmo.cmoReference}
+            onChange={(e) => setNewCmo({ ...newCmo, cmoReference: e.target.value })}
+            placeholder="e.g. CMO-0142"
+          />
+        </FormRow>
         <FormRow label="Customer / Account" required>
           <select
             className={inputClass}
@@ -831,15 +837,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             type="button"
             size="sm"
             onClick={() => {
-              if (newCmo.customerId && newCmo.commodityTypeId && newCmo.commodityId) {
+              if (newCmo.cmoReference.trim() && newCmo.customerId && newCmo.commodityTypeId && newCmo.commodityId) {
                 const nextId = Math.max(0, ...cmos.map((c) => c.id)) + 1;
-                const ref = `CMO-${String(nextId).padStart(4, "0")}`;
                 setCmos((prev) => [
                   ...prev,
                   {
                     id: nextId,
                     direction: cmoDirection,
-                    cmoReference: ref,
+                    cmoReference: newCmo.cmoReference.trim(),
                     customerId: Number(newCmo.customerId),
                     commodityTypeId: Number(newCmo.commodityTypeId),
                     commodityId: Number(newCmo.commodityId),
@@ -849,6 +854,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 ]);
                 setShowCmoModal(false);
                 setNewCmo({
+                  cmoReference: "",
                   direction: cmoDirection,
                   customerId: "",
                   commodityTypeId: "",

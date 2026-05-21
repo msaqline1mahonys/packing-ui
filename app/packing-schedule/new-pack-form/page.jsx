@@ -26,6 +26,12 @@ import {
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
+import { attachPemsSubmissionSnapshot, openPemsSubmissionDocument } from "@/lib/pems-staging-snapshot";
+import {
+  CONTAINER_INSPECTION_REMARK_FIELD,
+  containerInspectionRemarkPatch,
+  getContainerInspectionRemark,
+} from "@/lib/pems-container-fields";
 import { readSiteRows } from "@/lib/site-data";
 import { ChevronDown } from "lucide-react";
 
@@ -129,6 +135,7 @@ function defaultPemsDraft() {
     inspectionEnd: "",
     aoSignoff: "",
     aoNumber: "",
+    ecrComments: "N/A",
     stagedContainerIds: [],
   };
 }
@@ -209,7 +216,7 @@ function createDraftContainer(pack, index, existing = {}) {
     praLastSubmittedTime: existing.praLastSubmittedTime ?? "",
     praLastError: existing.praLastError ?? "",
     aoSignoff: existing.aoSignoff ?? "",
-    aoInspectionRemark: existing.aoInspectionRemark ?? "",
+    [CONTAINER_INSPECTION_REMARK_FIELD]: existing[CONTAINER_INSPECTION_REMARK_FIELD] ?? existing.aoInspectionRemark ?? "",
     ecrSubmitted: Boolean(existing.ecrSubmitted),
     ecrLastSubmittedAt: existing.ecrLastSubmittedAt ?? "",
     ecrLastBatchId: existing.ecrLastBatchId ?? "",
@@ -382,6 +389,7 @@ function rowToPack(row, siteId) {
     additionalDeclarationFiles: normalizeFileItems(row.additionalDeclarationFiles),
     rfp: row.rfp || "",
     rfpFiles: normalizeFileItems(row.rfpFiles),
+    rfpAdditionalDeclarationRequired: Boolean(row.rfpAdditionalDeclarationRequired),
     packingInstructionFiles: normalizeFileItems(row.packingInstructionFiles),
     pemsDraft: { ...defaultPemsDraft(), ...(row.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(row.pemsSubmissions) ? row.pemsSubmissions : [],
@@ -447,6 +455,7 @@ function packToScheduleRow(pack, existingRow) {
     importPermitFiles: normalizeFileItems(pack.importPermitFiles),
     additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
     rfp: pack.rfp || "",
+    rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
     rfpFiles: normalizeFileItems(pack.rfpFiles),
     packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
@@ -472,6 +481,20 @@ function PemsStagingField({ label, value, labelClassName = "", valueClassName = 
     </div>
   );
 }
+
+/** Editable staging field — same label layout as `PemsStagingField`, General-form controls inside. */
+function PemsStagingFormField({ label, children, labelClassName = "" }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className={cn("text-[11px] font-semibold uppercase tracking-wide text-slate-500", labelClassName)}>{label}</div>
+      <div className="w-full min-w-0">{children}</div>
+    </div>
+  );
+}
+
+const stagingInputClass = cn(inputClass, "min-w-0");
+const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
+const stagingFooterGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5";
 
 export default function NewPackFormPage() {
   const router = useRouter();
@@ -614,33 +637,51 @@ export default function NewPackFormPage() {
         setPemsSubmitError("ECR must be submitted before GPPIR for all staged containers.");
         return;
       }
+    } else if (!String(pemsDraft.ecrComments ?? "").trim()) {
+      setPemsSubmitError("Enter comments before submitting the empty container inspection record.");
+      return;
     }
     const submittedAt = new Date().toISOString();
     const batchId = `PEMS-${Date.now()}`;
     setPemsSubmitError("");
+    const submission = attachPemsSubmissionSnapshot({
+      batchId,
+      submittedAt,
+      status: "Accepted",
+      recordType: pemsDraft.recordType,
+      packId: pack.id || editingRow?.id || "draft",
+      jobReference: pack.jobReference || "",
+      rfp: pack.rfp || "",
+      exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
+      destinationCountry: pack.destinationCountry || "",
+      importPermitRequired: Boolean(pack.importPermitRequired),
+      importPermitNumber: pack.importPermitNumber || "",
+      rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
+      establishmentName: selectedPackSite?.name || site?.label || site?.name || "",
+      establishmentNumber: String(selectedPackSite?.yardNo || ""),
+      commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
+      aoSignoff: pemsDraft.aoSignoff,
+      aoNumber: selectedAoNumber,
+      inspectionStart: pemsDraft.inspectionStart,
+      inspectionEnd: pemsDraft.inspectionEnd,
+      ecrComments: pemsDraft.ecrComments || "N/A",
+      yardId: String(selectedPackSite?.yardNo || ""),
+      placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${pack.siteId || ""}`,
+      containerIds: containers.map((container) => container.id),
+      containers: containers.map((container) => ({
+        ...container,
+        containerNo: container.containerNumber,
+        sealNo: container.sealNumber,
+      })),
+    });
     setPack((prev) => {
       const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
       const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
       const stagedSet = new Set(stagedIds);
-      const nextSubmission = {
-        batchId,
-        submittedAt,
-        status: "Accepted",
-        recordType: currentDraft.recordType,
-        aoSignoff: currentDraft.aoSignoff,
-        aoNumber: selectedAoNumber,
-        inspectionStart: currentDraft.inspectionStart,
-        inspectionEnd: currentDraft.inspectionEnd,
-        yardId: String(selectedPackSite?.yardNo || ""),
-        placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${prev.siteId || ""}`,
-        packId: prev.id || editingRow?.id || "draft",
-        containerIds: containers.map((container) => container.id),
-        containers,
-      };
       return {
         ...prev,
         pemsDraft: { ...currentDraft, stagedContainerIds: [] },
-        pemsSubmissions: [nextSubmission, ...previousSubs],
+        pemsSubmissions: [submission, ...previousSubs],
         containers: (Array.isArray(prev.containers) ? prev.containers : []).map((container) => {
           if (!stagedSet.has(container.id)) return container;
           return isGppir
@@ -649,6 +690,7 @@ export default function NewPackFormPage() {
         }),
       };
     });
+    openPemsSubmissionDocument(submission, { autoPrint: true });
   }
 
   const selectedVessel = useMemo(() => {
@@ -757,18 +799,9 @@ export default function NewPackFormPage() {
       ? "Passed"
       : "Pending";
   const packRfpText = String(pack.rfp || "").trim();
-  const stagingRfpNumberLabel = safeValue(stagingRfpSummary || "N/A");
   const packPemsCommodityLabel = useMemo(
     () => safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description),
     [pack.commodityId]
-  );
-  const packExporterDisplay = useMemo(
-    () =>
-      safeValue(
-        customerOptions.find((c) => c.id === Number(pack.exporter))?.name ||
-          customerOptions.find((c) => c.id === Number(pack.customerId))?.name
-      ),
-    [pack.exporter, pack.customerId]
   );
   const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
   const containersLeftToPack = packContainers.filter((container) => {
@@ -1797,6 +1830,22 @@ export default function NewPackFormPage() {
                   <div className="shrink-0 text-[10px] whitespace-nowrap text-slate-400 sm:pt-0.5">
                     {formatDateTimeValue(row.submittedAt)}
                   </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 sm:flex-col sm:items-end sm:gap-1.5">
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-brand-600 hover:underline"
+                      onClick={() => openPemsSubmissionDocument(row, { autoPrint: false })}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-brand-600 hover:underline"
+                      onClick={() => openPemsSubmissionDocument(row, { autoPrint: true })}
+                    >
+                      PDF
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2035,37 +2084,66 @@ export default function NewPackFormPage() {
                 <span className="ms-auto shrink-0 text-xs text-slate-500 tabular-nums">Pack #{packDisplayId}</span>
               </div>
               {!stagedPemsContainers.length ? (
-                <div className="space-y-2">
-                  {stagingRfpSummary ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">RFP number</p>
-                      <p className="mt-1 font-medium text-slate-900">{safeValue(stagingRfpSummary)}</p>
-                    </div>
-                  ) : null}
-                  <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
-                    Stage one or more containers to populate this record.
-                  </div>
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
+                  Stage one or more containers to populate this record.
                 </div>
               ) : isGppirPems ? (
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
-                  <div className="grid gap-2 md:grid-cols-4">
-                    <PemsStagingField label="RFP Number" value={stagingRfpNumberLabel} />
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
+                  <div className={stagingGridClass}>
+                    <PemsStagingFormField label="RFP">
+                      <input
+                        className={stagingInputClass}
+                        value={pack.rfp}
+                        onChange={(e) => set("rfp", e.target.value)}
+                        placeholder="RFP reference"
+                      />
+                    </PemsStagingFormField>
                     <PemsStagingField label="Establishment Name" value={safeValue(selectedPackSite?.name)} />
                     <PemsStagingField label="Establishment Number" value={safeValue(selectedPackSite?.yardNo)} />
-                    <PemsStagingField label="Exporter Name" value={packExporterDisplay} />
+                    <PemsStagingFormField label="Exporter">
+                      <select className={stagingInputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
+                        <option value="">- Select -</option>
+                        {customerOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </PemsStagingFormField>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-4">
+                  <div className={stagingGridClass}>
                     <PemsStagingField label="Total Quantity" value={`${gppirStagingTotalWeight.toFixed(4)} M/TONS`} />
                     <PemsStagingField label="Estimated Net Metric Weight and Unit" value={`${gppirStagingTotalWeight.toFixed(2)} TONS`} />
                     <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                     <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
                   </div>
-                  <div className="grid gap-2 md:grid-cols-5">
-                    <PemsStagingField label="Destination Country" value={safeValue(pack.destinationCountry)} />
-                    <PemsStagingField
-                      label="Import Permit No."
-                      value={!pack.importPermitRequired ? "N/A" : String(pack.importPermitNumber || "").trim() || "—"}
-                    />
+                  <div className={stagingGridClass}>
+                    <PemsStagingFormField label="Destination country">
+                      <select
+                        className={stagingInputClass}
+                        value={pack.destinationCountry}
+                        onChange={(e) => set("destinationCountry", e.target.value)}
+                      >
+                        <option value="">- Select country -</option>
+                        {countryOptions.map((country) => (
+                          <option key={country} value={country}>
+                            {country}
+                          </option>
+                        ))}
+                      </select>
+                    </PemsStagingFormField>
+                    <PemsStagingFormField label="Import Permit No.">
+                      {!pack.importPermitRequired ? (
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] text-slate-700">N/A</div>
+                      ) : (
+                        <input
+                          className={stagingInputClass}
+                          value={pack.importPermitNumber}
+                          onChange={(e) => set("importPermitNumber", e.target.value)}
+                          placeholder="Number"
+                        />
+                      )}
+                    </PemsStagingFormField>
                     <PemsStagingField label="Flow Path Result" value={gppirStagingFlowResult} />
                     <PemsStagingField label="Flow path Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
                     <PemsStagingField label="Expiry Date" value={stagingExpiryDate} />
@@ -2108,23 +2186,42 @@ export default function NewPackFormPage() {
                                   : "Pending"}
                             </td>
                             <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                            <td className="px-2 py-2">{safeValue(container.aoInspectionRemark || "N/A")}</td>
+                            <td className="px-2 py-2 align-top">
+                              <textarea
+                                className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
+                                value={getContainerInspectionRemark(container)}
+                                onChange={(e) =>
+                                  updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
+                                }
+                                placeholder="Remarks"
+                                rows={2}
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-5">
+                  <div className={stagingFooterGridClass}>
                     <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
                     <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
-                    <PemsStagingField label="Additional Declaration" value="N/A" />
+                    <PemsStagingFormField label="Additional Declaration">
+                      <select
+                        className={stagingInputClass}
+                        value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
+                        onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </PemsStagingFormField>
                     <PemsStagingField label="Total Passed" value={`${gppirStagingPassedWeight.toFixed(4)} M/TONS`} />
                     <PemsStagingField label="Total Failed" value={`${gppirStagingFailedWeight.toFixed(4)} M/TONS`} />
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
-                  <div className="grid gap-2 md:grid-cols-4">
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
+                  <div className={stagingGridClass}>
                     <PemsStagingField label="Container Yard Id" value={safeValue(selectedPackSite?.yardNo)} />
                     <PemsStagingField label="Place of Inspection" value={safeValue(selectedPackSite?.name)} />
                     <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
@@ -2160,18 +2257,35 @@ export default function NewPackFormPage() {
                             <td className="px-2 py-2">{safeValue(container.sealNumber)}</td>
                             <td className="px-2 py-2">{stagingExpiryDate}</td>
                             <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                            <td className="px-2 py-2">{safeValue(container.aoInspectionRemark || "N/A")}</td>
+                            <td className="px-2 py-2 align-top">
+                              <textarea
+                                className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
+                                value={getContainerInspectionRemark(container)}
+                                onChange={(e) =>
+                                  updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
+                                }
+                                placeholder="Remarks"
+                                rows={2}
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
                     <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
-                    <PemsStagingField label="Pack Reference" value={safeValue(pack.jobReference)} />
-                    <PemsStagingField label="Containers in batch" value={String(stagedPemsContainers.length)} />
                   </div>
+                  <PemsStagingFormField label="Comments">
+                    <input
+                      className={stagingInputClass}
+                      value={pemsDraft.ecrComments ?? ""}
+                      onChange={(e) => updatePemsDraft({ ecrComments: e.target.value })}
+                      placeholder="N/A"
+                      required
+                    />
+                  </PemsStagingFormField>
                 </div>
               )}
             </div>

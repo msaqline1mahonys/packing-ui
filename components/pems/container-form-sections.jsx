@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
 
 const defaultFieldNames = {
   containerNo: "containerNo",
@@ -30,7 +31,8 @@ const defaultFieldNames = {
   emptyInspection: "emptyInspection",
   grainInspection: "grainInspection",
   aoSignoff: "aoSignoff",
-  aoInspectionRemark: "aoInspectionRemark",
+  aoInspectionRemark: CONTAINER_INSPECTION_REMARK_FIELD,
+  packerNotes: "packerNotes",
 };
 
 function getValue(container, fieldNames, key, fallback = "") {
@@ -56,6 +58,7 @@ export default function ContainerFormSections({
   onResetContainer,
   onMarkPacked,
   onSubmitPra,
+  showPackersNote = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
@@ -168,6 +171,21 @@ export default function ContainerFormSections({
           <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
         </div>
       </div>
+
+      {showPackersNote ? (
+        <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
+          <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Packers</div>
+          <div className="px-3 pb-3 pt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">Packers note</label>
+            <textarea
+              className={`${inputClass} min-h-[82px] w-full resize-y`}
+              value={getValue(container, names, "packerNotes")}
+              onChange={(event) => setField("packerNotes", event.target.value)}
+              placeholder="Notes for this container"
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

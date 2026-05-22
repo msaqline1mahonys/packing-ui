@@ -27,6 +27,16 @@ import {
 } from "@/lib/fumigation-store";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
+import { filterAuthorisedOfficers } from "@/lib/user-classifications";
+import {
+  buildPemsInspectionPayload,
+  isPemsRfpRefreshError,
+  pemsRfpRefreshUserMessage,
+  submitPemsInspectionFlow,
+  validatePemsSubmission,
+} from "@/lib/pems";
+import { defaultPemsDraftFields } from "@/lib/pems/constants";
+import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
@@ -141,6 +151,7 @@ function defaultPemsDraft() {
     aoNumber: "",
     ecrComments: "N/A",
     stagedContainerIds: [],
+    ...defaultPemsDraftFields(),
   };
 }
 
@@ -582,6 +593,7 @@ function NewPackFormPageInner() {
   );
   const [editingContainerId, setEditingContainerId] = useState(null);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
+  const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
   const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
   const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
@@ -773,10 +785,7 @@ function NewPackFormPageInner() {
     () => contactUsers.filter((u) => u && u.isFumigator && u.active !== false),
     [contactUsers],
   );
-  const aoOptions = useMemo(
-    () => contactUsers.filter((u) => u && u.aoActive && u.active !== false),
-    [contactUsers],
-  );
+  const aoOptions = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
 
   function updateFumigationDetail(patch) {
     setPack((prev) => {
@@ -845,7 +854,7 @@ function NewPackFormPageInner() {
     }
   }
 
-  function submitPemsFromForm() {
+  async function submitPemsFromForm() {
     const isGppir = pemsDraft.recordType === GPPIR_RECORD_TYPE;
     const stagedIds = pemsDraft.stagedContainerIds || [];
     const containers = packContainers.filter((container) => stagedIds.includes(container.id));
@@ -863,39 +872,69 @@ function NewPackFormPageInner() {
       setPemsSubmitError("Enter comments before submitting the empty container inspection record.");
       return;
     }
-    const submittedAt = new Date().toISOString();
-    const batchId = `PEMS-${Date.now()}`;
+
+    setIsSubmittingPems(true);
     setPemsSubmitError("");
-    const submission = attachPemsSubmissionSnapshot({
-      batchId,
-      submittedAt,
-      status: "Accepted",
-      recordType: pemsDraft.recordType,
-      packId: pack.id || editingRow?.id || "draft",
-      jobReference: pack.jobReference || "",
-      rfp: pack.rfp || "",
-      exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
-      destinationCountry: pack.destinationCountry || "",
-      importPermitRequired: Boolean(pack.importPermitRequired),
-      importPermitNumber: pack.importPermitNumber || "",
-      rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
-      establishmentName: selectedPackSite?.name || site?.label || site?.name || "",
-      establishmentNumber: String(selectedPackSite?.yardNo || ""),
-      commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
-      aoSignoff: pemsDraft.aoSignoff,
-      aoNumber: selectedAoNumber,
-      inspectionStart: pemsDraft.inspectionStart,
-      inspectionEnd: pemsDraft.inspectionEnd,
-      ecrComments: pemsDraft.ecrComments || "N/A",
-      yardId: String(selectedPackSite?.yardNo || ""),
-      placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${pack.siteId || ""}`,
-      containerIds: containers.map((container) => container.id),
-      containers: containers.map((container) => ({
-        ...container,
-        containerNo: container.containerNumber,
-        sealNo: container.sealNumber,
-      })),
-    });
+    try {
+      const packForPayload = {
+        ...pack,
+        id: pack.id || editingRow?.id || "draft",
+        commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
+        exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
+      };
+      const payload = buildPemsInspectionPayload({
+        pack: packForPayload,
+        site: selectedPackSite,
+        recordType: pemsDraft.recordType,
+        pemsDraft,
+        containers: containers.map((c) => ({ ...c, containerNo: c.containerNumber, sealNo: c.sealNumber })),
+        contactUsers,
+      });
+      const validationErrors = validatePemsSubmission({
+        recordType: pemsDraft.recordType,
+        pack: packForPayload,
+        site: selectedPackSite,
+        containers: payload.containers,
+        lines: payload.lines,
+        timeEntries: payload.timeEntries,
+        pemsDraft,
+      });
+      if (validationErrors.length) throw new Error(validationErrors[0]);
+
+      const data = await submitPemsInspectionFlow({ recordType: pemsDraft.recordType, payload, isGppir });
+      const submittedAt = data?.submittedAt || new Date().toISOString();
+      const batchId = data?.submissionId || data?.pemsInspectionId || data?.id || `PEMS-${Date.now()}`;
+      const submission = attachPemsSubmissionSnapshot({
+        batchId,
+        submittedAt,
+        status: data?.status || data?.pemsStatus || "Accepted",
+        pemsInspectionId: data?.pemsInspectionId || data?.id || "",
+        recordType: pemsDraft.recordType,
+        packId: pack.id || editingRow?.id || "draft",
+        jobReference: pack.jobReference || "",
+        rfp: pack.rfp || "",
+        exporter: packForPayload.exporter,
+        destinationCountry: pack.destinationCountry || "",
+        importPermitRequired: Boolean(pack.importPermitRequired),
+        importPermitNumber: pack.importPermitNumber || "",
+        rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
+        establishmentName: selectedPackSite?.name || site?.label || site?.name || "",
+        establishmentNumber: String(selectedPackSite?.establishmentNumber || selectedPackSite?.yardNo || ""),
+        commodity: packForPayload.commodity,
+        aoSignoff: pemsDraft.aoSignoff,
+        aoNumber: selectedAoNumber,
+        inspectionStart: pemsDraft.inspectionStart,
+        inspectionEnd: pemsDraft.inspectionEnd,
+        ecrComments: pemsDraft.ecrComments || "N/A",
+        yardId: String(selectedPackSite?.yardId ?? selectedPackSite?.yardNo ?? ""),
+        placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${pack.siteId || ""}`,
+        containerIds: containers.map((container) => container.id),
+        containers: containers.map((container) => ({
+          ...container,
+          containerNo: container.containerNumber,
+          sealNo: container.sealNumber,
+        })),
+      });
     setPack((prev) => {
       const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
       const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
@@ -921,6 +960,11 @@ function NewPackFormPageInner() {
       }
       return nextPack;
     });
+    } catch (error) {
+      setPemsSubmitError(isPemsRfpRefreshError(error) ? pemsRfpRefreshUserMessage() : error?.message || "PEMs submission failed.");
+    } finally {
+      setIsSubmittingPems(false);
+    }
   }
 
   const selectedVessel = useMemo(() => {
@@ -960,7 +1004,7 @@ function NewPackFormPageInner() {
   const aoNumberByName = useMemo(() => {
     const map = new Map();
     loadContactUsers().forEach((row) => {
-      if (!row?.aoActive) return;
+      if (!row?.aoActive && !(row?.userClassifications || []).includes("AUTHORISED_OFFICER")) return;
       const name = String(row.name || "").trim();
       if (!name) return;
       map.set(name, String(row.aoNumber || ""));
@@ -2008,6 +2052,21 @@ function NewPackFormPageInner() {
           <FormRow label="RFP commodity code">
             <input className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
           </FormRow>
+          <FormRow label="RFP pack type">
+            <input className={inputClass} value={pack.rfpPackType || ""} onChange={(e) => set("rfpPackType", e.target.value)} placeholder="e.g. Packaged" />
+          </FormRow>
+          <FormRow label="RFP total quantity">
+            <input className={inputClass} type="number" step="0.0001" value={pack.rfpTotalQuantity ?? ""} onChange={(e) => set("rfpTotalQuantity", e.target.value)} placeholder="Quantity" />
+          </FormRow>
+          <FormRow label="RFP quantity unit">
+            <input className={inputClass} value={pack.rfpQuantityUnit || "M/TONS"} onChange={(e) => set("rfpQuantityUnit", e.target.value)} placeholder="M/TONS" />
+          </FormRow>
+          <FormRow label="RFP flow path">
+            <input className={inputClass} value={pack.rfpFlowPath || ""} onChange={(e) => set("rfpFlowPath", e.target.value)} placeholder="Packaged" />
+          </FormRow>
+          <FormRow label="Original RFP number">
+            <input className={inputClass} value={pack.originalRfpNumber || ""} onChange={(e) => set("originalRfpNumber", e.target.value)} placeholder="Optional" />
+          </FormRow>
         </div>
         <FormRow label="RFP file(s)" className="mt-4">
           <input
@@ -2166,9 +2225,22 @@ function NewPackFormPageInner() {
               />
             </FormRow>
             <FormRow label="AO signoff">
-              <input className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
+              <select className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })}>
+                <option value="">Select AO…</option>
+                {aoOptions.map((ao) => (
+                  <option key={ao.id} value={ao.name}>
+                    {ao.name}
+                    {ao.aoNumber ? ` (${ao.aoNumber})` : ""}
+                  </option>
+                ))}
+              </select>
             </FormRow>
           </div>
+          <PemsInspectionPanel
+            className="mt-3"
+            pemsDraft={pemsDraft}
+            onChange={updatePemsDraft}
+          />
           <div className="mt-2 flex flex-row flex-wrap items-start gap-2 sm:gap-3">
             <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
@@ -2176,9 +2248,9 @@ function NewPackFormPageInner() {
                 {[
                   {
                     title: "Yard number",
-                    ...(!selectedPackSite?.yardNo
-                      ? { ok: false, label: "Missing yard number in selected site record." }
-                      : { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }),
+                    ...(!selectedPackSite?.establishmentNumber && !selectedPackSite?.yardNo
+                      ? { ok: false, label: "Missing establishment number on site." }
+                      : { ok: true, label: `Establishment ${selectedPackSite.establishmentNumber || selectedPackSite.yardNo}` }),
                   },
                   {
                     title: "Place of inspection",
@@ -2220,9 +2292,9 @@ function NewPackFormPageInner() {
               type="button"
               className="h-10 shrink-0 self-center sm:min-w-[160px]"
               onClick={submitPemsFromForm}
-              disabled={!stagedPemsContainers.length}
+              disabled={!stagedPemsContainers.length || isSubmittingPems}
             >
-              Submit {stagedPemsContainers.length}
+              {isSubmittingPems ? "Submitting…" : `Submit ${stagedPemsContainers.length}`}
             </Button>
           </div>
           {pemsSubmitError ? (

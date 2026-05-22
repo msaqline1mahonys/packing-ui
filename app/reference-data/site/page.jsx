@@ -34,6 +34,29 @@ const config = {
     { key: "email", label: "Email", type: "email", placeholder: "contact@example.com" },
     { key: "treatmentProviderId", label: "Treatment provider ID", placeholder: "ABF/AQIS registration / AEI / AA / ERE" },
     { key: "address", label: "Address", type: "textarea", placeholder: "Street, city…" },
+    { key: "pemsSection", label: "PEMS Establishment", type: "section" },
+    { key: "establishmentNumber", label: "Establishment number", placeholder: "e.g. 6851" },
+    { key: "yardId", label: "Yard ID (integer)", type: "number", placeholder: "PEMS yardId for ECI" },
+    { key: "addressLine1", label: "Address line 1", placeholder: "Street address", wide: true },
+    { key: "addressLine2", label: "Address line 2", placeholder: "Optional", wide: true },
+    { key: "suburb", label: "Suburb" },
+    {
+      key: "stateCode",
+      label: "State",
+      type: "select",
+      options: [
+        { value: "", label: "Select state…" },
+        { value: "VIC", label: "VIC" },
+        { value: "NSW", label: "NSW" },
+        { value: "QLD", label: "QLD" },
+        { value: "SA", label: "SA" },
+        { value: "WA", label: "WA" },
+        { value: "TAS", label: "TAS" },
+        { value: "NT", label: "NT" },
+        { value: "ACT", label: "ACT" },
+      ],
+    },
+    { key: "postcode", label: "Postcode" },
     {
       key: "status",
       label: "Status",
@@ -112,9 +135,30 @@ function fromApiSite(site) {
     address: site.address ?? "",
     status: site.status ?? "",
     treatmentProviderId: site.treatment_provider_id ?? site.treatmentProviderId ?? "",
+    establishmentNumber: site.establishment_number ?? site.establishmentNumber ?? site.yard_no ?? site.yardNo ?? "",
+    yardId: site.yard_id ?? site.yardId ?? "",
+    addressLine1: site.address_line1 ?? site.addressLine1 ?? "",
+    addressLine2: site.address_line2 ?? site.addressLine2 ?? "",
+    suburb: site.suburb ?? "",
+    stateCode: site.state_code ?? site.stateCode ?? "",
+    postcode: site.postcode ?? "",
     isHeadOffice: Boolean(site.is_head_office),
     organizationName: site.organization?.name ?? "",
     organizationId: site.organization_id ?? "",
+  };
+}
+
+function pemsApiFields(draft) {
+  const yardIdRaw = draft.yardId;
+  const yardId = yardIdRaw === "" || yardIdRaw == null ? null : Number(yardIdRaw);
+  return {
+    establishment_number: String(draft.establishmentNumber ?? "").trim() || null,
+    yard_id: Number.isFinite(yardId) ? yardId : null,
+    address_line1: String(draft.addressLine1 ?? "").trim() || null,
+    address_line2: String(draft.addressLine2 ?? "").trim() || null,
+    suburb: String(draft.suburb ?? "").trim() || null,
+    state_code: String(draft.stateCode ?? "").trim() || null,
+    postcode: String(draft.postcode ?? "").trim() || null,
   };
 }
 
@@ -130,6 +174,7 @@ function toApiCreateBody(draft) {
     status: String(draft.status ?? "active").trim() || "active",
     treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
+    ...pemsApiFields(draft),
   };
 }
 
@@ -143,18 +188,24 @@ function toApiUpdateBody(draft) {
     status: String(draft.status ?? "active").trim() || "active",
     treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
+    ...pemsApiFields(draft),
   };
 }
 
 function buildDraft(row) {
   const next = {};
   for (const field of config.formFields) {
+    if (field.type === "section") continue;
     if (field.key === "isHeadOffice") {
       next[field.key] = row?.isHeadOffice ? "true" : "false";
       continue;
     }
     if (field.key === "status") {
       next[field.key] = row?.status ? String(row.status) : "active";
+      continue;
+    }
+    if (field.key === "establishmentNumber" && !row?.establishmentNumber && row?.yardNo) {
+      next[field.key] = row.yardNo;
       continue;
     }
     next[field.key] = row?.[field.key] ?? "";
@@ -570,6 +621,13 @@ export default function SitePage() {
 }
 
 function FormField({ field, value, onChange, disabled }) {
+  if (field.type === "section") {
+    return (
+      <div className="sm:col-span-2 border-t border-slate-200 pt-3 mt-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">{field.label}</p>
+      </div>
+    );
+  }
   const options = field.options ?? [];
   return (
     <div

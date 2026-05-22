@@ -7,6 +7,16 @@ import { Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, PACK_FORM_LOOKUPS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { loadContactUsers } from "@/lib/contact-users-store";
+import { filterAuthorisedOfficers } from "@/lib/user-classifications";
+import {
+  buildPemsInspectionPayload,
+  isPemsRfpRefreshError,
+  pemsRfpRefreshUserMessage,
+  submitPemsInspectionFlow,
+  validatePemsSubmission,
+} from "@/lib/pems";
+import { defaultPemsDraftFields } from "@/lib/pems/constants";
+import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import {
   containerStage,
   loadWorkDrafts,
@@ -113,6 +123,7 @@ function defaultPemsDraft() {
     aoNumber: "",
     ecrComments: "N/A",
     stagedContainerIds: [],
+    ...defaultPemsDraftFields(),
   };
 }
 
@@ -286,16 +297,18 @@ export default function PackDetailClient({ packId }) {
     () => (PACK_FORM_LOOKUPS.packers || []).filter((p) => String(p.status).toLowerCase() === "active").map((p) => p.name),
     []
   );
+  const contactUsers = useMemo(() => loadContactUsers(), []);
+  const authorisedOfficers = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
   const aoNumberByName = useMemo(() => {
     const map = new Map();
-    loadContactUsers().forEach((row) => {
-      if (!row?.aoActive) return;
+    authorisedOfficers.forEach((row) => {
       const name = String(row.name || "").trim();
       if (!name) return;
       map.set(name, String(row.aoNumber || ""));
     });
     return map;
-  }, []);
+  }, [authorisedOfficers]);
+  const aoNameOptions = useMemo(() => authorisedOfficers.map((u) => u.name).filter(Boolean), [authorisedOfficers]);
 
   useEffect(() => {
     const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId)) || null;
@@ -548,54 +561,42 @@ export default function PackDetailClient({ packId }) {
     setIsSubmittingPems(true);
     setPemsSubmitError("");
     try {
-      const payload = {
-        packId: packRow.id,
-        jobReference: packRow.jobReference || "",
+      const payload = buildPemsInspectionPayload({
+        pack: packRow,
+        site: siteRow,
         recordType: pemsDraft.recordType,
-        aoSignoff: pemsDraft.aoSignoff,
-        aoNumber: selectedAoNumber,
-        inspectionStart: pemsDraft.inspectionStart,
-        inspectionEnd: pemsDraft.inspectionEnd,
-        ecrComments: pemsDraft.ecrComments || "N/A",
-        yardId: siteRow?.yardNo || "",
-        placeOfInspection: siteRow?.name || "",
-        containers: containersForBatch.map((container) => ({
-          id: container.id,
-          order: container.order,
-          containerNo: container.containerNo || "",
-          sealNo: container.sealNo || "",
-          isoCode: container.isoCode || "",
-          releaseNumber: container.releaseNumber || "",
-          releasePark: container.releasePark || "",
-          transporter: container.transporter || "",
-          grainLocation: container.grainLocation || "",
-          stockBayId: container.stockBayId || "",
-          tare: toRoundedNumber(container.tare),
-          grossWeight: toRoundedNumber(container.grossWeight),
-          nettWeight: toRoundedNumber(container.nettWeight),
-          emptyInspection: container.emptyInspection || "Pending",
-          grainInspection: container.grainInspection || "Pending",
-          aoInspectionRemark: getContainerInspectionRemark(container),
-        })),
-      };
-
-      const response = await fetch("/api/pems/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        pemsDraft,
+        containers: containersForBatch,
+        contactUsers,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "PEMs submission failed.");
+
+      const validationErrors = validatePemsSubmission({
+        recordType: pemsDraft.recordType,
+        pack: packRow,
+        site: siteRow,
+        containers: payload.containers,
+        lines: payload.lines,
+        timeEntries: payload.timeEntries,
+        pemsDraft,
+      });
+      if (validationErrors.length) {
+        throw new Error(validationErrors[0]);
       }
 
-      const batchId = data?.submissionId || `PEMS-${Date.now()}`;
+      const data = await submitPemsInspectionFlow({
+        recordType: pemsDraft.recordType,
+        payload,
+        isGppir,
+      });
+
+      const batchId = data?.submissionId || data?.pemsInspectionId || data?.id || `PEMS-${Date.now()}`;
       const submittedAt = data?.submittedAt || new Date().toISOString();
       const stagedIds = new Set(containersForBatch.map((container) => container.id));
       const nextSubmission = attachPemsSubmissionSnapshot({
         batchId,
         submittedAt,
-        status: data?.status || "Accepted",
+        status: data?.status || data?.pemsStatus || "Accepted",
+        pemsInspectionId: data?.pemsInspectionId || data?.id || "",
         recordType: pemsDraft.recordType,
         packId: packRow.id,
         jobReference: packRow.jobReference || "",
@@ -606,14 +607,14 @@ export default function PackDetailClient({ packId }) {
         importPermitNumber: packRow.importPermitNumber || "",
         rfpAdditionalDeclarationRequired: Boolean(packRow.rfpAdditionalDeclarationRequired),
         establishmentName: siteRow?.name || "",
-        establishmentNumber: siteRow?.yardNo || "",
+        establishmentNumber: siteRow?.establishmentNumber || siteRow?.yardNo || "",
         commodity: packRow.commodity || "",
         aoSignoff: pemsDraft.aoSignoff,
         aoNumber: selectedAoNumber,
         inspectionStart: pemsDraft.inspectionStart,
         inspectionEnd: pemsDraft.inspectionEnd,
         ecrComments: pemsDraft.ecrComments || "N/A",
-        yardId: siteRow?.yardNo || "",
+        yardId: siteRow?.yardId ?? siteRow?.yardNo ?? "",
         placeOfInspection: siteRow?.name || "",
         containerIds: containersForBatch.map((container) => container.id),
         containers: containersForBatch.map((container) => ({
@@ -633,6 +634,8 @@ export default function PackDetailClient({ packId }) {
           emptyInspection: container.emptyInspection || "Pending",
           grainInspection: container.grainInspection || "Pending",
           aoInspectionRemark: getContainerInspectionRemark(container),
+          inspectionLevelCode: container.inspectionLevelCode,
+          passedAfterRectification: container.passedAfterRectification,
         })),
       });
       updateSelectedPack((current) => {
@@ -662,7 +665,7 @@ export default function PackDetailClient({ packId }) {
         };
       });
     } catch (error) {
-      setPemsSubmitError(error?.message || "PEMs submission failed.");
+      setPemsSubmitError(isPemsRfpRefreshError(error) ? pemsRfpRefreshUserMessage() : error?.message || "PEMs submission failed.");
     } finally {
       setIsSubmittingPems(false);
     }
@@ -1052,6 +1055,8 @@ export default function PackDetailClient({ packId }) {
           pemsSubmissions={pemsSubmissions}
           siteRow={siteRow}
           packRow={packRow}
+          authorisedOfficers={authorisedOfficers}
+          aoNameOptions={aoNameOptions}
           submitError={pemsSubmitError}
           isSubmitting={isSubmittingPems}
           onUpdatePemsDraft={updatePemsDraft}
@@ -1157,6 +1162,8 @@ function PemsTab({
   pemsSubmissions,
   siteRow,
   packRow,
+  authorisedOfficers = [],
+  aoNameOptions = [],
   submitError,
   isSubmitting,
   onUpdatePemsDraft,
@@ -1186,10 +1193,16 @@ function PemsTab({
   const stagedContainers = containers.filter((container) => stagedIds.includes(container.id));
   const pemsCheckerSections = [
     {
-      title: "Yard number",
-      ...(!siteRow?.yardNo
-        ? { ok: false, label: "Missing yard number in selected site record." }
-        : { ok: true, label: `Yard number resolved (${siteRow.yardNo})` }),
+      title: "Establishment",
+      ...(!(siteRow?.establishmentNumber || siteRow?.yardNo)
+        ? { ok: false, label: "Missing establishment number on site record." }
+        : { ok: true, label: `Establishment ${siteRow.establishmentNumber || siteRow.yardNo}` }),
+    },
+    {
+      title: "Yard ID",
+      ...(siteRow?.yardId == null && !siteRow?.addressLine1
+        ? { ok: false, label: "Configure yard ID or PEMS address on Sites." }
+        : { ok: true, label: `Yard ID ${siteRow?.yardId ?? siteRow?.yardNo ?? "—"}` }),
     },
     {
       title: "Place of inspection",
@@ -1364,10 +1377,15 @@ function PemsTab({
           <LabeledSelect
             label="AO signoff"
             value={pemsDraft.aoSignoff}
-            options={packerNames}
+            options={aoNameOptions.length ? aoNameOptions : packerNames}
             onChange={(value) => onUpdatePemsDraft({ aoSignoff: value })}
           />
         </div>
+        <PemsInspectionPanel
+          className="mt-3"
+          pemsDraft={pemsDraft}
+          onChange={onUpdatePemsDraft}
+        />
         <div className="mt-2 flex flex-row flex-wrap items-start gap-2 sm:gap-3">
           <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>

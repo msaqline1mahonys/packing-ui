@@ -8,7 +8,10 @@ import {
   ensureSiteRowsHaveIntegrationScaffold,
   INTEGRATION_SETTINGS_UPDATED_EVENT,
   INTEGRATION_TYPES,
+  readOrgPemsSettings,
   readSiteIntegrationSettings,
+  saveOrgPemsSettings,
+  derivePemsServiceUrls,
   upsertIntegrationSettings,
 } from "@/lib/integration-settings-store";
 
@@ -95,6 +98,12 @@ export default function IntegrationSettingsPage() {
   const [containerSpaceDraft, setContainerSpaceDraft] = useState({});
   const [praDraft, setPraDraft] = useState({});
   const [sharedDraft, setSharedDraft] = useState({});
+  const [orgPemsDraft, setOrgPemsDraft] = useState(() => readOrgPemsSettings());
+
+  const derivedUrls = useMemo(
+    () => derivePemsServiceUrls(orgPemsDraft.baseUrl, orgPemsDraft.activeEnvironment),
+    [orgPemsDraft.baseUrl, orgPemsDraft.activeEnvironment]
+  );
 
   const siteLabel = useMemo(
     () => siteOptions.find((option) => option.id === selectedSiteId)?.label || "—",
@@ -172,6 +181,11 @@ export default function IntegrationSettingsPage() {
       }
       return next;
     });
+  }
+
+  function saveOrgPems() {
+    clearPanelErrors("org-pems");
+    saveOrgPemsSettings(orgPemsDraft);
   }
 
   function savePemsAuth() {
@@ -321,8 +335,81 @@ export default function IntegrationSettingsPage() {
 
         {activeTab === INTEGRATION_TYPES.PEMS ? (
           <div className="grid gap-4 xl:grid-cols-2">
+            <div className="xl:col-span-2">
             <Panel
-              title="PEMS Production Environment Settings"
+              title="Organisation PEMS configuration"
+              notConfigured={!String(orgPemsDraft.vendorToken || "").trim()}
+              action={
+                <button type="button" className={saveButtonClass(false)} onClick={saveOrgPems}>
+                  Save org settings
+                </button>
+              }
+            >
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Environment</label>
+                  <select
+                    className={inputClass}
+                    value={orgPemsDraft.activeEnvironment ?? "vendor_test"}
+                    onChange={(e) => setOrgPemsDraft((prev) => ({ ...prev, activeEnvironment: e.target.value }))}
+                  >
+                    <option value="vendor_test">Vendor test</option>
+                    <option value="production">Production</option>
+                  </select>
+                </div>
+                <LabeledInput
+                  label="Org name prefix"
+                  value={orgPemsDraft.orgNamePrefix ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, orgNamePrefix: value }))}
+                  placeholder="e.g. ACME"
+                />
+                <LabeledInput
+                  label="Client reference system"
+                  value={orgPemsDraft.clientReferenceSystem ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, clientReferenceSystem: value }))}
+                  placeholder="ACME-PEMS-WS"
+                />
+                <LabeledInput
+                  label="Vendor token"
+                  type="password"
+                  value={orgPemsDraft.vendorToken ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, vendorToken: value }))}
+                />
+                <LabeledInput
+                  label="Installation username"
+                  value={orgPemsDraft.installationUsername ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, installationUsername: value }))}
+                />
+                <LabeledInput
+                  label="Installation password"
+                  type="password"
+                  value={orgPemsDraft.installationPassword ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, installationPassword: value }))}
+                />
+                <LabeledInput
+                  label="Base URL override"
+                  value={orgPemsDraft.baseUrl ?? ""}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, baseUrl: value }))}
+                  placeholder="Leave blank to use environment default"
+                />
+                <ToggleRow
+                  checked={Boolean(orgPemsDraft.submissionEnabled)}
+                  onChange={(value) => setOrgPemsDraft((prev) => ({ ...prev, submissionEnabled: value }))}
+                  label="Live submission enabled"
+                />
+              </div>
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                <p className="font-semibold text-slate-700">Derived service URLs</p>
+                <p className="mt-1">ECI: {derivedUrls.ecrUrl}</p>
+                <p>CGI: {derivedUrls.gppirUrl}</p>
+                <p>Attachments: {derivedUrls.fileAttachmentUrl}</p>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Establishment address is configured on Reference Data → Sites.</p>
+            </Panel>
+            </div>
+
+            <Panel
+              title="Site PEMS overrides"
               notConfigured={!panelIsConfigured(pemsAuthDraft, pemsAuthFields)}
               action={<Button type="button" size="sm" variant="secondary" disabled>Test Connection</Button>}
             >

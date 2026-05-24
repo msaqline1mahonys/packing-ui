@@ -1,10 +1,11 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { deleteTicket, fetchTickets } from "@/lib/ticketing-api";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -15,39 +16,6 @@ const STATUS_OPTIONS = [
   { key: "processing", label: "Processing" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
-];
-
-const OUT_ROWS = [
-  {
-    id: 8821,
-    customerCmo: "Riverina Co-op / CMO-0138",
-    commodityGrade: "Canola Â· NON-GM",
-    truck: "MHY-227",
-    status: "booked",
-    netT: null,
-    date: "2026-05-01",
-    notes: "Loader 2 assigned.",
-  },
-  {
-    id: 8814,
-    customerCmo: "GrainCorp Trading / CMO-0135",
-    commodityGrade: "Feed barley Â· F1",
-    truck: "MHY-104",
-    status: "processing",
-    netT: 38.2,
-    date: "2026-05-01",
-    notes: "Seal check complete.",
-  },
-  {
-    id: 8802,
-    customerCmo: "Pacific Charter / CMO-0128",
-    commodityGrade: "Wheat Â· ASW1",
-    truck: "MHY-088",
-    status: "completed",
-    netT: 95.0,
-    date: "2026-04-29",
-    notes: "Dispatched 14:10.",
-  },
 ];
 
 function statusBadgeClass(status) {
@@ -66,16 +34,40 @@ function statusBadgeClass(status) {
 }
 
 function formatNet(v) {
-  if (v === null || v === undefined || Number.isNaN(v)) return "â€”";
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
   return Number(v).toFixed(2);
 }
 
 export default function OutgoingTicketPage() {
   const router = useRouter();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState(() => new Set(STATUS_OPTIONS.map((s) => s.key)));
   const [searchByDate, setSearchByDate] = useState(false);
   const [filterDate, setFilterDate] = useState("");
   const [selectedId, setSelectedId] = useState(null);
+
+  const loadRows = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await fetchTickets({
+        type: "out",
+        ...(searchByDate && filterDate ? { date: filterDate } : {}),
+      });
+      setRows(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tickets.");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchByDate, filterDate]);
+
+  useEffect(() => {
+    loadRows();
+  }, [loadRows]);
 
   const toggleStatus = (key) => {
     setStatusFilter((prev) => {
@@ -87,13 +79,12 @@ export default function OutgoingTicketPage() {
   };
 
   const filteredRows = useMemo(() => {
-    return OUT_ROWS.filter((row) => {
+    return rows.filter((row) => {
       if (statusFilter.size === 0) return false;
       if (!statusFilter.has(row.status)) return false;
-      if (searchByDate && filterDate && row.date !== filterDate) return false;
       return true;
     });
-  }, [statusFilter, searchByDate, filterDate]);
+  }, [rows, statusFilter]);
 
   useEffect(() => {
     if (selectedId != null && !filteredRows.some((r) => r.id === selectedId)) {
@@ -105,15 +96,7 @@ export default function OutgoingTicketPage() {
 
   const gridColumns = useMemo(
     () => [
-      {
-        key: "id",
-        header: "ID",
-        type: "number",
-        align: "left",
-        sortable: true,
-        filterable: true,
-        resizable: true,
-      },
+      { key: "id", header: "ID", type: "text", align: "left", sortable: true, filterable: true, resizable: true },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityGrade", header: "Commodity & grade", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "truck", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
@@ -135,6 +118,18 @@ export default function OutgoingTicketPage() {
     []
   );
 
+  async function handleDelete() {
+    if (!selected || selected.status === "completed") return;
+    if (!window.confirm("Delete this ticket?")) return;
+    try {
+      await deleteTicket(selected.id);
+      setSelectedId(null);
+      await loadRows();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed.");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -142,6 +137,8 @@ export default function OutgoingTicketPage() {
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Outgoing Tickets</h1>
         <p className="mt-1 text-xs text-slate-500">Review and manage outgoing dispatch tickets.</p>
       </div>
+
+      {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -182,6 +179,9 @@ export default function OutgoingTicketPage() {
               </label>
             </div>
             {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} /> : null}
+            <Button type="button" variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" onClick={loadRows} disabled={loading}>
+              Refresh
+            </Button>
           </div>
         </div>
       </section>
@@ -201,7 +201,7 @@ export default function OutgoingTicketPage() {
             onRowClick={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
-            emptyMessage="No tickets match the current filters."
+            emptyMessage={loading ? "Loading tickets…" : "No tickets match the current filters."}
             toolbarActions={
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={() => router.push("/ticketing/outgoing/new")} className="h-7 px-2.5 text-[11px]">
@@ -210,7 +210,7 @@ export default function OutgoingTicketPage() {
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => selected && router.push(`/ticketing/outgoing/${selected.id}`)}>
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="destructive" disabled={!selected} className="h-7 px-2.5 text-[11px]">
+                <Button type="button" size="sm" variant="destructive" disabled={!selected || selected?.status === "completed"} className="h-7 px-2.5 text-[11px]" onClick={handleDelete}>
                   Delete
                 </Button>
                 <span className="ms-auto text-[11px] text-slate-500">Outgoing queue</span>
@@ -227,14 +227,14 @@ export default function OutgoingTicketPage() {
             <div className="p-6 text-center text-xs text-slate-400">Select a ticket to view details</div>
           ) : (
             <div className="space-y-3 p-3 text-xs">
-              <Field label="ID" value={String(selected.id)} />
+              <Field label="ID" value={String(selected.id).slice(0, 8)} />
               <Field label="Customer / CMO" value={selected.customerCmo} />
               <Field label="Commodity & grade" value={selected.commodityGrade} />
               <Field label="Truck" value={<span className="font-mono">{selected.truck}</span>} />
               <Field label="Status" value={<span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize", statusBadgeClass(selected.status))}>{selected.status}</span>} />
               <Field label="Net (T)" value={formatNet(selected.netT)} />
               <Field label="Date" value={selected.date} />
-              <Field label="Notes" value={selected.notes || "â€”"} />
+              <Field label="Notes" value={selected.notes || "—"} />
             </div>
           )}
         </div>
@@ -247,7 +247,7 @@ function Field({ label, value }) {
   return (
     <div className="space-y-0.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "â€”"}</div>
+      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "—"}</div>
     </div>
   );
 }

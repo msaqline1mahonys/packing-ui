@@ -7,20 +7,17 @@ import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  DEMO_CMOS,
-  DEMO_COMMODITIES,
-  DEMO_COMMODITY_TYPES,
-  DEMO_CUSTOMERS,
-  DEMO_INTERNAL_ACCOUNTS,
-  DEMO_SITE,
-  DEMO_STOCK_LOCATIONS,
-  DEMO_TESTS,
-  DEMO_TICKETS as DEMO_TICKETS_INITIAL,
-  DEMO_TRUCKS,
-  DEMO_USERS,
-  demoExistingTicket,
-  getDemoTransactionsByTicket,
-} from "@/lib/demo-in-ticket-data";
+  completeTicket,
+  fetchTicket,
+  fetchTicketFormData,
+  overrideTicket,
+  saveCmo,
+  saveTicket,
+  saveTruck,
+  ticketTypeToDirection,
+} from "@/lib/ticketing-api";
+import { DEMO_TESTS } from "@/lib/demo-in-ticket-data";
+import { fetchTransactions } from "@/lib/transactions-api";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500";
@@ -28,10 +25,11 @@ const inputClass =
 function buildBlankTicket(direction) {
   return {
     type: direction,
-    site: DEMO_SITE,
+    site: "",
     status: "booked",
     cmoId: null,
     truck: null,
+    truckId: null,
     customerId: null,
     commodityTypeId: null,
     commodityId: null,
@@ -44,7 +42,9 @@ function buildBlankTicket(direction) {
     commodityConfirmed: false,
     commodityOverrideReason: "",
     signoff: "",
+    signoffUserId: "",
     unloadedLocation: "",
+    loadingLocation: "",
     notes: "",
     ticketReference: "",
     additionalReference: "",
@@ -61,27 +61,24 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const detailPathBase = isIncoming ? "/ticketing/in" : "/ticketing/outgoing";
   const ticketLabel = isIncoming ? "In-Ticket" : "Out-Ticket";
   const ticketSubtitle = isIncoming ? "Incoming weighbridge ticket" : "Outgoing weighbridge ticket";
-  const cmoDirection = isIncoming ? "in" : "out";
-  const customers = DEMO_CUSTOMERS;
-  const internalAccounts = DEMO_INTERNAL_ACCOUNTS;
-  const commodityTypes = DEMO_COMMODITY_TYPES;
-  const commodities = DEMO_COMMODITIES;
+  const cmoDirection = ticketTypeToDirection(isIncoming ? "in" : "out");
+  const locationField = isIncoming ? "unloadedLocation" : "loadingLocation";
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [customers, setCustomers] = useState([]);
+  const [internalAccounts, setInternalAccounts] = useState([]);
+  const [commodityTypes, setCommodityTypes] = useState([]);
+  const [commodities, setCommodities] = useState([]);
   const tests = DEMO_TESTS;
-  const users = DEMO_USERS;
-  const stockLocations = DEMO_STOCK_LOCATIONS;
+  const [users, setUsers] = useState([]);
+  const [stockLocations, setStockLocations] = useState([]);
 
-  const [cmos, setCmos] = useState(() => [...DEMO_CMOS]);
-  const [trucks, setTrucks] = useState(() => [...DEMO_TRUCKS]);
-  const [tickets, setTickets] = useState(() => [...DEMO_TICKETS_INITIAL]);
+  const [cmos, setCmos] = useState([]);
+  const [trucks, setTrucks] = useState([]);
+  const [completedTickets, setCompletedTickets] = useState([]);
 
-  const [ticket, setTicket] = useState(() => {
-    if (mode === "edit" && routeTicketId) {
-      const seeded = demoExistingTicket(routeTicketId);
-      if (seeded) return seeded;
-      return { ...buildBlankTicket(ticketType), id: routeTicketId };
-    }
-    return buildBlankTicket(ticketType);
-  });
+  const [ticket, setTicket] = useState(() => buildBlankTicket(ticketType));
 
   const [showCmoModal, setShowCmoModal] = useState(false);
   const [showTruckModal, setShowTruckModal] = useState(false);
@@ -112,17 +109,31 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const cmo = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
   const commodity = ticket.commodityId ? commodities.find((c) => c.id === ticket.commodityId) : null;
   const cmoCommodity = cmo ? commodities.find((c) => c.id === cmo.commodityId) : null;
-  const customer = ticket.customerId
-    ? customers.find((cust) => cust.id === ticket.customerId) || internalAccounts.find((acc) => acc.id === ticket.customerId)
-    : null;
+  const customer = ticket.accountType === "internal" && ticket.internalAccountId
+    ? internalAccounts.find((acc) => acc.id === ticket.internalAccountId)
+    : ticket.customerId
+      ? customers.find((cust) => cust.id === ticket.customerId) || internalAccounts.find((acc) => acc.id === ticket.customerId)
+      : null;
 
   const set = (key, val) => setTicket((prev) => ({ ...prev, [key]: val }));
   const setTest = (name, val) => setTicket((prev) => ({ ...prev, tests: { ...prev.tests, [name]: val } }));
+  const locationValue = ticket[locationField] ?? "";
+
+  const accountSelectValue =
+    ticket.accountType === "internal" && ticket.internalAccountId
+      ? `internal:${ticket.internalAccountId}`
+      : ticket.customerId
+        ? `customer:${ticket.customerId}`
+        : "";
 
   const getLocationStock = (locationId) => {
     const stockItems = [];
-    tickets
-      .filter((t) => t.type === ticketType && t.status === "completed" && Number(t.unloadedLocation) === Number(locationId))
+    const locKey = String(locationId);
+    completedTickets
+      .filter((t) => {
+        const tLoc = String(t.unloadedLocation || t.loadingLocation || t.stockLocationId || "");
+        return t.type === ticketType && t.status === "completed" && tLoc === locKey;
+      })
       .forEach((tk) => {
         const tCmo = cmos.find((c) => c.id === tk.cmoId);
         const tCommodityType = tCmo ? commodityTypes.find((ct) => ct.id === tCmo.commodityTypeId) : null;
@@ -157,18 +168,18 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   };
 
   useEffect(() => {
-    if (ticket.unloadedLocation && ticket.cmoId) {
-      setLocationWarning(validateLocationSelection(ticket.unloadedLocation));
+    if (locationValue && ticket.cmoId) {
+      setLocationWarning(validateLocationSelection(locationValue));
     } else {
       setLocationWarning(null);
     }
-  }, [ticket.unloadedLocation, ticket.cmoId, ticket.commodityTypeId, tickets, cmos]);
+  }, [locationValue, ticket.cmoId, ticket.commodityTypeId, completedTickets, cmos, commodityTypes]);
 
   const getRemainingTonnage = (cmoId) => {
     if (!cmoId) return null;
     const selectedCmo = cmos.find((c) => c.id === cmoId);
     if (!selectedCmo) return null;
-    const totalReceived = tickets
+    const totalReceived = completedTickets
       .filter((t) => t.type === ticketType && t.status === "completed" && t.cmoId === cmoId)
       .reduce((sum, t) => {
         const netWeight =
@@ -178,6 +189,42 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     const remaining = selectedCmo.estimatedAmount - totalReceived;
     return { total: selectedCmo.estimatedAmount, received: totalReceived, remaining };
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const formData = await fetchTicketFormData(cmoDirection);
+        if (cancelled) return;
+        setCmos(formData.cmos);
+        setCustomers(formData.customers);
+        setInternalAccounts(formData.internalAccounts);
+        setCommodityTypes(formData.commodityTypes);
+        setCommodities(formData.commodities);
+        setTrucks(formData.trucks);
+        setStockLocations(formData.stockLocations);
+        setUsers(formData.users);
+        setCompletedTickets(formData.completedTickets);
+
+        if (mode === "edit" && routeTicketId) {
+          const loaded = await fetchTicket(routeTicketId);
+          if (!cancelled) setTicket(loaded);
+        } else {
+          setTicket(buildBlankTicket(ticketType));
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load ticket.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, routeTicketId, cmoDirection, ticketType]);
 
   const addWeight = (type) => {
     set(type, [...ticket[type], 0]);
@@ -255,30 +302,51 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     grossTotal > 0 &&
     tareTotal > 0 &&
     ticket.commodityConfirmed &&
-    ticket.signoff &&
-    ticket.unloadedLocation;
+    ticket.signoffUserId &&
+    (isIncoming ? ticket.unloadedLocation : ticket.loadingLocation);
 
-  const handleSave = () => {
-    const id = ticket.id ?? Math.floor(Math.random() * 90000 + 10000);
-    const next = { ...ticket, id };
-    setTicket(next);
-    router.push(`${detailPathBase}/${id}`);
+  const handleSave = async () => {
+    try {
+      setError("");
+      const saved = await saveTicket({ ...ticket, type: ticketType });
+      setTicket(saved);
+      router.push(`${detailPathBase}/${saved.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed.");
+    }
   };
 
-  const handleComplete = () => {
-    const id = ticket.id ?? Math.floor(Math.random() * 90000 + 10000);
-    const updated = { ...ticket, id, status: "completed" };
-    setTicket(updated);
-    setTickets((prev) => [...prev, updated]);
-    setShowPrintConfirm(true);
+  const handleComplete = async () => {
+    try {
+      setError("");
+      let saved = ticket.id ? ticket : await saveTicket({ ...ticket, type: ticketType });
+      if (!ticket.id) setTicket(saved);
+      saved = await completeTicket(saved.id);
+      setTicket(saved);
+      setCompletedTickets((prev) => [...prev.filter((t) => t.id !== saved.id), saved]);
+      setShowPrintConfirm(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Complete failed.");
+    }
   };
 
-  const handleOverride = () => {
-    set("status", "processing");
+  const handleOverride = async () => {
+    try {
+      setError("");
+      const updated = await overrideTicket(ticket.id);
+      setTicket(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Override failed.");
+    }
   };
+
+  if (loading) {
+    return <div className="p-8 text-center text-sm text-slate-500">Loading ticket…</div>;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[min(92rem,calc(100%-2rem))] space-y-3 px-5 pt-2 pb-10 font-sans sm:px-6 sm:pt-3 lg:px-8">
+      {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[#0f1e3d] md:text-[1.35rem]">
@@ -319,25 +387,27 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   value={ticket.cmoId ?? ""}
                   disabled={isCompleted}
                   onChange={(e) => {
-                    const cmoId = e.target.value ? Number(e.target.value) : null;
+                    const cmoId = e.target.value || null;
                     const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
                     setTicket((prev) => ({
                       ...prev,
-                      cmoId: cmoId ?? null,
+                      cmoId,
                       customerId: selectedCmo ? selectedCmo.customerId ?? prev.customerId : prev.customerId,
+                      accountType: "customer",
+                      internalAccountId: null,
                       commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
                       commodityId: selectedCmo ? selectedCmo.commodityId ?? null : null,
                     }));
                   }}
                 >
-                  <option value="">â€” Select CMO â€”</option>
+                  <option value="">Select CMO</option>
                   {cmos
                     .filter((c) => c.direction === cmoDirection)
                     .map((c) => {
                       const cCommodity = commodities.find((com) => com.id === c.commodityId);
                       return (
                         <option key={c.id} value={c.id}>
-                          {c.cmoReference} â€” {cCommodity?.description || "Unknown"}
+                          {c.cmoReference} - {cCommodity?.description || "Unknown"}
                         </option>
                       );
                     })}
@@ -361,19 +431,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 <div className="mt-2 grid gap-2 text-xs text-slate-800 sm:grid-cols-2">
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Reference</div>
-                    <div className="font-semibold text-[#0f1e3d]">{cmo.cmoReference || "â€”"}</div>
+                    <div className="font-semibold text-[#0f1e3d]">{cmo.cmoReference || "-"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Customer / account</div>
-                    <div>{customer?.name || "â€”"}</div>
+                    <div>{customer?.name || "-"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">CMO commodity</div>
-                    <div>{cmoCommodity ? `${cmoCommodity.commodityCode || cmoCommodity.description || "â€”"}` : "â€”"}</div>
+                    <div>{cmoCommodity ? `${cmoCommodity.commodityCode || cmoCommodity.description || "-"}` : "-"}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Status</div>
-                    <div>{cmo.status || "â€”"}</div>
+                    <div>{cmo.status || "-"}</div>
                   </div>
                 </div>
                 {getRemainingTonnage(ticket.cmoId) ? (
@@ -398,21 +468,48 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             <FormRow label="Customer / Account">
               <select
                 className={inputClass}
-                value={ticket.customerId || ""}
+                value={accountSelectValue}
                 disabled={isCompleted}
-                onChange={(e) => set("customerId", Number(e.target.value))}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) {
+                    setTicket((prev) => ({
+                      ...prev,
+                      customerId: null,
+                      internalAccountId: null,
+                      accountType: "customer",
+                    }));
+                    return;
+                  }
+                  const [type, id] = v.split(":");
+                  if (type === "internal") {
+                    setTicket((prev) => ({
+                      ...prev,
+                      accountType: "internal",
+                      internalAccountId: id,
+                      customerId: null,
+                    }));
+                  } else {
+                    setTicket((prev) => ({
+                      ...prev,
+                      accountType: "customer",
+                      customerId: id,
+                      internalAccountId: null,
+                    }));
+                  }
+                }}
               >
-                <option value="">â€” Select Customer / Account â€”</option>
+                <option value="">Select customer or account</option>
                 <optgroup label="Customers">
                   {customers.map((c) => (
-                    <option key={`cust-${c.id}`} value={c.id}>
+                    <option key={`cust-${c.id}`} value={`customer:${c.id}`}>
                       {c.name} ({c.code})
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="Internal Accounts">
                   {internalAccounts.map((a) => (
-                    <option key={`int-${a.id}`} value={a.id}>
+                    <option key={`int-${a.id}`} value={`internal:${a.id}`}>
                       {a.name}
                     </option>
                   ))}
@@ -427,11 +524,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 disabled={isCompleted}
                 onChange={(e) => {
                   const v = e.target.value;
-                  set("commodityTypeId", v ? Number(v) : null);
+                  set("commodityTypeId", v || null);
                   set("commodityId", null);
                 }}
               >
-                <option value="">â€” Select Commodity Type â€”</option>
+                <option value="">Select commodity type</option>
                 {commodityTypes.map((ct) => (
                   <option key={ct.id} value={ct.id}>
                     {ct.name}
@@ -447,10 +544,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 disabled={isCompleted || !ticket.commodityTypeId}
                 onChange={(e) => {
                   const v = e.target.value;
-                  set("commodityId", v ? Number(v) : null);
+                  set("commodityId", v || null);
                 }}
               >
-                <option value="">â€” Select Commodity â€”</option>
+                <option value="">Select commodity</option>
                 {commodities
                   .filter(
                     (c) =>
@@ -474,11 +571,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     value={ticket.truck?.id || ""}
                     disabled={isCompleted}
                     onChange={(e) => {
-                      const t = trucks.find((tr) => tr.id === Number(e.target.value));
-                      set("truck", t || null);
+                      const t = trucks.find((tr) => tr.id === e.target.value);
+                      setTicket((prev) => ({ ...prev, truck: t || null, truckId: t?.id ?? null }));
                     }}
                   >
-                    <option value="">â€” Select Truck â€”</option>
+                    <option value="">Select truck</option>
                     {trucks.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} ({t.driver})
@@ -571,7 +668,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 {netTotal > 0 ? (commodity?.unitType === "MT" ? netTotal / 1000 : netTotal).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 3,
-                }) : "â€”"}{" "}
+                }) : "-"}{" "}
                 <span className="text-[10px]">{commodity?.unitType === "MT" ? "t" : "kg"}</span>
               </span>
             </div>
@@ -610,7 +707,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.ticketReference}
                 disabled={isCompleted}
                 onChange={(e) => set("ticketReference", e.target.value)}
-                placeholder="Enter ticket referenceâ€¦"
+                placeholder="Enter ticket reference..."
               />
             </FormRow>
             <FormRow label="Additional Reference">
@@ -619,12 +716,26 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.additionalReference}
                 disabled={isCompleted}
                 onChange={(e) => set("additionalReference", e.target.value)}
-                placeholder="Enter additional referenceâ€¦"
+                placeholder="Enter additional reference..."
               />
             </FormRow>
             <FormRow label="Signoff">
-              <select suppressHydrationWarning className={inputClass} value={ticket.signoff} disabled={isCompleted} onChange={(e) => set("signoff", e.target.value)}>
-                <option value="">â€” Select User â€”</option>
+              <select
+                suppressHydrationWarning
+                className={inputClass}
+                value={ticket.signoffUserId || ""}
+                disabled={isCompleted}
+                onChange={(e) => {
+                  const userId = e.target.value;
+                  const user = users.find((u) => u.id === userId);
+                  setTicket((prev) => ({
+                    ...prev,
+                    signoffUserId: userId,
+                    signoff: user?.name ?? "",
+                  }));
+                }}
+              >
+                <option value="">Select user</option>
                 {users
                   .filter((u) => u.active)
                   .map((u) => (
@@ -634,25 +745,25 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   ))}
               </select>
             </FormRow>
-            <FormRow label="Unloaded Location" required>
+            <FormRow label={isIncoming ? "Unloaded Location" : "Loading Location"} required>
               <select
                 className={inputClass}
-                value={ticket.unloadedLocation === "" ? "" : String(ticket.unloadedLocation)}
+                value={locationValue === "" ? "" : String(locationValue)}
                 disabled={isCompleted || !ticket.cmoId}
                 onChange={(e) => {
-                  const locId = e.target.value ? Number(e.target.value) : "";
-                  set("unloadedLocation", locId);
+                  const locId = e.target.value || "";
+                  set(locationField, locId);
                   setLocationWarning(locId ? validateLocationSelection(locId) : null);
                 }}
               >
-                <option value="">â€” Select Location â€”</option>
+                <option value="">Select location</option>
                 {stockLocations
                   .filter((loc) => loc.status === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
                     const stockItems = getLocationStock(loc.id);
                     const stockInfo =
-                      stockItems.length > 0 ? ` â€” ${stockItems.map((item) => item.commodityTypeName).join(", ")}` : " â€” Empty";
+                      stockItems.length > 0 ? ` - ${stockItems.map((item) => item.commodityTypeName).join(", ")}` : " (empty)";
                     return (
                       <option key={loc.id} value={loc.id}>
                         {loc.name} ({loc.locationType}){stockInfo}
@@ -673,7 +784,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 value={ticket.notes}
                 disabled={isCompleted}
                 onChange={(e) => set("notes", e.target.value)}
-                placeholder="Add notesâ€¦"
+                placeholder="Add notes..."
               />
             </FormRow>
           </Card>
@@ -705,7 +816,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               {!canComplete && !isCompleted ? (
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   <span className="font-semibold text-slate-600">Required:</span> CMO, truck, gross &amp; tare weights,
-                  commodity confirmed, signoff, and unload location.
+                  commodity confirmed, signoff, and {isIncoming ? "unload" : "load"} location.
                 </p>
               ) : null}
             </div>
@@ -713,7 +824,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
           {ticketNumericId && isCompleted ? (
             <Card title="Transactions">
-              <TransactionInfo ticketId={ticketNumericId} />
+              <TransactionInfo ticketId={ticketNumericId} ticketStatus={ticket.status} />
             </Card>
           ) : null}
         </div>
@@ -729,7 +840,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             value={newCmo.customerId}
             onChange={(e) => setNewCmo({ ...newCmo, customerId: e.target.value })}
           >
-            <option value="">â€” Select Customer / Account â€”</option>
+            <option value="">Select customer or account</option>
             <optgroup label="Customers">
               {customers.map((c) => (
                 <option key={`cust-${c.id}`} value={c.id}>
@@ -752,7 +863,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             value={newCmo.commodityTypeId}
             onChange={(e) => setNewCmo({ ...newCmo, commodityTypeId: e.target.value, commodityId: "" })}
           >
-            <option value="">â€” Select Commodity Type â€”</option>
+            <option value="">Select commodity type</option>
             {commodityTypes.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
@@ -767,13 +878,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             disabled={!newCmo.commodityTypeId}
             onChange={(e) => setNewCmo({ ...newCmo, commodityId: e.target.value })}
           >
-            <option value="">â€” Select Commodity â€”</option>
+            <option value="">Select commodity</option>
             {commodities
-              .filter(
-                (c) =>
-                  c.status === "active" &&
-                  (!newCmo.commodityTypeId || c.commodityTypeId === Number(newCmo.commodityTypeId))
-              )
+                .filter(
+                  (c) =>
+                    c.status === "active" &&
+                    (!newCmo.commodityTypeId || c.commodityTypeId === newCmo.commodityTypeId)
+                )
               .map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.commodityCode}
@@ -784,7 +895,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         <FormRow
           label={`Estimated Amount${
             newCmo.commodityId
-              ? ` (${commodities.find((c) => c.id === Number(newCmo.commodityId))?.unitType || "kg"})`
+              ? ` (${commodities.find((c) => c.id === newCmo.commodityId)?.unitType || "kg"})`
               : " (kg)"
           }`}
         >
@@ -811,23 +922,27 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <Button
             type="button"
             size="sm"
-            onClick={() => {
-              if (newCmo.customerId && newCmo.commodityTypeId && newCmo.commodityId) {
-                const nextId = Math.max(0, ...cmos.map((c) => c.id)) + 1;
-                const ref = `CMO-${String(nextId).padStart(4, "0")}`;
-                setCmos((prev) => [
+            onClick={async () => {
+              if (!newCmo.customerId || !newCmo.commodityTypeId || !newCmo.commodityId) return;
+              try {
+                setError("");
+                const created = await saveCmo({
+                  direction: cmoDirection,
+                  customerId: newCmo.customerId,
+                  commodityTypeId: newCmo.commodityTypeId,
+                  commodityId: newCmo.commodityId,
+                  status: newCmo.status || "Open",
+                  estimatedAmount: Number(newCmo.estimatedAmount) || 0,
+                  note: newCmo.note,
+                });
+                setCmos((prev) => [...prev, created]);
+                setTicket((prev) => ({
                   ...prev,
-                  {
-                    id: nextId,
-                    direction: cmoDirection,
-                    cmoReference: ref,
-                    customerId: Number(newCmo.customerId),
-                    commodityTypeId: Number(newCmo.commodityTypeId),
-                    commodityId: Number(newCmo.commodityId),
-                    status: newCmo.status,
-                    estimatedAmount: Number(newCmo.estimatedAmount) || 0,
-                  },
-                ]);
+                  cmoId: created.id,
+                  customerId: created.customerId,
+                  commodityTypeId: created.commodityTypeId,
+                  commodityId: created.commodityId,
+                }));
                 setShowCmoModal(false);
                 setNewCmo({
                   direction: cmoDirection,
@@ -841,6 +956,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   note: "",
                   attachments: [],
                 });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to create CMO.");
               }
             }}
           >
@@ -850,7 +967,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       </Modal>
 
       <Modal open={showTruckModal} title="Add New Truck" onClose={() => setShowTruckModal(false)}>
-        <FormRow label="Truck ID" required>
+        <FormRow label="Rego" required>
           <input
             className={inputClass}
             value={newTruck.name}
@@ -882,12 +999,21 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <Button
             type="button"
             size="sm"
-            onClick={() => {
-              if (newTruck.name.trim()) {
-                const nextId = Math.max(0, ...trucks.map((t) => t.id)) + 1;
-                setTrucks((prev) => [...prev, { id: nextId, name: newTruck.name.trim(), driver: newTruck.driver.trim() || "â€”" }]);
+            onClick={async () => {
+              if (!newTruck.name.trim()) return;
+              try {
+                setError("");
+                const created = await saveTruck({
+                  name: newTruck.name.trim(),
+                  driver: newTruck.driver.trim(),
+                  tare: newTruck.tare,
+                });
+                setTrucks((prev) => [...prev, created]);
+                setTicket((prev) => ({ ...prev, truck: created, truckId: created.id }));
                 setShowTruckModal(false);
                 setNewTruck({ name: "", driver: "", tare: "" });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to create truck.");
               }
             }}
           >
@@ -1061,7 +1187,7 @@ function CommodityIdentificationBody({
                       </span>
                       <span>
                         Value:{" "}
-                        <strong className={test.pass ? "text-emerald-700" : "text-red-700"}>{test.hasValue ? test.value : "â€”"}</strong>
+                        <strong className={test.pass ? "text-emerald-700" : "text-red-700"}>{test.hasValue ? test.value : "-"}</strong>
                         {" Â· "}
                         Range:{" "}
                         <strong>
@@ -1081,9 +1207,9 @@ function CommodityIdentificationBody({
         <select
           className={inputClass}
           value={ticket.commodityId || ""}
-          onChange={(e) => set("commodityId", Number(e.target.value))}
+          onChange={(e) => set("commodityId", e.target.value || null)}
         >
-          <option value="">â€” Select Commodity â€”</option>
+          <option value="">Select commodity</option>
           {commodities
             .filter((c) => c.commodityTypeId === ticket.commodityTypeId && c.status === "active")
             .map((comm) => {
@@ -1104,7 +1230,7 @@ function CommodityIdentificationBody({
             className={cn(inputClass, "min-h-[72px] resize-y")}
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}
-            placeholder="Explain why you're selecting a different commodityâ€¦"
+            placeholder="Explain why you're selecting a different commodity..."
             rows={3}
           />
         </FormRow>
@@ -1213,7 +1339,7 @@ function WeightSection({
                   className="h-8 self-end px-1 text-lg leading-none text-red-600 hover:text-red-800"
                   aria-label="Remove line"
                 >
-                  Ã—
+                  x
                 </button>
               ) : null}
             </div>
@@ -1275,7 +1401,7 @@ function Modal({ open, title, wide, onClose, children }) {
             {title}
           </h2>
           <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            Ã—
+            x
           </button>
         </div>
         <div className="p-4">{children}</div>
@@ -1284,15 +1410,46 @@ function Modal({ open, title, wide, onClose, children }) {
   );
 }
 
-function TransactionInfo({ ticketId }) {
+function TransactionInfo({ ticketId, ticketStatus }) {
   const router = useRouter();
-  const ticketTransactions = getDemoTransactionsByTicket(ticketId);
-  if (ticketTransactions.length === 0) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!ticketId || ticketStatus !== "completed") {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await fetchTransactions({ ticketId });
+        if (!cancelled) setRows(data);
+      } catch {
+        if (!cancelled) setRows([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketId, ticketStatus]);
+
+  if (loading) {
+    return <div className="text-xs italic text-slate-500">Loading transactions...</div>;
+  }
+
+  if (rows.length === 0) {
     return <div className="text-xs italic text-slate-500">No transactions recorded for this ticket yet.</div>;
   }
-  const activeTransactions = ticketTransactions.filter((t) => t.status === "active");
-  const hasAdjustments = ticketTransactions.some((t) => t.status === "adjusted");
-  const hasReversals = ticketTransactions.some((t) => t.status === "reversed");
+
+  const activeTransactions = rows.filter((t) => t.status === "active");
+  const hasAdjustments = rows.some((t) => t.status === "adjusted");
+  const hasReversals = rows.some((t) => t.status === "reversed");
 
   return (
     <div className="flex flex-col gap-2">

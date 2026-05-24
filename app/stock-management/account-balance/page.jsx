@@ -1,9 +1,10 @@
 ﻿"use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { Grid } from "@/components/clutch-table";
 import { cn } from "@/lib/utils";
+import { fetchAccountBalances } from "@/lib/transactions-api";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
@@ -16,17 +17,25 @@ const TABS = [
   { id: "pivot", label: "Pivot" },
 ];
 
-const MOCK_STOCK = [
-  { key: "cust-1-1-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 1, locationName: "Bay 1 â€“ Main Shed", quantity: 180.5, unit: "MT" },
-  { key: "cust-1-2-1", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 2, commodityName: "Barley", locationId: 1, locationName: "Bay 1 â€“ Main Shed", quantity: 60.0, unit: "MT" },
-  { key: "cust-2-3-2", accountKey: "cust-2", accountName: "GrainLink", accountType: "customer", commodityId: 3, commodityName: "Chickpeas", locationId: 2, locationName: "Bay 2 â€“ Overflow", quantity: 22.5, unit: "MT" },
-  { key: "cust-3-1-3", accountKey: "cust-3", accountName: "Southern Export", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 3, locationName: "Silo A", quantity: 45.0, unit: "MT" },
-  { key: "cust-4-4-3", accountKey: "cust-4", accountName: "Pacific Traders", accountType: "customer", commodityId: 4, commodityName: "Canola", locationId: 3, locationName: "Silo A", quantity: 85.0, unit: "MT" },
-  { key: "int-99-2-4", accountKey: "int-99", accountName: "Shrinkage Account", accountType: "internal", commodityId: 2, commodityName: "Barley", locationId: 4, locationName: "Silo B", quantity: 119.2, unit: "MT" },
-  { key: "cust-1-1-0", accountKey: "cust-1", accountName: "ACME Corp", accountType: "customer", commodityId: 1, commodityName: "Wheat", locationId: 3, locationName: "Silo A", quantity: 0, unit: "MT" }, // zero balance test
-];
+function mapBalanceRow(row) {
+  return {
+    key: row.key,
+    accountKey: row.accountId,
+    accountName: row.accountName,
+    accountType: row.accountType,
+    commodityId: row.commodityId,
+    commodityName: row.commodityName,
+    locationId: row.locationId,
+    locationName: row.locationName,
+    quantity: row.quantity,
+    unit: row.unit || "MT",
+  };
+}
 
 export default function AccountBalancePage() {
+  const [stockRows, setStockRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
   const [filterCommodity, setFilterCommodity] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
@@ -37,26 +46,44 @@ export default function AccountBalancePage() {
 
   const toggleExpanded = (key) => setExpandedGroups((p) => ({ ...p, [key]: !p[key] }));
 
+  const loadBalances = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await fetchAccountBalances();
+      setStockRows(data.map(mapBalanceRow));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load balances.");
+      setStockRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBalances();
+  }, [loadBalances]);
+
   /* Derived lookup arrays for filters */
   const accounts = useMemo(() => {
     const map = new Map();
-    MOCK_STOCK.forEach((r) => map.set(r.accountKey, { key: r.accountKey, name: r.accountName }));
+    stockRows.forEach((r) => map.set(r.accountKey, { key: r.accountKey, name: r.accountName }));
     return Array.from(map.values());
-  }, []);
+  }, [stockRows]);
   const commodities = useMemo(() => {
     const map = new Map();
-    MOCK_STOCK.forEach((r) => map.set(r.commodityId, { id: r.commodityId, name: r.commodityName }));
+    stockRows.forEach((r) => map.set(r.commodityId, { id: r.commodityId, name: r.commodityName }));
     return Array.from(map.values());
-  }, []);
+  }, [stockRows]);
   const locations = useMemo(() => {
     const map = new Map();
-    MOCK_STOCK.forEach((r) => map.set(r.locationId, { id: r.locationId, name: r.locationName }));
+    stockRows.forEach((r) => map.set(r.locationId, { id: r.locationId, name: r.locationName }));
     return Array.from(map.values());
-  }, []);
+  }, [stockRows]);
 
   /* Filter logic */
   const flattenedStock = useMemo(() => {
-    return MOCK_STOCK.filter((r) => {
+    return stockRows.filter((r) => {
       if (!showInternal && r.accountType === "internal") return false;
       if (!showZeroBalances && Math.abs(r.quantity) < 0.001) return false;
       if (filterAccount && r.accountKey !== filterAccount) return false;
@@ -64,7 +91,7 @@ export default function AccountBalancePage() {
       if (filterLocation && String(r.locationId) !== filterLocation) return false;
       return true;
     });
-  }, [showInternal, showZeroBalances, filterAccount, filterCommodity, filterLocation]);
+  }, [stockRows, showInternal, showZeroBalances, filterAccount, filterCommodity, filterLocation]);
 
   /* Summary Cards */
   const summaryCards = useMemo(() => {
@@ -73,7 +100,7 @@ export default function AccountBalancePage() {
     const commTotals = {};
     flattenedStock.forEach((r) => { commTotals[r.commodityName] = (commTotals[r.commodityName] || 0) + r.quantity; });
     const topComm = Object.entries(commTotals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
-    return { totalStock, accountCount, topCommodity: topComm ? topComm[0] : "â€”" };
+    return { totalStock, accountCount, topCommodity: topComm ? topComm[0] : "-" };
   }, [flattenedStock]);
 
   /* Groupings */
@@ -167,6 +194,15 @@ export default function AccountBalancePage() {
         </div>
         <Link href="/stock-management/all-transactions" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">View Transactions</Link>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
+      ) : null}
+      {loading ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+          Loading account balances...
+        </div>
+      ) : null}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

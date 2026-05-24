@@ -1,12 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
-import { loadCmoRows, nextCmoId, saveCmoRows } from "@/lib/cmo-store";
 import { cn } from "@/lib/utils";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const CMOS_ENDPOINT = `${API_BASE_URL}/ticketing/cmos`;
+const CUSTOMERS_ENDPOINT = `${API_BASE_URL}/reference-data/customers`;
+const COMMODITY_TYPES_ENDPOINT = `${API_BASE_URL}/product-settings/commodity-types`;
+const COMMODITIES_ENDPOINT = `${API_BASE_URL}/product-settings/commodities`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -16,22 +23,122 @@ const DIRECTION_OPTIONS = [
   { value: "incoming", label: "Incoming" },
   { value: "outgoing", label: "Outgoing" },
 ];
-const CUSTOMER_OPTIONS = ["GrainCorp Trading", "Riverina Co-op", "Pacific Charter"];
-const COMMODITY_TYPE_OPTIONS = ["Grain", "Oilseeds", "Fertiliser"];
-const COMMODITY_OPTIONS = {
-  Grain: ["Feed barley", "Wheat"],
-  Oilseeds: ["Canola", "Sunflower"],
-  Fertiliser: ["UREA", "DAP"],
-};
 const STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Cancelled"];
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function apiRequest(url, path = "", options = {}) {
+  const response = await fetch(`${url}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Request failed."));
+  }
+  return result;
+}
+
+async function cmoRequest(path = "", options = {}) {
+  return apiRequest(CMOS_ENDPOINT, path, options);
+}
+
+function parseList(result) {
+  const pager = result?.data;
+  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+}
+
+function fromApiCmo(row) {
+  if (!row) return null;
+  const customer = row.customer ?? null;
+  const commodityType = row.commodity_type ?? row.commodityType ?? null;
+  const commodity = row.commodity ?? null;
+
+  return {
+    id: row.id,
+    cmoReference: row.cmo_reference ?? row.cmoReference ?? "",
+    direction: row.direction ?? "incoming",
+    customerId: row.customer_id ?? row.customerId ?? customer?.id ?? "",
+    customerName: customer?.name ?? "",
+    commodityTypeId: row.commodity_type_id ?? row.commodityTypeId ?? commodityType?.id ?? "",
+    commodityTypeName: commodityType?.name ?? "",
+    commodityId: row.commodity_id ?? row.commodityId ?? commodity?.id ?? "",
+    commodityName: commodity?.description ?? commodity?.commodity_code ?? "",
+    status: row.status ?? STATUS_OPTIONS[0],
+    estimatedAmount:
+      row.estimated_amount != null ? String(row.estimated_amount) : row.estimatedAmount ?? "0",
+    actualAmountDelivered:
+      row.actual_amount_delivered != null
+        ? String(row.actual_amount_delivered)
+        : row.actualAmountDelivered ?? "0",
+    additionalReferences: Array.isArray(row.additional_references)
+      ? row.additional_references
+      : Array.isArray(row.additionalReferences)
+        ? row.additionalReferences
+        : [],
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    note: row.note ?? "",
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  return {
+    ...tenant,
+    cmo_reference: String(draft.cmoReference ?? "").trim(),
+    direction: draft.direction || "incoming",
+    customer_id: draft.customerId,
+    commodity_type_id: draft.commodityTypeId,
+    commodity_id: draft.commodityId,
+    status: draft.status || STATUS_OPTIONS[0],
+    estimated_amount: draft.estimatedAmount === "" ? 0 : Number(draft.estimatedAmount) || 0,
+    actual_amount_delivered: draft.actualAmountDelivered === "" ? 0 : Number(draft.actualAmountDelivered) || 0,
+    additional_references: draft.additionalReferences ?? [],
+    attachments: draft.attachments ?? [],
+    note: String(draft.note ?? "").trim() || null,
+  };
+}
 
 function emptyForm() {
   return {
     cmoReference: "",
     direction: "incoming",
-    customer: "",
-    commodityType: "",
-    commodity: "",
+    customerId: "",
+    commodityTypeId: "",
+    commodityId: "",
     status: STATUS_OPTIONS[0],
     estimatedAmount: "0",
     actualAmountDelivered: "0",
@@ -44,11 +151,81 @@ function emptyForm() {
 
 export default function CmoForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
+  const isEdit = Boolean(editId);
+
   const [form, setForm] = useState(() => emptyForm());
+  const [customers, setCustomers] = useState([]);
+  const [commodityTypes, setCommodityTypes] = useState([]);
+  const [commodities, setCommodities] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadOptions = useCallback(async () => {
+    const tenant = getTenantPayload();
+    const params = new URLSearchParams({ per_page: "500", ...tenant });
+
+    const [customersResult, typesResult, commoditiesResult] = await Promise.all([
+      apiRequest(CUSTOMERS_ENDPOINT, `?${params.toString()}`),
+      apiRequest(COMMODITY_TYPES_ENDPOINT, `?${params.toString()}`),
+      apiRequest(COMMODITIES_ENDPOINT, `?${params.toString()}`),
+    ]);
+
+    setCustomers(parseList(customersResult));
+    setCommodityTypes(parseList(typesResult));
+    setCommodities(parseList(commoditiesResult));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setIsLoading(true);
+      setError("");
+      try {
+        await loadOptions();
+
+        if (editId) {
+          const result = await cmoRequest(`/${editId}`);
+          const row = fromApiCmo(result?.data);
+          if (cancelled || !row) return;
+          setForm({
+            cmoReference: row.cmoReference,
+            direction: row.direction,
+            customerId: row.customerId,
+            commodityTypeId: row.commodityTypeId,
+            commodityId: row.commodityId,
+            status: row.status,
+            estimatedAmount: row.estimatedAmount,
+            actualAmountDelivered: row.actualAmountDelivered,
+            additionalReferenceDraft: "",
+            additionalReferences: row.additionalReferences,
+            attachments: row.attachments,
+            note: row.note,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Failed to load CMO form data.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, loadOptions]);
 
   const commodityChoices = useMemo(
-    () => (form.commodityType ? COMMODITY_OPTIONS[form.commodityType] || [] : []),
-    [form.commodityType]
+    () =>
+      commodities.filter(
+        (item) =>
+          !form.commodityTypeId ||
+          (item.commodity_type_id ?? item.commodityTypeId) === form.commodityTypeId
+      ),
+    [commodities, form.commodityTypeId]
   );
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -70,46 +247,64 @@ export default function CmoForm() {
     }));
   };
 
-  const canSave = form.cmoReference.trim() && form.customer && form.commodityType && form.commodity && form.status;
+  const canSave =
+    form.cmoReference.trim() &&
+    form.customerId &&
+    form.commodityTypeId &&
+    form.commodityId &&
+    form.status;
 
-  const createCmo = () => {
-    if (!canSave) return;
+  const saveCmo = async () => {
+    if (!canSave || isSaving) return;
 
-    const rows = loadCmoRows();
-    const id = nextCmoId(rows);
-    const cmoReference = form.cmoReference.trim();
-
-    const nextRow = {
-      id,
-      cmoReference,
-      direction: form.direction,
-      customer: form.customer,
-      commodityType: form.commodityType,
-      commodity: form.commodity,
-      status: form.status,
-      bookings: 0,
-      estimatedAmount: form.estimatedAmount || "0",
-      actualAmountDelivered: form.actualAmountDelivered || "0",
-      additionalReferences: form.additionalReferences,
-      attachments: form.attachments,
-      note: form.note,
-    };
-
-    saveCmoRows([nextRow, ...rows]);
-    router.push("/ticketing/cmo");
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = toApiPayload(form);
+      if (isEdit) {
+        await cmoRequest(`/${editId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await cmoRequest("", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      router.push("/ticketing/cmo");
+    } catch (err) {
+      setError(err.message || "Failed to save CMO.");
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-[min(92rem,calc(100%-2rem))] px-5 py-10 text-sm text-slate-500 sm:px-6 lg:px-8">
+        Loading CMO…
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[min(92rem,calc(100%-2rem))] space-y-3 px-5 pt-2 pb-10 sm:px-6 sm:pt-3 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Create CMO</h1>
-          <p className="mt-1 text-xs text-slate-500">Create and save a new CMO record.</p>
+          <h1 className="text-xl font-semibold text-slate-900">{isEdit ? "Edit CMO" : "Create CMO"}</h1>
+          <p className="mt-1 text-xs text-slate-500">
+            {isEdit ? "Update an existing CMO record." : "Create and save a new CMO record."}
+          </p>
         </div>
         <Link href="/ticketing/cmo" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
           Back
         </Link>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
+      ) : null}
 
       <section className={sectionClass}>
         <div className="space-y-4">
@@ -134,11 +329,12 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Customer / Account" required>
-              <select className={inputClass} value={form.customer} onChange={(e) => setField("customer", e.target.value)}>
+              <select className={inputClass} value={form.customerId} onChange={(e) => setField("customerId", e.target.value)}>
                 <option value="">— Select Customer / Account —</option>
-                {CUSTOMER_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                    {customer.code ? ` (${customer.code})` : ""}
                   </option>
                 ))}
               </select>
@@ -158,27 +354,32 @@ export default function CmoForm() {
             <Field label="Commodity Type" required>
               <select
                 className={inputClass}
-                value={form.commodityType}
+                value={form.commodityTypeId}
                 onChange={(e) => {
-                  setField("commodityType", e.target.value);
-                  setField("commodity", "");
+                  setField("commodityTypeId", e.target.value);
+                  setField("commodityId", "");
                 }}
               >
                 <option value="">— Select Commodity Type —</option>
-                {COMMODITY_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {commodityTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
                   </option>
                 ))}
               </select>
             </Field>
 
             <Field label="Commodity" required>
-              <select className={inputClass} value={form.commodity} onChange={(e) => setField("commodity", e.target.value)} disabled={!form.commodityType}>
+              <select
+                className={inputClass}
+                value={form.commodityId}
+                onChange={(e) => setField("commodityId", e.target.value)}
+                disabled={!form.commodityTypeId}
+              >
                 <option value="">— Select Commodity —</option>
-                {commodityChoices.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {commodityChoices.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.description || item.commodity_code}
                   </option>
                 ))}
               </select>
@@ -258,8 +459,8 @@ export default function CmoForm() {
         <Button type="button" variant="ghost" onClick={() => router.push("/ticketing/cmo")}>
           Cancel
         </Button>
-        <Button type="button" onClick={createCmo} disabled={!canSave}>
-          Create CMO
+        <Button type="button" onClick={saveCmo} disabled={!canSave || isSaving}>
+          {isSaving ? "Saving…" : isEdit ? "Update CMO" : "Create CMO"}
         </Button>
       </div>
     </div>

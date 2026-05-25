@@ -1,22 +1,105 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
-import {
-  loadCertificateTemplates,
-  nextLocalEntityId,
-  saveCertificateTemplates,
-} from "@/lib/fumigation-store";
 import { CERTIFICATE_SECTIONS } from "@/lib/fumigation-fields";
 import { cn } from "@/lib/utils";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const CERTIFICATE_TEMPLATES_ENDPOINT = `${API_BASE_URL}/fumigation/certificate-templates`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const ALL_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function certificateTemplateRequest(path = "", options = {}) {
+  const response = await fetch(`${CERTIFICATE_TEMPLATES_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Certificate template request failed."));
+  }
+  return result;
+}
+
+function parseList(result) {
+  const pager = result?.data;
+  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+}
+
+function fromApiCertificateTemplate(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    headerText: row.header_text ?? row.headerText ?? "",
+    footerText: row.footer_text ?? row.footerText ?? "",
+    body: row.body ?? "",
+    sections: Array.isArray(row.sections) ? row.sections : ALL_SECTION_KEYS,
+    additionalDeclarationsText:
+      row.additional_declarations_text ?? row.additionalDeclarationsText ?? "",
+    logoDataUrl: row.logo_data_url ?? row.logoDataUrl ?? "",
+    footerLogoDataUrl: row.footer_logo_data_url ?? row.footerLogoDataUrl ?? "",
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  return {
+    ...tenant,
+    name: String(draft.name ?? "").trim(),
+    header_text: String(draft.headerText ?? "").trim() || null,
+    footer_text: String(draft.footerText ?? "").trim() || null,
+    body: String(draft.body ?? "").trim() || null,
+    sections: draft.sections ?? ALL_SECTION_KEYS,
+    additional_declarations_text: String(draft.additionalDeclarationsText ?? "").trim() || null,
+    logo_data_url: draft.logoDataUrl || null,
+    footer_logo_data_url: draft.footerLogoDataUrl || null,
+  };
+}
 
 function buildDraft(row) {
   return {
@@ -137,12 +220,38 @@ export default function FumigationTemplatesPage() {
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const headerFileRef = useRef(null);
   const footerFileRef = useRef(null);
+  const modalError = modalMode ? error : "";
+
+  const loadTemplates = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams({ per_page: "500" });
+      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+      if (tenant.site_id) params.set("site_id", tenant.site_id);
+
+      const result = await certificateTemplateRequest(`?${params.toString()}`);
+      setRows(parseList(result).map(fromApiCertificateTemplate).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load certificate templates.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setRows(loadCertificateTemplates());
-  }, []);
+    const frame = requestAnimationFrame(() => {
+      loadTemplates();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadTemplates]);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -184,6 +293,7 @@ export default function FumigationTemplatesPage() {
 
   function openAdd() {
     setError("");
+    setNotice("");
     setDraft(buildDraft());
     setModalMode("add");
   }
@@ -191,12 +301,15 @@ export default function FumigationTemplatesPage() {
   function openEdit() {
     if (!selected) return;
     setError("");
+    setNotice("");
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
+    if (isSaving) return;
     setModalMode(null);
+    setError("");
   }
 
   function toggleSection(key) {
@@ -232,40 +345,75 @@ export default function FumigationTemplatesPage() {
     setDraft((prev) => ({ ...prev, [target]: "" }));
   }
 
-  function saveModal() {
+  async function saveModal() {
     if (!draft.name.trim()) {
       setError("Template name is required.");
       return;
     }
-    const normalized = { ...draft, name: draft.name.trim() };
 
-    if (modalMode === "add") {
-      const nextId = nextLocalEntityId(rows);
-      const nextRows = [{ id: nextId, ...normalized }, ...rows];
-      setRows(nextRows);
-      saveCertificateTemplates(nextRows);
-      setSelectedId(nextId);
-      setModalMode(null);
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a template.");
       return;
     }
 
-    if (modalMode === "edit" && selected) {
-      const nextRows = rows.map((row) =>
-        row.id === selected.id ? { ...row, ...normalized } : row
-      );
-      setRows(nextRows);
-      saveCertificateTemplates(nextRows);
-      setModalMode(null);
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload({ ...draft, name: draft.name.trim() });
+
+      if (modalMode === "add") {
+        const result = await certificateTemplateRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCertificateTemplate(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Certificate template created successfully.");
+        setModalMode(null);
+        return;
+      }
+
+      if (modalMode === "edit" && selected) {
+        const result = await certificateTemplateRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCertificateTemplate(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Certificate template updated successfully.");
+        setModalMode(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save certificate template.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function removeSelected() {
-    if (!selected) return;
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
     if (!window.confirm(`Delete template "${selected.name}" permanently?`)) return;
-    const nextRows = rows.filter((row) => row.id !== selected.id);
-    setRows(nextRows);
-    saveCertificateTemplates(nextRows);
-    setSelectedId(null);
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await certificateTemplateRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Certificate template deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete certificate template.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   const previewModel = useMemo(() => buildPreviewModel(draft), [draft]);
@@ -283,6 +431,14 @@ export default function FumigationTemplatesPage() {
         </p>
       </div>
 
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
+
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -292,14 +448,23 @@ export default function FumigationTemplatesPage() {
             placeholder="Search template..."
           />
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={openAdd}>
+            <Button type="button" size="sm" onClick={openAdd} disabled={isLoading}>
               + Add
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEdit}>
+            <Button type="button" variant="outline" size="sm" onClick={loadTemplates} disabled={isLoading}>
+              Refresh
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEdit}>
               Edit
             </Button>
-            <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={removeSelected}>
-              Delete
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={!selected || isLoading || isDeleting}
+              onClick={removeSelected}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </div>
@@ -317,7 +482,8 @@ export default function FumigationTemplatesPage() {
             visibleRows={12}
             persistKey="fumigation-certificate-templates"
             enableGlobalSearch={false}
-            emptyMessage="No templates found."
+            loading={isLoading}
+            emptyMessage={isLoading ? "Loading templates…" : "No templates found."}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
@@ -363,8 +529,14 @@ export default function FumigationTemplatesPage() {
         title={modalMode === "edit" ? "Edit certificate template" : "Add certificate template"}
         onClose={closeModal}
       >
-        {error ? (
-          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-600">{error}</div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveModal();
+          }}
+        >
+        {modalError ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-600">{modalError}</div>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)]">
@@ -466,13 +638,14 @@ export default function FumigationTemplatesPage() {
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={saveModal}>
-            {modalMode === "edit" ? "Save changes" : "Create"}
+          <Button type="submit" size="sm" disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
+        </form>
       </Modal>
     </div>
   );

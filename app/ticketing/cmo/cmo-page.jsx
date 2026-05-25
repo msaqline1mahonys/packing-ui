@@ -1,18 +1,108 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import { loadCmoRows, saveCmoRows } from "@/lib/cmo-store";
 import { cn } from "@/lib/utils";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const CMOS_ENDPOINT = `${API_BASE_URL}/ticketing/cmos`;
 
 const DIRECTION_OPTIONS = [
   { key: "all", label: "All CMOs" },
   { key: "incoming", label: "Incoming" },
   { key: "outgoing", label: "Outgoing" },
 ];
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function cmoRequest(path = "", options = {}) {
+  const response = await fetch(`${CMOS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "CMO request failed."));
+  }
+  return result;
+}
+
+function parseList(result) {
+  const pager = result?.data;
+  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+}
+
+function fromApiCmo(row) {
+  if (!row) return null;
+  const customer = row.customer ?? null;
+  const commodityType = row.commodity_type ?? row.commodityType ?? null;
+  const commodity = row.commodity ?? null;
+
+  return {
+    id: row.id,
+    cmoReference: row.cmo_reference ?? row.cmoReference ?? "",
+    direction: row.direction ?? "incoming",
+    customerId: row.customer_id ?? row.customerId ?? customer?.id ?? "",
+    customer: customer?.name ?? "",
+    commodityTypeId: row.commodity_type_id ?? row.commodityTypeId ?? commodityType?.id ?? "",
+    commodityType: commodityType?.name ?? "",
+    commodityId: row.commodity_id ?? row.commodityId ?? commodity?.id ?? "",
+    commodity: commodity?.description ?? commodity?.commodity_code ?? "",
+    status: row.status ?? "Open",
+    bookings: row.bookings ?? 0,
+    estimatedAmount:
+      row.estimated_amount != null ? String(row.estimated_amount) : row.estimatedAmount ?? "0",
+    actualAmountDelivered:
+      row.actual_amount_delivered != null
+        ? String(row.actual_amount_delivered)
+        : row.actualAmountDelivered ?? "0",
+    additionalReferences: Array.isArray(row.additional_references)
+      ? row.additional_references
+      : Array.isArray(row.additionalReferences)
+        ? row.additionalReferences
+        : [],
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    note: row.note ?? "",
+  };
+}
 
 function statusBadgeClass(status) {
   switch ((status || "").toLowerCase()) {
@@ -29,22 +119,35 @@ function statusBadgeClass(status) {
 
 export default function CmoPage() {
   const router = useRouter();
-  const [rows, setRows] = useState(() => loadCmoRows());
+  const [rows, setRows] = useState([]);
   const [activeDirection, setActiveDirection] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadRows = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams({ per_page: "100", ...tenant });
+      if (activeDirection !== "all") params.set("direction", activeDirection);
+      const result = await cmoRequest(`?${params.toString()}`);
+      setRows(parseList(result).map(fromApiCmo));
+    } catch (err) {
+      setError(err.message || "Failed to load CMOs.");
+      setRows([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeDirection]);
 
   useEffect(() => {
-    setRows(loadCmoRows());
-  }, []);
+    loadRows();
+  }, [loadRows]);
 
-  useEffect(() => {
-    saveCmoRows(rows);
-  }, [rows]);
-
-  const filtered = useMemo(
-    () => rows.filter((row) => activeDirection === "all" || row.direction === activeDirection),
-    [rows, activeDirection]
-  );
+  const filtered = useMemo(() => rows, [rows]);
 
   useEffect(() => {
     if (selectedId != null && !filtered.some((row) => row.id === selectedId)) setSelectedId(null);
@@ -52,10 +155,26 @@ export default function CmoPage() {
 
   const selected = useMemo(() => filtered.find((row) => row.id === selectedId) || null, [filtered, selectedId]);
 
+  const deleteSelected = async () => {
+    if (!selected || isDeleting) return;
+    if (!window.confirm(`Delete CMO "${selected.cmoReference}"?`)) return;
+
+    setIsDeleting(true);
+    setError("");
+    try {
+      await cmoRequest(`/${selected.id}`, { method: "DELETE" });
+      setSelectedId(null);
+      await loadRows();
+    } catch (err) {
+      setError(err.message || "Failed to delete CMO.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const columns = useMemo(
     () => [
       { key: "cmoReference", header: "CMO Ref", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "id", header: "ID", type: "number", sortable: true, filterable: true, resizable: true },
       { key: "customer", header: "Customer", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityType", header: "Commodity Type", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodity", header: "Commodity", type: "text", sortable: true, filterable: true, resizable: true },
@@ -84,6 +203,10 @@ export default function CmoPage() {
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">CMO Management</h1>
         <p className="mt-1 text-xs text-slate-500">Manage CMO records and direction-specific workflows.</p>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -123,17 +246,34 @@ export default function CmoPage() {
             onRowClick={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
-            emptyMessage="No CMOs found."
+            emptyMessage={isLoading ? "Loading CMOs…" : "No CMOs found."}
             toolbarActions={
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={() => router.push("/ticketing/cmo/new")} className="h-7 px-2.5 text-[11px]">
                   + New CMO
                 </Button>
-                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!selected || isLoading}
+                  onClick={() => selected && router.push(`/ticketing/cmo/new?edit=${selected.id}`)}
+                  className="h-7 px-2.5 text-[11px]"
+                >
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="destructive" disabled={!selected} className="h-7 px-2.5 text-[11px]">
-                  Delete
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={!selected || isDeleting}
+                  onClick={deleteSelected}
+                  className="h-7 px-2.5 text-[11px]"
+                >
+                  {isDeleting ? "Deleting…" : "Delete"}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" disabled={isLoading} onClick={loadRows} className="h-7 px-2.5 text-[11px]">
+                  Refresh
                 </Button>
                 <span className="ms-auto text-[11px] text-slate-500">CMO queue</span>
               </div>

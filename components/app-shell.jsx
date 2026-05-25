@@ -16,9 +16,14 @@ function isPrintRoute(pathname) {
   return /\/ticketing\/(?:in|outgoing)\/\d+\/print\/?$/.test(pathname);
 }
 
-function MainPanel({ children }) {
+function MainPanel({ children, compactTop = false }) {
   return (
-    <main className="relative min-h-dvh min-w-0 flex-1 overflow-x-hidden p-6 md:p-10">
+    <main
+      className={cn(
+        "relative min-h-dvh min-w-0 flex-1 overflow-x-hidden",
+        compactTop ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3" : "p-6 md:p-10"
+      )}
+    >
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
       <div className="relative">{children}</div>
     </main>
@@ -29,6 +34,7 @@ function AppShellInner({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const { dock, isVertical, verticalExpanded } = useNavDock();
+  const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
 
   useEffect(() => {
     const isAuthRoute = AUTH_ROUTES.some((r) => pathname.startsWith(r));
@@ -51,11 +57,11 @@ function AppShellInner({ children }) {
         {top ? (
           <>
             <ErpNavbar />
-            <MainPanel>{children}</MainPanel>
+            <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
           </>
         ) : (
           <>
-            <MainPanel>{children}</MainPanel>
+            <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
             <ErpNavbar />
           </>
         )}
@@ -72,7 +78,7 @@ function AppShellInner({ children }) {
             verticalExpanded ? "pe-14 md:pe-[17.25rem]" : "pe-14 md:pe-[4.5rem]"
           )}
         >
-          <MainPanel>{children}</MainPanel>
+          <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
         </div>
         <div className="fixed inset-y-0 right-0 z-40">
           <ErpNavbar />
@@ -89,7 +95,7 @@ function AppShellInner({ children }) {
           verticalExpanded ? "ps-14 md:ps-[17.25rem]" : "ps-14 md:ps-[4.5rem]"
         )}
       >
-        <MainPanel>{children}</MainPanel>
+        <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
       </div>
       <div className="fixed inset-y-0 left-0 z-40">
         <ErpNavbar />

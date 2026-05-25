@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
@@ -47,7 +47,7 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { readSiteRows } from "@/lib/site-data";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -84,19 +84,24 @@ const PRA_STATUS_OPTIONS = ["Pending", "Accepted", "Rejected", "Error"];
 const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+  "w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
 
-const gridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
-const sectionClass = "rounded-xl border border-slate-200/95 bg-white p-5 shadow-sm";
-
-/** Site & import + Sample collapsible strips — quiet tint, barely-there brand */
-const accentDetailsClass =
-  "group !mt-1.5 !mb-1.5 rounded-lg border border-slate-200/95 bg-gradient-to-br from-slate-50 via-sky-50/50 to-slate-50/90 px-2.5 py-1.5 shadow-sm open:border-slate-300/90 open:shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]";
-const accentDetailsRule = "border-t border-slate-200/80";
-const accentSummaryClass =
-  "flex cursor-pointer list-none items-center justify-between gap-2 rounded px-0.5 py-0 text-[10px] font-semibold uppercase tracking-wide text-slate-600 outline-none hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-brand/25 [&::-webkit-details-marker]:hidden";
-const accentChevronClass =
-  "size-3 shrink-0 text-slate-400 transition-transform duration-200 ease-out group-open:rotate-180";
+const gridClass = "grid gap-x-2.5 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
+const gridClassDense = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
+const sectionClass = "min-w-0 rounded-lg border border-slate-200/95 bg-white p-2 shadow-sm";
+const sectionRowClass = "grid items-stretch gap-1.5";
+const flushSectionClass = cn(sectionClass, "flex h-full min-h-0 flex-col");
+const flushSectionBodyClass = "flex min-h-0 flex-1 flex-col";
+const sectionColumnsClass = cn(sectionRowClass, "xl:grid-cols-2 2xl:grid-cols-3");
+const containersShippingRowClass = cn(sectionRowClass, "xl:grid-cols-2");
+const shippingGridClass = "grid min-h-0 flex-1 grid-cols-3 grid-rows-4 items-start gap-x-2 gap-y-2";
+const topRowSectionsClass = cn(sectionRowClass, "lg:grid-cols-3");
+const sectionStackClass = "grid grid-cols-1 gap-y-1.5";
+const spanFullClass = "col-span-full";
+const importPermitRfpRowClass = cn(sectionRowClass, "xl:grid-cols-[minmax(13rem,20rem)_minmax(0,1fr)]");
+const rfpGridClass = "grid grid-cols-2 gap-x-2 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6";
+const rfpFilesRowClass = "mt-1.5 grid gap-2 sm:grid-cols-2";
+const innerPanelClass = "space-y-2 rounded-md border border-slate-200 bg-slate-50/40 p-2.5";
 
 function safeValue(value) {
   if (value == null || String(value).trim() === "") return "—";
@@ -525,8 +530,10 @@ function packToScheduleRow(pack, existingRow) {
 
 function FormRow({ label, labelClassName, children, className = "" }) {
   return (
-    <div className={cn("space-y-1", className)}>
-      <label className={cn("text-xs font-semibold uppercase tracking-wide text-slate-500", labelClassName)}>{label}</label>
+    <div className={cn("min-w-0 space-y-0.5", className)}>
+      <label className={cn("block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500", labelClassName)}>
+        {label}
+      </label>
       {children}
     </div>
   );
@@ -537,7 +544,7 @@ function PemsStagingField({ label, value, labelClassName = "", valueClassName = 
   return (
     <div className="space-y-1">
       <div className={cn("text-[11px] font-semibold uppercase tracking-wide text-slate-500", labelClassName)}>{label}</div>
-      <div className={cn("rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] text-slate-700", valueClassName)}>{value}</div>
+      <div className={cn("rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700", valueClassName)}>{value}</div>
     </div>
   );
 }
@@ -553,9 +560,11 @@ function PemsStagingFormField({ label, children, labelClassName = "" }) {
 }
 
 const stagingInputClass = cn(inputClass, "min-w-0");
-const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
-const stagingGrid6Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
-const stagingGrid3Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
+const stagingGridClass = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
+const stagingGrid6Class = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
+const stagingGrid3Class = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
+const fumigationGridClass = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
+const fumigationInnerClass = "flex h-full min-h-0 flex-col min-w-0 rounded-md border border-slate-200 bg-slate-50/40 p-2.5";
 const GPPIR_WEIGHT_UNIT = "M/TONS";
 const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
 
@@ -587,7 +596,6 @@ function NewPackFormPageInner() {
   );
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
-  const [samplePanelOpen, setSamplePanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(() =>
     ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
   );
@@ -597,8 +605,6 @@ function NewPackFormPageInner() {
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
   const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
   const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
-  const userClosedSampleWhileRequiredRef = useRef(false);
-  const prevSampleRequiredRef = useRef(undefined);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 
@@ -1180,20 +1186,6 @@ function NewPackFormPageInner() {
   }, [pack.fumigationRequired, activeTab]);
 
   useEffect(() => {
-    const prev = prevSampleRequiredRef.current;
-    const now = pack.sampleRequired;
-    if (prev !== undefined && !now && prev) {
-      userClosedSampleWhileRequiredRef.current = false;
-      setSamplePanelOpen(false);
-    }
-    if (now && prev !== true) {
-      userClosedSampleWhileRequiredRef.current = false;
-      setSamplePanelOpen(true);
-    }
-    prevSampleRequiredRef.current = now;
-  }, [pack.sampleRequired]);
-
-  useEffect(() => {
     if (!selectedVessel) return;
     setPack((prev) => {
       const nextVoyage = selectedVessel.voyageNumber || "";
@@ -1205,13 +1197,6 @@ function NewPackFormPageInner() {
   }, [selectedVessel]);
 
   const sampleRowCount = (pack.sampleEntries || []).length;
-  const handleSampleDetailsToggle = useCallback((e) => {
-    const isOpen = e.currentTarget.open;
-    setSamplePanelOpen(isOpen);
-    if (pack.sampleRequired && !isOpen) {
-      userClosedSampleWhileRequiredRef.current = true;
-    }
-  }, [pack.sampleRequired]);
 
   const save = () => {
     const normalized = {
@@ -1308,16 +1293,16 @@ function NewPackFormPageInner() {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-[min(92rem,calc(100%-2rem))] space-y-3 px-5 pt-2 pb-[7.5rem] sm:px-6 sm:pt-3 lg:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-xl font-semibold text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
+      <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-0 sm:px-2 lg:px-3">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <h1 className="text-base font-semibold leading-tight text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => setActiveTab("general")}
             className={cn(
-              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              "rounded-md border px-2.5 py-1 text-xs font-semibold",
               activeTab === "general"
                 ? "border-brand/45 bg-brand/15 text-brand-ink"
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1330,7 +1315,7 @@ function NewPackFormPageInner() {
               type="button"
               onClick={() => setActiveTab("fumigation")}
               className={cn(
-                "rounded-md border px-3 py-1.5 text-xs font-semibold",
+                "rounded-md border px-2.5 py-1 text-xs font-semibold",
                 activeTab === "fumigation"
                   ? "border-brand/45 bg-brand/15 text-brand-ink"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1343,7 +1328,7 @@ function NewPackFormPageInner() {
             type="button"
             onClick={() => setActiveTab("accounting")}
             className={cn(
-              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              "rounded-md border px-2.5 py-1 text-xs font-semibold",
               activeTab === "accounting"
                 ? "border-brand/45 bg-brand/15 text-brand-ink"
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1355,7 +1340,7 @@ function NewPackFormPageInner() {
             type="button"
             onClick={() => setActiveTab("pems")}
             className={cn(
-              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+              "rounded-md border px-2.5 py-1 text-xs font-semibold",
               activeTab === "pems"
                 ? "border-brand/45 bg-brand/15 text-brand-ink"
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1367,14 +1352,23 @@ function NewPackFormPageInner() {
 
       {activeTab === "general" ? (
       <>
-      <section className={sectionClass} aria-label="Pack basics">
-        <div className={gridClass}>
-          <FormRow label="Pack type">
-            <select className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
-              <option value="container">Container</option>
-              <option value="bulk">Bulk</option>
-            </select>
-          </FormRow>
+      <div className={topRowSectionsClass}>
+      <section className={flushSectionClass} aria-label="Pack basics">
+        <div className={cn(flushSectionBodyClass, sectionStackClass)}>
+          <div className="grid grid-cols-2 gap-1.5">
+            <FormRow label="Pack type">
+              <select className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
+                <option value="container">Container</option>
+                <option value="bulk">Bulk</option>
+              </select>
+            </FormRow>
+            <FormRow label="Pack confirmed">
+              <select className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </FormRow>
+          </div>
           <FormRow label="Import / Export">
             <select className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
               <option value="Import">Import</option>
@@ -1393,12 +1387,8 @@ function NewPackFormPageInner() {
         </div>
       </section>
 
-      <details className={accentDetailsClass}>
-        <summary className={accentSummaryClass}>
-          <span>Site &amp; import</span>
-          <ChevronDown className={accentChevronClass} aria-hidden />
-        </summary>
-        <div className={cn("mt-1.5 grid gap-2 pt-2 sm:grid-cols-2 md:grid-cols-3", accentDetailsRule)}>
+      <section className={flushSectionClass} aria-label="Site and import">
+        <div className={cn(flushSectionBodyClass, sectionStackClass)}>
           <FormRow label="Site">
             <input className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
           </FormRow>
@@ -1417,9 +1407,153 @@ function NewPackFormPageInner() {
             </select>
           </FormRow>
         </div>
-      </details>
+      </section>
 
-      <section className={cn(sectionClass, "!mt-2")} aria-label="Basic details">
+      <section className={flushSectionClass} aria-label="Sample">
+        <div className={cn(flushSectionBodyClass, sectionStackClass)}>
+          <FormRow
+            label={
+              sampleRowCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5">
+                  Sample required
+                  <span className="rounded-full bg-slate-200/90 px-1.5 py-0 text-[9px] font-semibold tabular-nums leading-none text-slate-700">
+                    {sampleRowCount}
+                  </span>
+                </span>
+              ) : (
+                "Sample required"
+              )
+            }
+          >
+            <select
+              className={inputClass}
+              value={pack.sampleRequired ? "yes" : "no"}
+              onChange={(e) => {
+                const enabled = e.target.value === "yes";
+                setPack((prev) => {
+                  const nextEntries = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
+                  return {
+                    ...prev,
+                    sampleRequired: enabled,
+                    sampleEntries: enabled && nextEntries.length === 0 ? [createSampleEntry()] : nextEntries,
+                  };
+                });
+              }}
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </FormRow>
+          {pack.sampleRequired ? (
+            <div className="space-y-1.5">
+              {(pack.sampleEntries || []).map((entry, index) => (
+                <div
+                  key={`sample-${index}`}
+                  className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5"
+                >
+                  <div className="grid grid-cols-3 gap-1">
+                    <select
+                      className={inputClass}
+                      value={entry.type}
+                      aria-label="Sample type"
+                      onChange={(e) => {
+                        const next = [...(pack.sampleEntries || [])];
+                        next[index] = { ...next[index], type: e.target.value };
+                        set("sampleEntries", next);
+                      }}
+                    >
+                      {SAMPLE_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className={inputClass}
+                      value={entry.status}
+                      aria-label="Sample status"
+                      onChange={(e) => {
+                        const next = [...(pack.sampleEntries || [])];
+                        next[index] = { ...next[index], status: e.target.value };
+                        set("sampleEntries", next);
+                      }}
+                    >
+                      {SAMPLE_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className={inputClass}
+                      type="date"
+                      aria-label="Sample sent date"
+                      value={entry.sampleSentDate}
+                      onChange={(e) => {
+                        const next = [...(pack.sampleEntries || [])];
+                        next[index] = { ...next[index], sampleSentDate: e.target.value };
+                        set("sampleEntries", next);
+                      }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1">
+                    <input
+                      className={inputClass}
+                      value={entry.sampleLocation}
+                      aria-label="Sample location"
+                      onChange={(e) => {
+                        const next = [...(pack.sampleEntries || [])];
+                        next[index] = { ...next[index], sampleLocation: e.target.value };
+                        set("sampleEntries", next);
+                      }}
+                      placeholder="Location"
+                    />
+                    <input
+                      className={inputClass}
+                      value={entry.notes || ""}
+                      aria-label="Sample notes"
+                      onChange={(e) => {
+                        const next = [...(pack.sampleEntries || [])];
+                        next[index] = { ...next[index], notes: e.target.value };
+                        set("sampleEntries", next);
+                      }}
+                      placeholder="Notes"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      type="button"
+                      className="h-7 shrink-0 px-2"
+                      aria-label="Remove sample"
+                      onClick={() => {
+                        const next = (pack.sampleEntries || []).filter((_, idx) => idx !== index);
+                        set("sampleEntries", next);
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                className="h-7 w-full"
+                onClick={() => {
+                  const next = [...(pack.sampleEntries || []), createSampleEntry()];
+                  set("sampleEntries", next);
+                }}
+              >
+                + Add sample
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </section>
+      </div>
+
+      <section className={sectionClass} aria-label="Basic details">
         <div className={gridClass}>
           <FormRow label="Customer">
             <select className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
@@ -1469,14 +1603,8 @@ function NewPackFormPageInner() {
           <FormRow label="Packing start date">
             <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
           </FormRow>
-          <FormRow label="Pack confirmed">
-            <select className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          <div className="sm:col-span-2 md:col-span-3">
-            <div className={cn("grid gap-4", pack.fumigationRequired ? "sm:grid-cols-3" : "sm:grid-cols-1")}>
+          <div className={spanFullClass}>
+            <div className={cn("grid gap-2", pack.fumigationRequired ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-1")}>
               <FormRow label="Fumigation required">
                 <select
                   className={inputClass}
@@ -1542,8 +1670,8 @@ function NewPackFormPageInner() {
               ) : null}
             </div>
           </div>
-          <FormRow label="Pack warning" className="sm:col-span-2 md:col-span-3">
-            <div className="flex flex-wrap items-center gap-4">
+          <FormRow label="Pack warning" className={spanFullClass}>
+            <div className="flex flex-wrap items-center gap-3">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                 <input
                   type="radio"
@@ -1573,9 +1701,9 @@ function NewPackFormPageInner() {
             </div>
           </FormRow>
           {pack.packWarningRequired ? (
-            <FormRow label="Pack warning details" className="sm:col-span-2 md:col-span-3">
+            <FormRow label="Pack warning details" className={spanFullClass}>
               <textarea
-                className={`${inputClass} min-h-[88px] resize-y`}
+                className={`${inputClass} min-h-[3rem] resize-y`}
                 value={pack.packWarning || ""}
                 onChange={(e) => set("packWarning", e.target.value)}
                 placeholder="Enter pack warning…"
@@ -1585,139 +1713,10 @@ function NewPackFormPageInner() {
         </div>
       </section>
 
-      <details className={accentDetailsClass} open={samplePanelOpen} onToggle={handleSampleDetailsToggle}>
-        <summary className={accentSummaryClass}>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span>Sample</span>
-            {!samplePanelOpen && sampleRowCount > 0 ? (
-              <span className="rounded-full bg-slate-200/90 px-1.5 py-0 text-[9px] font-semibold tabular-nums leading-none text-slate-700">
-                {sampleRowCount}
-              </span>
-            ) : null}
-          </span>
-          <ChevronDown className={accentChevronClass} aria-hidden />
-        </summary>
-        <div className={cn("mt-1.5 space-y-3 pt-2", accentDetailsRule)}>
-          <FormRow label="Sample required" labelClassName="normal-case tracking-normal text-[11px] font-semibold text-slate-700">
-            <select
-              className={inputClass}
-              value={pack.sampleRequired ? "yes" : "no"}
-              onChange={(e) => {
-                const enabled = e.target.value === "yes";
-                setPack((prev) => {
-                  const nextEntries = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
-                  return {
-                    ...prev,
-                    sampleRequired: enabled,
-                    sampleEntries: enabled && nextEntries.length === 0 ? [createSampleEntry()] : nextEntries,
-                  };
-                });
-              }}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          {pack.sampleRequired ? (
-            <div className="space-y-3">
-              {(pack.sampleEntries || []).map((entry, index) => (
-                <div
-                  key={`sample-${index}`}
-                  className="grid gap-2 md:grid-cols-[minmax(7rem,140px)_minmax(0,1fr)_minmax(8rem,170px)_minmax(8rem,170px)_minmax(0,1fr)_auto] md:items-end"
-                >
-                  <select
-                    className={inputClass}
-                    value={entry.type}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], type: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                  >
-                    {SAMPLE_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={inputClass}
-                    value={entry.sampleLocation}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], sampleLocation: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                    placeholder="Sample location"
-                  />
-                  <input
-                    className={inputClass}
-                    type="date"
-                    value={entry.sampleSentDate}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], sampleSentDate: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                  />
-                  <select
-                    className={inputClass}
-                    value={entry.status}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], status: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                  >
-                    {SAMPLE_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={inputClass}
-                    value={entry.notes || ""}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], notes: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                    placeholder="Notes"
-                  />
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    type="button"
-                    onClick={() => {
-                      const next = (pack.sampleEntries || []).filter((_, idx) => idx !== index);
-                      set("sampleEntries", next);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  const next = [...(pack.sampleEntries || []), createSampleEntry()];
-                  set("sampleEntries", next);
-                }}
-              >
-                + Add sample
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </details>
-
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Containers & quantity</h2>
-        <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-          <div className="grid gap-3 md:grid-cols-[200px_180px_minmax(0,1fr)]">
+      <div className={containersShippingRowClass}>
+      <section className={flushSectionClass} aria-label="Containers and quantity">
+        <div className={cn(innerPanelClass, flushSectionBodyClass)}>
+          <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
             <FormRow label="Containers Required">
               <input className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
             </FormRow>
@@ -1736,7 +1735,7 @@ function NewPackFormPageInner() {
             </FormRow>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(5.75rem,7.25rem)] md:items-end">
+          <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
             <FormRow
               label="Required tonnes per container"
               labelClassName="normal-case tracking-normal text-[11px] font-semibold leading-snug text-slate-600"
@@ -1758,7 +1757,7 @@ function NewPackFormPageInner() {
                 placeholder="0"
               />
             </FormRow>
-            <FormRow label="MT total" className="md:max-w-[7.25rem]">
+            <FormRow label="MT total">
               <input
                 className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
                 readOnly
@@ -1769,15 +1768,15 @@ function NewPackFormPageInner() {
             </FormRow>
           </div>
 
-          <div className="space-y-3 pt-1">
-            <p className="text-[11px] text-slate-500">
+          <div className="space-y-2 border-t border-slate-200/80 pt-2">
+            <p className="text-[10px] text-slate-500">
               Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
             </p>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Release number <span className="font-normal normal-case text-slate-400">· Release lines: {releaseRows.length}</span>
             </p>
             {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
-              <div key={`release-row-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+              <div key={`release-row-${index}`} className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]">
                 <input
                   className={inputClass}
                   value={entry.releaseRef || ""}
@@ -1850,9 +1849,9 @@ function NewPackFormPageInner() {
         </div>
       </section>
 
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Destination & shipping</h2>
-        <div className={gridClass}>
+      <section className={flushSectionClass} aria-label="Destination and shipping">
+        <div className={cn(flushSectionBodyClass, "gap-1")}>
+        <div className={shippingGridClass}>
           <FormRow label="Destination country">
             <select className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
               <option value="">- Select country -</option>
@@ -1865,6 +1864,16 @@ function NewPackFormPageInner() {
           </FormRow>
           <FormRow label="Destination port">
             <input className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
+          </FormRow>
+          <FormRow label="Shipping line">
+            <select className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
+              <option value="">- Select -</option>
+              {shippingLines.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} ({l.code})
+                </option>
+              ))}
+            </select>
           </FormRow>
           <FormRow label="Terminal (port of loading)">
             <select
@@ -1897,16 +1906,6 @@ function NewPackFormPageInner() {
           </FormRow>
           <FormRow label="Transshipment port code">
             <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
-          </FormRow>
-          <FormRow label="Shipping line">
-            <select className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
-              <option value="">- Select -</option>
-              {shippingLines.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name} ({l.code})
-                </option>
-              ))}
-            </select>
           </FormRow>
           <FormRow label="Vessel departure">
             <select
@@ -1980,19 +1979,22 @@ function NewPackFormPageInner() {
           <FormRow label="ETD">
             <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
           </FormRow>
+        </div>
           {selectedVessel ? (
-            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 sm:col-span-2 md:col-span-3">
-              <span className="font-semibold text-slate-800">Vessel schedule: </span>
+            <p className="shrink-0 text-[10px] leading-snug text-slate-500">
+              <span className="font-semibold text-slate-700">Vessel schedule:</span>{" "}
               {selectedVessel.vessel} {selectedVessel.voyageNumber ? `(${selectedVessel.voyageNumber})` : ""}
-              {selectedVessel.vesselCutoffDate ? ` · Cut-off: ${selectedVessel.vesselCutoffDate}` : ""}
-            </div>
+              {selectedVessel.vesselCutoffDate ? ` · Cut-off ${selectedVessel.vesselCutoffDate}` : ""}
+            </p>
           ) : null}
         </div>
       </section>
+      </div>
 
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Import permit</h2>
-        <div className={gridClass}>
+      <div className={importPermitRfpRowClass}>
+      <section className={flushSectionClass} aria-label="Import permit">
+        <div className={flushSectionBodyClass}>
+        <div className={sectionStackClass}>
           <FormRow label="Import permit required">
             <select
               className={inputClass}
@@ -2010,7 +2012,7 @@ function NewPackFormPageInner() {
             <input className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
           </FormRow>
         </div>
-        <FormRow label="Import permit file(s)" className="mt-4">
+        <FormRow label="Import permit file(s)" className="mt-auto">
           <input
             className={inputClass}
             type="file"
@@ -2022,18 +2024,19 @@ function NewPackFormPageInner() {
           />
           <FileList items={normalizeFileItems(pack.importPermitFiles)} onOpen={openFile} onRemove={(id) => removeFile("importPermitFiles", id)} />
         </FormRow>
+        </div>
       </section>
 
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">RFP</h2>
-        <div className={gridClass}>
+      <section className={flushSectionClass} aria-label="RFP">
+        <div className={flushSectionBodyClass}>
+        <div className={rfpGridClass}>
           <FormRow label="RFP">
             <input className={inputClass} value={pack.rfp} onChange={(e) => set("rfp", e.target.value)} placeholder="RFP reference" />
           </FormRow>
           <FormRow label="EDN">
             <input className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
           </FormRow>
-          <FormRow label="RFP additional declaration required">
+          <FormRow label="RFP additional declaration required" labelClassName="normal-case tracking-normal text-[10px] leading-tight">
             <select
               className={inputClass}
               value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
@@ -2068,7 +2071,8 @@ function NewPackFormPageInner() {
             <input className={inputClass} value={pack.originalRfpNumber || ""} onChange={(e) => set("originalRfpNumber", e.target.value)} placeholder="Optional" />
           </FormRow>
         </div>
-        <FormRow label="RFP file(s)" className="mt-4">
+        <div className={cn(rfpFilesRowClass, "mt-auto")}>
+        <FormRow label="RFP file(s)">
           <input
             className={inputClass}
             type="file"
@@ -2080,7 +2084,7 @@ function NewPackFormPageInner() {
           />
           <FileList items={normalizeFileItems(pack.rfpFiles)} onOpen={openFile} onRemove={(id) => removeFile("rfpFiles", id)} />
         </FormRow>
-        <FormRow label="Additional declaration file(s)" className="mt-4">
+        <FormRow label="Additional declaration file(s)">
           <input
             className={inputClass}
             type="file"
@@ -2096,10 +2100,13 @@ function NewPackFormPageInner() {
             onRemove={(id) => removeFile("additionalDeclarationFiles", id)}
           />
         </FormRow>
+        </div>
+        </div>
       </section>
+      </div>
 
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Packing & notes</h2>
+      <section className={sectionClass} aria-label="Packing and notes">
+        <div className="grid gap-2 xl:grid-cols-2">
         <FormRow label="Packing instruction file(s)">
           <input
             className={inputClass}
@@ -2116,9 +2123,10 @@ function NewPackFormPageInner() {
             onRemove={(id) => removeFile("packingInstructionFiles", id)}
           />
         </FormRow>
-        <FormRow label="Job notes" className="mt-4">
-          <textarea className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
+        <FormRow label="Job notes">
+          <textarea className={`${inputClass} min-h-[3rem] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
         </FormRow>
+        </div>
       </section>
       </>
       ) : null}
@@ -2180,8 +2188,7 @@ function NewPackFormPageInner() {
           )}
         </section>
 
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PEMs submission setup</h2>
+        <section className={sectionClass} aria-label="PEMs submission setup">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <FormRow label="Record type">
               <select
@@ -2662,35 +2669,34 @@ function NewPackFormPageInner() {
       ) : null}
 
       {activeTab === "accounting" ? (
-      <div className="space-y-4">
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Revenue</h2>
+      <div className={sectionColumnsClass}>
+        <section className={flushSectionClass} aria-label="Revenue">
+          <div className={flushSectionBodyClass}>
           <p className="text-sm text-slate-500">
             Revenue calculations will appear once commodity pricing and container data are connected.
           </p>
+          </div>
         </section>
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Expense</h2>
+        <section className={flushSectionClass} aria-label="Expense">
+          <div className={flushSectionBodyClass}>
           <p className="text-sm text-slate-500">Cost-side lines will be added in a future release.</p>
+          </div>
         </section>
       </div>
       ) : null}
 
       {activeTab === "fumigation" && pack.fumigationRequired ? (
-      <section className={sectionClass}>
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
-        <p className="mb-4 text-xs text-slate-500">
+      <section className={sectionClass} aria-label="Fumigation">
+        <p className="mb-2 text-[10px] leading-snug text-slate-500">
           Section layout mirrors the AU Government fumigation cert/record template. Every field here pre-fills into the
           Certificate &amp; Record editors when you click Generate.
         </p>
-        <div className="space-y-6">
+        <div className="space-y-2">
 
+          <div className={sectionColumnsClass}>
           {/* ─── Section A — Fumigator in charge ─── */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
-              Section A — Fumigator in charge
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+          <div className={fumigationInnerClass} aria-label="Section A — Fumigator in charge">
+            <div className={fumigationGridClass}>
               <FormRow label="Fumigant">
               <select
                 className={inputClass}
@@ -2749,7 +2755,7 @@ function NewPackFormPageInner() {
               </select>
             </FormRow>
           </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className={cn("mt-2", fumigationGridClass)}>
               <FormRow label="Fumigator name">
                 <select
                   className={inputClass}
@@ -2804,11 +2810,8 @@ function NewPackFormPageInner() {
           </div>
 
           {/* ─── Section B — Job & consignment details ─── */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
-              Section B — Job &amp; consignment details
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+          <div className={fumigationInnerClass} aria-label="Section B — Job and consignment details">
+            <div className={fumigationGridClass}>
               <PemsStagingField label="Job identification" value={pack.jobReference || "—"} />
               <PemsStagingField label="Client (from pack)" value={pack.customer || "—"} />
               <PemsStagingField label="Destination country (from pack)" value={pack.destinationCountry || "—"} />
@@ -2829,8 +2832,8 @@ function NewPackFormPageInner() {
                 />
               </FormRow>
             </div>
-            <FormRow className="mt-3" label="Target of fumigation (pick all that apply)">
-              <div className="flex flex-wrap gap-4 pt-1">
+            <FormRow className="mt-2" label="Target of fumigation (pick all that apply)">
+              <div className="flex flex-wrap gap-2 pt-0.5">
                 {FUMIGATION_TARGETS.map((t) => (
                   <label key={t.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
                     <input
@@ -2851,16 +2854,14 @@ function NewPackFormPageInner() {
               </div>
             </FormRow>
           </div>
+          </div>
 
           {/* ─── Section C — Fumigation details ─── */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
-              Section C — Fumigation details (enclosure &amp; dose)
-            </p>
-
+          <div className={fumigationInnerClass} aria-label="Section C — Fumigation details">
+            
             {/* Enclosure type */}
             <FormRow label="Enclosure type">
-              <div className="flex flex-wrap gap-4 pt-1">
+              <div className="flex flex-wrap gap-2 pt-0.5">
                 {ENCLOSURE_TYPES.map((opt) => (
                   <label key={opt.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
                     <input
@@ -2885,7 +2886,7 @@ function NewPackFormPageInner() {
               </FormRow>
             )}
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div className={cn("mt-2", fumigationGridClass)}>
               <FormRow label="Length (m)">
                 <input
                   className={inputClass}
@@ -2924,8 +2925,8 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
 
-            <FormRow className="mt-3" label="Consignment suitable for fumigation?">
-              <div className="flex flex-wrap gap-4 pt-1">
+            <FormRow className="mt-2" label="Consignment suitable for fumigation?">
+              <div className="flex flex-wrap gap-2 pt-0.5">
                 {[
                   { v: true, l: "Yes — suitable" },
                   { v: false, l: "No — remedial action taken" },
@@ -2955,7 +2956,7 @@ function NewPackFormPageInner() {
 
             {/* Methodology reference panel — kept inside Section C */}
             {selectedFumigationMethodology ? (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-600">
               <p className="font-semibold text-slate-800">
                 {selectedFumigationMethodology.name}
                 {selectedFumigationMethodology.version ? ` ${selectedFumigationMethodology.version}` : ""}
@@ -3020,8 +3021,8 @@ function NewPackFormPageInner() {
             </div>
           ) : null}
 
-            <FormRow className="mt-3" label="Fumigation type">
-              <div className="flex flex-wrap gap-4 pt-1">
+            <FormRow className="mt-2" label="Fumigation type">
+              <div className="flex flex-wrap gap-2 pt-0.5">
                 {[
                   { v: "ambient", l: "Ambient temperature (forecast)" },
                   { v: "controlled", l: "Controlled temperature (heated enclosure)" },
@@ -3039,7 +3040,7 @@ function NewPackFormPageInner() {
               </div>
             </FormRow>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className={cn("mt-2", fumigationGridClass)}>
               <FormRow label="Min forecast temperature (°C)">
                 <input
                   className={inputClass}
@@ -3060,10 +3061,10 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
 
-            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Prescribed treatment schedule
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={fumigationGridClass}>
               <FormRow label="Dose rate (g/m³)">
                 <input
                   className={inputClass}
@@ -3093,10 +3094,10 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
 
-            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Applied dose
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={fumigationGridClass}>
               <FormRow label="Applied dose rate">
                 <div className="flex gap-2">
                   <input
@@ -3205,10 +3206,10 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
 
-            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Methyl bromide additives
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={fumigationGridClass}>
               <FormRow label="Chloropicrin used?">
                 <div className="flex gap-4 pt-1">
                   {[
@@ -3258,10 +3259,10 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
 
-            <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Sulfuryl fluoride — end-point &amp; CT
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={fumigationGridClass}>
               <FormRow label="End-point concentration (g/m³)">
                 <input
                   className={inputClass}
@@ -3300,7 +3301,7 @@ function NewPackFormPageInner() {
                 </label>
               </FormRow>
               {fd.thirdPartySystem && (
-                <FormRow className="sm:col-span-2" label="3rd-party system name">
+                <FormRow className={spanFullClass} label="3rd-party system name">
                   <input
                     className={inputClass}
                     value={fd.thirdPartySystemName ?? ""}
@@ -3310,7 +3311,7 @@ function NewPackFormPageInner() {
               )}
             </div>
 
-            <FormRow className="mt-3" label="Free-text enclosure description (legacy / internal)">
+            <FormRow className="mt-2" label="Free-text enclosure description (legacy / internal)">
               <input
                 className={inputClass}
                 value={fd.enclosureDescription || ""}
@@ -3320,11 +3321,9 @@ function NewPackFormPageInner() {
             </FormRow>
           </div>
 
+          <div className={sectionColumnsClass}>
           {/* ─── Section D — Concentration readings & ventilation ─── */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
-              Section D — Concentration readings &amp; ventilation
-            </p>
+          <div className={fumigationInnerClass} aria-label="Section D — Concentration readings and ventilation">
             <FormRow label="Monitoring device serial(s)">
               <input
                 className={inputClass}
@@ -3333,7 +3332,7 @@ function NewPackFormPageInner() {
                 placeholder="Comma-separated serial numbers"
               />
             </FormRow>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className={cn("mt-2", fumigationGridClass)}>
               <FormRow label="Fumigation commenced">
                 <input
                   className={inputClass}
@@ -3367,7 +3366,7 @@ function NewPackFormPageInner() {
                 />
               </FormRow>
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className={cn("mt-2", fumigationGridClass)}>
               <FormRow label="Final TLV reading 1 (ppm)">
                 <input
                   className={inputClass}
@@ -3398,8 +3397,8 @@ function NewPackFormPageInner() {
             </div>
 
             {/* Top-up entries */}
-            <div className="mt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+            <div className="mt-2">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                 Top-up details (if any)
               </p>
               {(fd.topUpEntries ?? []).map((entry) => (
@@ -3474,11 +3473,8 @@ function NewPackFormPageInner() {
           </div>
 
           {/* ─── Section E — Result & declaration ─── */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
-              Section E — Result &amp; declaration
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className={fumigationInnerClass} aria-label="Section E — Result and declaration">
+            <div className={fumigationGridClass}>
               <FormRow label="Fumigation result">
                 <select
                   className={inputClass}
@@ -3505,15 +3501,15 @@ function NewPackFormPageInner() {
                   ))}
                 </select>
               </FormRow>
-              <FormRow className="sm:col-span-2" label="Additional declarations (free text)">
+              <FormRow className={spanFullClass} label="Additional declarations (free text)">
                 <textarea
                   className={inputClass}
-                  rows={3}
+                  rows={2}
                   value={fd.additionalDeclarations ?? ""}
                   onChange={(e) => updateFumigationDetail({ additionalDeclarations: e.target.value })}
                 />
               </FormRow>
-              <FormRow className="sm:col-span-2" label="Internal notes">
+              <FormRow className={spanFullClass} label="Internal notes">
                 <textarea
                   className={inputClass}
                   rows={2}
@@ -3523,13 +3519,14 @@ function NewPackFormPageInner() {
               </FormRow>
             </div>
           </div>
+          </div>
 
           {/* Template selectors — hidden in a collapsed details so they don't dominate the layout */}
-          <details className="rounded-lg border border-slate-200 bg-white p-4 group">
-            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-slate-500 group-open:mb-3">
+          <details className="rounded-md border border-slate-200 bg-white p-2.5 group">
+            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-slate-500 group-open:mb-2">
               Advanced — override default certificate / record template
             </summary>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={fumigationGridClass}>
               <FormRow label="Certificate template">
                 <select
                   className={inputClass}
@@ -3568,7 +3565,7 @@ function NewPackFormPageInner() {
 
         {/* Generate documents — only when pack is saved and all fumigation fields are set */}
         {editingRow?.id != null && (
-          <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-4">
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-2">
             <button
               type="button"
               disabled={!pack.fumigationRequired || !pack.fumigantId || !pack.methodologyId}

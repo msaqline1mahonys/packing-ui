@@ -1,8 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { devWarn, uniqueBy } from '../utils/safe'
 
-const DEFAULT_WIDTH = 160
-const MIN_WIDTH = 60
+const DEFAULT_WIDTH = 120
+const COMPACT_WIDTH = 68
+const NARROW_WIDTH = 84
+const MEDIUM_WIDTH = 110
+const MIN_WIDTH = 44
+
+/** Infer a sensible default width from column metadata (type, header length, flags). */
+export function resolveColumnWidth(col) {
+  if (typeof col?.width === 'number' && col.width > 0) return col.width
+  if (col?.compact === true || col?.numeric === true) return COMPACT_WIDTH
+  if (col?.type === 'number' || col?.type === 'boolean') return col?.type === 'boolean' ? COMPACT_WIDTH : NARROW_WIDTH
+  if (col?.type === 'date') return NARROW_WIDTH
+
+  const header = String(col?.header ?? col?.label ?? '').trim()
+  if (header.length <= 3) return COMPACT_WIDTH
+  if (header.length <= 5) return NARROW_WIDTH
+  if (header.length <= 10) return MEDIUM_WIDTH
+
+  return DEFAULT_WIDTH
+}
+
+function resolveMinWidth(col) {
+  if (typeof col?.minWidth === 'number' && col.minWidth > 0) return col.minWidth
+  if (col?.compact === true || col?.numeric === true) return MIN_WIDTH
+  if (col?.type === 'number' || col?.type === 'boolean' || col?.type === 'date') return MIN_WIDTH
+  return 56
+}
 
 export function useColumnState(columns, initialState) {
   const validated = useMemo(() => {
@@ -59,7 +84,7 @@ export function useColumnState(columns, initialState) {
       prev.map((c) => {
         if (c.key !== key) return c
         const def = columnMap.get(key)
-        const min = def?.minWidth ?? MIN_WIDTH
+        const min = resolveMinWidth(def)
         const max = def?.maxWidth ?? 2000
         return { ...c, width: Math.min(Math.max(width, min), max) }
       }),
@@ -121,7 +146,7 @@ function pinOrder(pin) {
 function buildInitialState(columns) {
   return columns.map((col, idx) => ({
     key: col.key,
-    width: col.width ?? DEFAULT_WIDTH,
+    width: resolveColumnWidth(col),
     hidden: col.hidden ?? false,
     pin: col.pin ?? null,
     order: idx,
@@ -150,7 +175,7 @@ function mergeColumnStates(validated, prior) {
         key: col.key,
         width: typeof existing.width === 'number' && existing.width > 0
           ? existing.width
-          : col.width ?? DEFAULT_WIDTH,
+          : resolveColumnWidth(col),
         hidden: Boolean(existing.hidden),
         pin: existing.pin === 'left' || existing.pin === 'right' ? existing.pin : null,
         order: typeof existing.order === 'number' ? existing.order : idx,
@@ -158,7 +183,7 @@ function mergeColumnStates(validated, prior) {
     }
     return {
       key: col.key,
-      width: col.width ?? DEFAULT_WIDTH,
+      width: resolveColumnWidth(col),
       hidden: col.hidden ?? false,
       pin: col.pin ?? null,
       order: nextNewOrder++,

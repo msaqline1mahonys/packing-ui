@@ -66,7 +66,13 @@ const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-
 const stagingGrid6Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
 const stagingGrid3Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
 const GPPIR_WEIGHT_UNIT = "M/TONS";
-const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
+const gppirTableCompactCol = "w-12 min-w-[3rem] max-w-[4rem] px-1 py-1.5 whitespace-nowrap text-center";
+const gppirTableNarrowCol = "w-16 min-w-[3.5rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableNumCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap text-right tabular-nums";
+const gppirTableTypeCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableResultCol = "w-16 min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableCellCol = "px-1.5 py-1.5";
+const gppirTableRemarksCol = "min-w-[8rem] px-1.5 py-1.5 align-top";
 const sectionCardClass = "overflow-hidden rounded-xl border border-slate-200/90 bg-white";
 const sectionHeaderClass = "border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800";
 
@@ -694,6 +700,7 @@ export default function PackDetailClient({ packId }) {
   const permitNumberLine = String(packRow.importPermitNumber || "").trim();
   const permitDateLine = packRow.importPermitDate ? formatDateDisplay(packRow.importPermitDate) : "";
   const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
+  const packingNoteText = String(packRow.jobNotes || packRow.packingNote || "").trim();
   const releaseRefsSummary = useMemo(() => {
     const refs = Array.from(
       new Set(
@@ -767,9 +774,13 @@ export default function PackDetailClient({ packId }) {
           <PriorityField label="Weight per container" value={weightPerContainer == null ? "—" : `${weightPerContainer} MT`} />
           <PriorityField label="Job Ref" value={safeValue(packRow.jobReference)} />
         </div>
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Packing note</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{safeValue(packRow.jobNotes || packRow.packingNote)}</p>
+        <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/90 bg-gradient-to-r from-amber-50 via-amber-50 to-amber-100/60 shadow-sm shadow-amber-200/30">
+          <div className="border-b border-amber-200/70 bg-amber-100/50 px-3 py-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Packing note</p>
+          </div>
+          <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-amber-950">
+            {safeValue(packRow.jobNotes || packRow.packingNote)}
+          </p>
         </div>
         <div
           id="pack-prepack-review"
@@ -1006,12 +1017,30 @@ export default function PackDetailClient({ packId }) {
           </div>
         ) : (
           <section className="space-y-4 rounded-xl border-2 border-brand/25 bg-brand/5 p-3">
-            <div className="rounded-xl border border-slate-200/90 bg-white p-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-semibold text-slate-900">Container #{selectedContainer.order}</h3>
-                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", stageBadgeClass(containerStage(selectedContainer)))}>
+            <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5">
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500">#{selectedContainer.order}</span>
+                  <span className="text-base font-semibold text-slate-900">
+                    {selectedContainer.containerNo || "Draft container"}
+                  </span>
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    stageBadgeClass(containerStage(selectedContainer))
+                  )}
+                >
                   {containerStage(selectedContainer)}
                 </span>
+              </div>
+              <div className="border-t border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/95 to-amber-100/70 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                <div className="flex flex-wrap items-start gap-2">
+                  <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/60">
+                    Packing note
+                  </span>
+                  <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-amber-950">{safeValue(packingNoteText)}</p>
+                </div>
               </div>
             </div>
 
@@ -1034,7 +1063,7 @@ export default function PackDetailClient({ packId }) {
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
 
-            <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
+            <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-rose-300 bg-rose-50 text-rose-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
               {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}
             </div>
           </section>
@@ -1616,23 +1645,23 @@ function PemsTab({
                 <Field label="Expiry Date" value={expiryDate} />
               </div>
               <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                <table className="w-full min-w-[1280px] text-left text-xs">
+                <table className="w-full table-fixed text-left text-xs">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
                       <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
-                      <th className="px-2 py-2 font-semibold">Container Number</th>
-                      <th className="px-2 py-2 font-semibold">Source</th>
-                      <th className="px-2 py-2 font-semibold">Commodity</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Source</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Commodity</th>
                       <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
-                      <th className="px-2 py-2 font-semibold">Type</th>
-                      <th className="px-2 py-2 font-semibold">Weight</th>
-                      <th className="px-2 py-2 font-semibold">Unit</th>
-                      <th className="px-2 py-2 font-semibold">Line Weight</th>
-                      <th className="px-2 py-2 font-semibold">Unit</th>
-                      <th className="px-2 py-2 font-semibold">Sampled</th>
-                      <th className="px-2 py-2 font-semibold">Result</th>
-                      <th className="px-2 py-2 font-semibold">Inspection AO Name</th>
-                      <th className="px-2 py-2 font-semibold">Remarks</th>
+                      <th className={cn(gppirTableTypeCol, "font-semibold")}>Type</th>
+                      <th className={cn(gppirTableNumCol, "font-semibold")}>Weight</th>
+                      <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
+                      <th className={cn(gppirTableNumCol, "font-semibold")}>Line Weight</th>
+                      <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
+                      <th className={cn(gppirTableCompactCol, "font-semibold")}>Sampled</th>
+                      <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
+                      <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1641,21 +1670,21 @@ function PemsTab({
                       return (
                       <tr key={container.id} className="border-t border-slate-100 text-slate-700">
                         <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                        <td className="px-2 py-2 font-medium">{safeValue(container.containerNo)}</td>
-                        <td className="px-2 py-2">{safeValue(container.grainLocation || container.stockBayId)}</td>
-                        <td className="px-2 py-2">{safeValue(packRow.commodity)}</td>
+                        <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNo)}</td>
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.grainLocation || container.stockBayId)}</td>
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(packRow.commodity)}</td>
                         <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                        <td className="px-2 py-2">CONTAINER</td>
-                        <td className="px-2 py-2">{containerWeight.toFixed(2)}</td>
-                        <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
-                        <td className="px-2 py-2">{containerWeight.toFixed(4)}</td>
-                        <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
-                        <td className="px-2 py-2">N/A</td>
-                        <td className="px-2 py-2">
+                        <td className={gppirTableTypeCol}>CONTAINER</td>
+                        <td className={gppirTableNumCol}>{containerWeight.toFixed(2)}</td>
+                        <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
+                        <td className={gppirTableNumCol}>{containerWeight.toFixed(4)}</td>
+                        <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
+                        <td className={cn(gppirTableCompactCol, "text-center")}>N/A</td>
+                        <td className={gppirTableResultCol}>
                           {container.grainInspection === "Passed" ? "Passed" : container.grainInspection === "Failed" ? "Failed" : "Pending"}
                         </td>
-                        <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                        <td className="px-2 py-2 align-top">
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
+                        <td className={gppirTableRemarksCol}>
                           <textarea
                             className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
                             value={getContainerInspectionRemark(container)}
@@ -1710,30 +1739,30 @@ function PemsTab({
                 <Field label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
               </div>
               <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                <table className="w-full min-w-[980px] text-left text-xs">
+                <table className="w-full table-fixed text-left text-xs">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
-                      <th className="px-2 py-2 font-semibold">Container Number</th>
-                      <th className="px-2 py-2 font-semibold">Inspection Level</th>
-                      <th className="px-2 py-2 font-semibold">RFP Number</th>
-                      <th className="px-2 py-2 font-semibold">Result</th>
-                      <th className="px-2 py-2 font-semibold">Seal Number</th>
-                      <th className="px-2 py-2 font-semibold">Expiry Date</th>
-                      <th className="px-2 py-2 font-semibold">Inspection AO Name</th>
-                      <th className="px-2 py-2 font-semibold">Remarks</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
+                      <th className={cn(gppirTableTypeCol, "font-semibold")}>Inspection Level</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>RFP Number</th>
+                      <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Seal Number</th>
+                      <th className={cn(gppirTableNarrowCol, "font-semibold")}>Expiry Date</th>
+                      <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
+                      <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
                     </tr>
                   </thead>
                   <tbody>
                     {stagedContainers.map((container) => (
                       <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                        <td className="px-2 py-2 font-medium">{safeValue(container.containerNo)}</td>
-                        <td className="px-2 py-2">Consumable</td>
-                        <td className="px-2 py-2">{safeValue(packRfpText || container.releaseNumber)}</td>
-                        <td className="px-2 py-2">{container.emptyInspection === "Passed" ? "Pass" : container.emptyInspection === "Failed" ? "Fail" : "Pending"}</td>
-                        <td className="px-2 py-2">{safeValue(container.sealNo)}</td>
-                        <td className="px-2 py-2">{expiryDate}</td>
-                        <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                        <td className="px-2 py-2 align-top">
+                        <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNo)}</td>
+                        <td className={gppirTableTypeCol}>Consumable</td>
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(packRfpText || container.releaseNumber)}</td>
+                        <td className={gppirTableResultCol}>{container.emptyInspection === "Passed" ? "Pass" : container.emptyInspection === "Failed" ? "Fail" : "Pending"}</td>
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.sealNo)}</td>
+                        <td className={gppirTableNarrowCol}>{expiryDate}</td>
+                        <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
+                        <td className={gppirTableRemarksCol}>
                           <textarea
                             className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
                             value={getContainerInspectionRemark(container)}

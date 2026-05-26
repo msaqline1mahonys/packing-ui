@@ -1229,7 +1229,7 @@ export function Grid(props) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-                    px: 1.25,
+                    px: 1,
                     fontSize: '0.85rem',
                     borderRight: '1px solid',
                     borderColor: 'divider',
@@ -1309,7 +1309,7 @@ export function Grid(props) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-            px: 1.25,
+            px: 1,
             fontSize: '0.85rem',
             borderRight: '1px solid',
             borderColor: 'divider'

@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
+import PackFileList from "@/components/pack-file-list";
 import { Button } from "@/components/ui/button";
 import {
   COMMODITY_MASTER_ROWS,
@@ -46,6 +47,7 @@ import {
   containerInspectionRemarkPatch,
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
+import { normalizePackAttachmentFiles } from "@/lib/pack-attachments";
 import { readSiteRows } from "@/lib/site-data";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -332,28 +334,7 @@ function createSampleEntry() {
   };
 }
 
-function normalizeFileItems(items) {
-  if (!Array.isArray(items)) return [];
-  return items.map((item, index) => {
-    if (typeof item === "string") {
-      return {
-        id: `legacy-${index}-${item}`,
-        name: item,
-        size: null,
-        type: "",
-        file: null,
-      };
-    }
-    return {
-      id: item?.id ?? `file-${index}-${item?.name ?? "unknown"}`,
-      name: item?.name ?? "file",
-      size: Number.isFinite(item?.size) ? item.size : null,
-      type: item?.type ?? "",
-      file: item?.file instanceof File ? item.file : null,
-      url: typeof item?.url === "string" ? item.url : undefined,
-    };
-  });
-}
+const normalizeFileItems = normalizePackAttachmentFiles;
 
 function toFileEntries(fileList) {
   return Array.from(fileList || []).map((file, index) => ({
@@ -363,13 +344,6 @@ function toFileEntries(fileList) {
     type: file.type,
     file,
   }));
-}
-
-function formatBytes(size) {
-  if (!Number.isFinite(size)) return "";
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function rowToPack(row, siteId) {
@@ -566,7 +540,13 @@ const stagingGrid3Class = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 
 const fumigationGridClass = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
 const fumigationInnerClass = "flex h-full min-h-0 flex-col min-w-0 rounded-md border border-slate-200 bg-slate-50/40 p-2.5";
 const GPPIR_WEIGHT_UNIT = "M/TONS";
-const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
+const gppirTableCompactCol = "w-12 min-w-[3rem] max-w-[4rem] px-1 py-1.5 whitespace-nowrap text-center";
+const gppirTableNarrowCol = "w-16 min-w-[3.5rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableNumCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap text-right tabular-nums";
+const gppirTableTypeCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableResultCol = "w-16 min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableCellCol = "px-1.5 py-1.5";
+const gppirTableRemarksCol = "min-w-[8rem] px-1.5 py-1.5 align-top";
 
 export default function NewPackFormPage() {
   return (
@@ -605,6 +585,8 @@ function NewPackFormPageInner() {
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
   const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
   const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
+  const [activeSampleIndex, setActiveSampleIndex] = useState(0);
+  const prevSampleCountRef = useRef(0);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 
@@ -623,13 +605,6 @@ function NewPackFormPageInner() {
 
   function removeFile(key, id) {
     setPack((prev) => ({ ...prev, [key]: normalizeFileItems(prev[key]).filter((item) => item.id !== id) }));
-  }
-
-  function openFile(item) {
-    if (!(item?.file instanceof File)) return;
-    const url = URL.createObjectURL(item.file);
-    window.open(url, "_blank", "noopener,noreferrer");
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   const fd =
@@ -1196,7 +1171,20 @@ function NewPackFormPageInner() {
     });
   }, [selectedVessel]);
 
-  const sampleRowCount = (pack.sampleEntries || []).length;
+  const sampleEntries = pack.sampleEntries || [];
+  const sampleRowCount = sampleEntries.length;
+
+  useEffect(() => {
+    const count = sampleEntries.length;
+    if (count > prevSampleCountRef.current) {
+      setActiveSampleIndex(count - 1);
+    } else if (count > 0) {
+      setActiveSampleIndex((prev) => (prev >= count ? count - 1 : prev));
+    } else {
+      setActiveSampleIndex(0);
+    }
+    prevSampleCountRef.current = count;
+  }, [sampleEntries.length]);
 
   const save = () => {
     const normalized = {
@@ -1446,103 +1434,150 @@ function NewPackFormPageInner() {
           </FormRow>
           {pack.sampleRequired ? (
             <div className="space-y-1.5">
-              {(pack.sampleEntries || []).map((entry, index) => (
-                <div
-                  key={`sample-${index}`}
-                  className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5"
-                >
-                  <div className="grid grid-cols-3 gap-1">
-                    <select
-                      className={inputClass}
-                      value={entry.type}
-                      aria-label="Sample type"
-                      onChange={(e) => {
-                        const next = [...(pack.sampleEntries || [])];
-                        next[index] = { ...next[index], type: e.target.value };
-                        set("sampleEntries", next);
-                      }}
+              {sampleEntries.map((entry, index) => {
+                const isExpanded = sampleRowCount === 1 || index === activeSampleIndex;
+
+                if (!isExpanded) {
+                  return (
+                    <div
+                      key={`sample-${index}`}
+                      className="flex items-center gap-1 rounded-md border border-slate-200/80 bg-white px-1.5 py-1"
                     >
-                      {SAMPLE_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className={inputClass}
-                      value={entry.status}
-                      aria-label="Sample status"
-                      onChange={(e) => {
-                        const next = [...(pack.sampleEntries || [])];
-                        next[index] = { ...next[index], status: e.target.value };
-                        set("sampleEntries", next);
-                      }}
-                    >
-                      {SAMPLE_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className={inputClass}
-                      type="date"
-                      aria-label="Sample sent date"
-                      value={entry.sampleSentDate}
-                      onChange={(e) => {
-                        const next = [...(pack.sampleEntries || [])];
-                        next[index] = { ...next[index], sampleSentDate: e.target.value };
-                        set("sampleEntries", next);
-                      }}
-                    />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[13px] text-slate-600 hover:bg-slate-50"
+                        onClick={() => setActiveSampleIndex(index)}
+                      >
+                        <span className="font-medium text-slate-700">{entry.type}</span>
+                        <span className="text-slate-400"> · </span>
+                        {entry.status}
+                        {entry.sampleSentDate ? (
+                          <>
+                            <span className="text-slate-400"> · </span>
+                            {formatDateDisplay(entry.sampleSentDate)}
+                          </>
+                        ) : null}
+                        {entry.sampleLocation ? (
+                          <>
+                            <span className="text-slate-400"> · </span>
+                            {entry.sampleLocation}
+                          </>
+                        ) : null}
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        className="h-7 shrink-0 px-2 text-slate-400 hover:text-destructive"
+                        aria-label="Remove sample"
+                        onClick={() => {
+                          const next = sampleEntries.filter((_, idx) => idx !== index);
+                          set("sampleEntries", next);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={`sample-${index}`}
+                    className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5"
+                  >
+                    <div className="grid grid-cols-3 gap-1">
+                      <select
+                        className={inputClass}
+                        value={entry.type}
+                        aria-label="Sample type"
+                        onChange={(e) => {
+                          const next = [...sampleEntries];
+                          next[index] = { ...next[index], type: e.target.value };
+                          set("sampleEntries", next);
+                        }}
+                      >
+                        {SAMPLE_TYPES.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className={inputClass}
+                        value={entry.status}
+                        aria-label="Sample status"
+                        onChange={(e) => {
+                          const next = [...sampleEntries];
+                          next[index] = { ...next[index], status: e.target.value };
+                          set("sampleEntries", next);
+                        }}
+                      >
+                        {SAMPLE_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className={inputClass}
+                        type="date"
+                        aria-label="Sample sent date"
+                        value={entry.sampleSentDate}
+                        onChange={(e) => {
+                          const next = [...sampleEntries];
+                          next[index] = { ...next[index], sampleSentDate: e.target.value };
+                          set("sampleEntries", next);
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1">
+                      <input
+                        className={inputClass}
+                        value={entry.sampleLocation}
+                        aria-label="Sample location"
+                        onChange={(e) => {
+                          const next = [...sampleEntries];
+                          next[index] = { ...next[index], sampleLocation: e.target.value };
+                          set("sampleEntries", next);
+                        }}
+                        placeholder="Location"
+                      />
+                      <input
+                        className={inputClass}
+                        value={entry.notes || ""}
+                        aria-label="Sample notes"
+                        onChange={(e) => {
+                          const next = [...sampleEntries];
+                          next[index] = { ...next[index], notes: e.target.value };
+                          set("sampleEntries", next);
+                        }}
+                        placeholder="Notes"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        type="button"
+                        className="h-7 shrink-0 px-2"
+                        aria-label="Remove sample"
+                        onClick={() => {
+                          const next = sampleEntries.filter((_, idx) => idx !== index);
+                          set("sampleEntries", next);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1">
-                    <input
-                      className={inputClass}
-                      value={entry.sampleLocation}
-                      aria-label="Sample location"
-                      onChange={(e) => {
-                        const next = [...(pack.sampleEntries || [])];
-                        next[index] = { ...next[index], sampleLocation: e.target.value };
-                        set("sampleEntries", next);
-                      }}
-                      placeholder="Location"
-                    />
-                    <input
-                      className={inputClass}
-                      value={entry.notes || ""}
-                      aria-label="Sample notes"
-                      onChange={(e) => {
-                        const next = [...(pack.sampleEntries || [])];
-                        next[index] = { ...next[index], notes: e.target.value };
-                        set("sampleEntries", next);
-                      }}
-                      placeholder="Notes"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      type="button"
-                      className="h-7 shrink-0 px-2"
-                      aria-label="Remove sample"
-                      onClick={() => {
-                        const next = (pack.sampleEntries || []).filter((_, idx) => idx !== index);
-                        set("sampleEntries", next);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               <Button
                 variant="secondary"
                 size="sm"
                 type="button"
                 className="h-7 w-full"
                 onClick={() => {
-                  const next = [...(pack.sampleEntries || []), createSampleEntry()];
-                  set("sampleEntries", next);
+                  set("sampleEntries", [...sampleEntries, createSampleEntry()]);
                 }}
               >
                 + Add sample
@@ -1993,7 +2028,7 @@ function NewPackFormPageInner() {
 
       <div className={importPermitRfpRowClass}>
       <section className={flushSectionClass} aria-label="Import permit">
-        <div className={flushSectionBodyClass}>
+        <div className={cn(flushSectionBodyClass, "gap-2")}>
         <div className={sectionStackClass}>
           <FormRow label="Import permit required">
             <select
@@ -2012,7 +2047,7 @@ function NewPackFormPageInner() {
             <input className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
           </FormRow>
         </div>
-        <FormRow label="Import permit file(s)" className="mt-auto">
+        <FormRow label="Import permit file(s)">
           <input
             className={inputClass}
             type="file"
@@ -2022,7 +2057,7 @@ function NewPackFormPageInner() {
               e.target.value = "";
             }}
           />
-          <FileList items={normalizeFileItems(pack.importPermitFiles)} onOpen={openFile} onRemove={(id) => removeFile("importPermitFiles", id)} />
+          <PackFileList items={normalizeFileItems(pack.importPermitFiles)} onRemove={(id) => removeFile("importPermitFiles", id)} />
         </FormRow>
         </div>
       </section>
@@ -2082,7 +2117,7 @@ function NewPackFormPageInner() {
               e.target.value = "";
             }}
           />
-          <FileList items={normalizeFileItems(pack.rfpFiles)} onOpen={openFile} onRemove={(id) => removeFile("rfpFiles", id)} />
+          <PackFileList items={normalizeFileItems(pack.rfpFiles)} onRemove={(id) => removeFile("rfpFiles", id)} />
         </FormRow>
         <FormRow label="Additional declaration file(s)">
           <input
@@ -2094,9 +2129,8 @@ function NewPackFormPageInner() {
               e.target.value = "";
             }}
           />
-          <FileList
+          <PackFileList
             items={normalizeFileItems(pack.additionalDeclarationFiles)}
-            onOpen={openFile}
             onRemove={(id) => removeFile("additionalDeclarationFiles", id)}
           />
         </FormRow>
@@ -2117,9 +2151,8 @@ function NewPackFormPageInner() {
               e.target.value = "";
             }}
           />
-          <FileList
+          <PackFileList
             items={normalizeFileItems(pack.packingInstructionFiles)}
-            onOpen={openFile}
             onRemove={(id) => removeFile("packingInstructionFiles", id)}
           />
         </FormRow>
@@ -2500,23 +2533,23 @@ function NewPackFormPageInner() {
                     <PemsStagingField label="Expiry Date" value={stagingExpiryDate} />
                   </div>
                   <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                    <table className="w-full min-w-[1280px] text-left text-xs">
+                    <table className="w-full table-fixed text-left text-xs">
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
                           <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
-                          <th className="px-2 py-2 font-semibold">Container Number</th>
-                          <th className="px-2 py-2 font-semibold">Source</th>
-                          <th className="px-2 py-2 font-semibold">Commodity</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Source</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Commodity</th>
                           <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
-                          <th className="px-2 py-2 font-semibold">Type</th>
-                          <th className="px-2 py-2 font-semibold">Weight</th>
-                          <th className="px-2 py-2 font-semibold">Unit</th>
-                          <th className="px-2 py-2 font-semibold">Line Weight</th>
-                          <th className="px-2 py-2 font-semibold">Unit</th>
-                          <th className="px-2 py-2 font-semibold">Sampled</th>
-                          <th className="px-2 py-2 font-semibold">Result</th>
-                          <th className="px-2 py-2 font-semibold">Inspection AO Name</th>
-                          <th className="px-2 py-2 font-semibold">Remarks</th>
+                          <th className={cn(gppirTableTypeCol, "font-semibold")}>Type</th>
+                          <th className={cn(gppirTableNumCol, "font-semibold")}>Weight</th>
+                          <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
+                          <th className={cn(gppirTableNumCol, "font-semibold")}>Line Weight</th>
+                          <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
+                          <th className={cn(gppirTableCompactCol, "font-semibold")}>Sampled</th>
+                          <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
+                          <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2525,25 +2558,25 @@ function NewPackFormPageInner() {
                           return (
                           <tr key={container.id} className="border-t border-slate-100 text-slate-700">
                             <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                            <td className="px-2 py-2 font-medium">{safeValue(container.containerNumber)}</td>
-                            <td className="px-2 py-2">{safeValue(container.grainLocation || container.stockBayId)}</td>
-                            <td className="px-2 py-2">{packPemsCommodityLabel}</td>
+                            <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
+                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.grainLocation || container.stockBayId)}</td>
+                            <td className={cn(gppirTableCellCol, "truncate")}>{packPemsCommodityLabel}</td>
                             <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                            <td className="px-2 py-2">CONTAINER</td>
-                            <td className="px-2 py-2">{containerWeight.toFixed(2)}</td>
-                            <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
-                            <td className="px-2 py-2">{containerWeight.toFixed(4)}</td>
-                            <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
-                            <td className="px-2 py-2">N/A</td>
-                            <td className="px-2 py-2">
+                            <td className={gppirTableTypeCol}>CONTAINER</td>
+                            <td className={gppirTableNumCol}>{containerWeight.toFixed(2)}</td>
+                            <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
+                            <td className={gppirTableNumCol}>{containerWeight.toFixed(4)}</td>
+                            <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
+                            <td className={cn(gppirTableCompactCol, "text-center")}>N/A</td>
+                            <td className={gppirTableResultCol}>
                               {container.grainInspection === "Passed"
                                 ? "Passed"
                                 : container.grainInspection === "Failed"
                                   ? "Failed"
                                   : "Pending"}
                             </td>
-                            <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                            <td className="px-2 py-2 align-top">
+                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
+                            <td className={gppirTableRemarksCol}>
                               <textarea
                                 className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
                                 value={getContainerInspectionRemark(container)}
@@ -2600,36 +2633,36 @@ function NewPackFormPageInner() {
                     <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
                   </div>
                   <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                    <table className="w-full min-w-[880px] text-left text-xs">
+                    <table className="w-full table-fixed text-left text-xs">
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
-                          <th className="px-2 py-2 font-semibold">Container Number</th>
-                          <th className="px-2 py-2 font-semibold">Inspection Level</th>
-                          <th className="px-2 py-2 font-semibold">RFP Number</th>
-                          <th className="px-2 py-2 font-semibold">Result</th>
-                          <th className="px-2 py-2 font-semibold">Seal Number</th>
-                          <th className="px-2 py-2 font-semibold">Expiry Date</th>
-                          <th className="px-2 py-2 font-semibold">Inspection AO Name</th>
-                          <th className="px-2 py-2 font-semibold">Remarks</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
+                          <th className={cn(gppirTableTypeCol, "font-semibold")}>Inspection Level</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>RFP Number</th>
+                          <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Seal Number</th>
+                          <th className={cn(gppirTableNarrowCol, "font-semibold")}>Expiry Date</th>
+                          <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
+                          <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
                         {stagedPemsContainers.map((container) => (
                           <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                            <td className="px-2 py-2 font-medium">{safeValue(container.containerNumber)}</td>
-                            <td className="px-2 py-2">Consumable</td>
-                            <td className="px-2 py-2">{safeValue(packRfpText || container.releaseNumber)}</td>
-                            <td className="px-2 py-2">
+                            <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
+                            <td className={gppirTableTypeCol}>Consumable</td>
+                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(packRfpText || container.releaseNumber)}</td>
+                            <td className={gppirTableResultCol}>
                               {container.emptyInspection === "Passed"
                                 ? "Pass"
                                 : container.emptyInspection === "Failed"
                                   ? "Fail"
                                   : "Pending"}
                             </td>
-                            <td className="px-2 py-2">{safeValue(container.sealNumber)}</td>
-                            <td className="px-2 py-2">{stagingExpiryDate}</td>
-                            <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
-                            <td className="px-2 py-2 align-top">
+                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.sealNumber)}</td>
+                            <td className={gppirTableNarrowCol}>{stagingExpiryDate}</td>
+                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
+                            <td className={gppirTableRemarksCol}>
                               <textarea
                                 className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
                                 value={getContainerInspectionRemark(container)}
@@ -3687,28 +3720,3 @@ function NewPackFormPageInner() {
     </>
   );
 }
-
-function FileList({ items, onOpen, onRemove }) {
-  if (!items.length) return <p className="mt-2 text-xs text-slate-400">No files added.</p>;
-  return (
-    <div className="mt-2 space-y-1.5">
-      {items.map((item) => (
-        <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
-          <span className="font-medium text-slate-700">{item.name}</span>
-          <span className="text-slate-500">{formatBytes(item.size)}</span>
-          {item.file ? (
-            <button type="button" className="text-blue-600 hover:text-blue-700" onClick={() => onOpen(item)}>
-              Open
-            </button>
-          ) : (
-            <span className="text-slate-400">Stored name only</span>
-          )}
-          <button type="button" className="text-rose-600 hover:text-rose-700" onClick={() => onRemove(item.id)}>
-            Remove
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-

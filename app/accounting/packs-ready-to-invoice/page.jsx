@@ -1,29 +1,98 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
 import {
-  PACKS_READY_TO_INVOICE,
   calculateInitialLineItems,
   calculateLineItemAmount,
   formatCurrency,
   formatTon,
 } from "@/lib/packs-ready-to-invoice-dummy";
+import { loadPacksReadyToInvoice, matchesPackingStartDateFilter } from "@/lib/packs-ready-to-invoice";
+
+const inputClass =
+  "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+
+const DATE_FILTER_MODES = [
+  { key: "all", label: "Any Date" },
+  { key: "specific", label: "Specific Date" },
+  { key: "range", label: "Date Range" },
+];
 
 export default function PacksReadyToInvoicePage() {
+  const [invoicePacks, setInvoicePacks] = useState([]);
   const [selectedPackId, setSelectedPackId] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [commodityFilter, setCommodityFilter] = useState("all");
+  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [specificDate, setSpecificDate] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  useEffect(() => {
+    setInvoicePacks(loadPacksReadyToInvoice());
+  }, []);
 
   const packsWithBreakdown = useMemo(
     () =>
-      PACKS_READY_TO_INVOICE.map((pack) => ({
-        ...pack,
-        lineItems: calculateInitialLineItems(pack),
-        invoiceTotal: calculateInitialLineItems(pack).reduce((total, item) => total + calculateLineItemAmount(item), 0),
-      })),
-    []
+      invoicePacks.map((pack) => {
+        const lineItems = calculateInitialLineItems(pack);
+        return {
+          ...pack,
+          lineItems,
+          invoiceTotal: lineItems.reduce((total, item) => total + calculateLineItemAmount(item), 0),
+        };
+      }),
+    [invoicePacks]
   );
 
-  const selectedPack = useMemo(() => packsWithBreakdown.find((pack) => pack.id === selectedPackId) || null, [packsWithBreakdown, selectedPackId]);
+  const customerOptions = useMemo(
+    () => [...new Set(packsWithBreakdown.map((pack) => pack.customer).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [packsWithBreakdown]
+  );
+
+  const commodityOptions = useMemo(
+    () => [...new Set(packsWithBreakdown.map((pack) => pack.commodity).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [packsWithBreakdown]
+  );
+
+  const filteredPacks = useMemo(() => {
+    return packsWithBreakdown
+      .filter((pack) => customerFilter === "all" || pack.customer === customerFilter)
+      .filter((pack) => commodityFilter === "all" || pack.commodity === commodityFilter)
+      .filter((pack) =>
+        matchesPackingStartDateFilter(pack, {
+          dateFilterMode,
+          specificDate,
+          dateFrom,
+          dateTo,
+        })
+      );
+  }, [packsWithBreakdown, customerFilter, commodityFilter, dateFilterMode, specificDate, dateFrom, dateTo]);
+
+  const selectedPack = useMemo(
+    () => filteredPacks.find((pack) => pack.id === selectedPackId) || null,
+    [filteredPacks, selectedPackId]
+  );
+
+  useEffect(() => {
+    if (selectedPackId && !filteredPacks.some((pack) => pack.id === selectedPackId)) {
+      setSelectedPackId("");
+    }
+  }, [filteredPacks, selectedPackId]);
+
+  const hasActiveFilters = customerFilter !== "all" || commodityFilter !== "all" || dateFilterMode !== "all";
+
+  function clearFilters() {
+    setCustomerFilter("all");
+    setCommodityFilter("all");
+    setDateFilterMode("all");
+    setSpecificDate("");
+    setDateFrom("");
+    setDateTo("");
+  }
 
   return (
     <div className="space-y-5">
@@ -31,15 +100,97 @@ export default function PacksReadyToInvoicePage() {
         <p className="text-xs text-slate-500">Accounting / Ready To Invoice</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Ready To Invoice</h1>
         <p className="mt-1 text-xs text-slate-500">
-          Click a pack row to expand and view guideline cost lines, then use Edit Breakdown to update unit prices.
+          Approved packs from the packing schedule appear here. Click a pack row to expand guideline cost lines, then use Edit
+          Breakdown to update unit prices.
         </p>
       </div>
+
+      <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Customer</label>
+            <select className={`${inputClass} w-full`} value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}>
+              <option value="all">All customers</option>
+              {customerOptions.map((customer) => (
+                <option key={customer} value={customer}>
+                  {customer}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Commodity</label>
+            <select className={`${inputClass} w-full`} value={commodityFilter} onChange={(event) => setCommodityFilter(event.target.value)}>
+              <option value="all">All commodities</option>
+              {commodityOptions.map((commodity) => (
+                <option key={commodity} value={commodity}>
+                  {commodity}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[170px]">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Packing Start Date</label>
+            <select className={`${inputClass} w-full`} value={dateFilterMode} onChange={(event) => setDateFilterMode(event.target.value)}>
+              {DATE_FILTER_MODES.map((mode) => (
+                <option key={mode.key} value={mode.key}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {dateFilterMode === "specific" ? (
+            <div className="min-w-[170px]">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Specific Date</label>
+              <input
+                className={`${inputClass} w-full`}
+                aria-label="Specific packing start date"
+                type="date"
+                value={specificDate}
+                onChange={(event) => setSpecificDate(event.target.value)}
+              />
+            </div>
+          ) : null}
+          {dateFilterMode === "range" ? (
+            <>
+              <div className="min-w-[155px]">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</label>
+                <input
+                  className={`${inputClass} w-full`}
+                  aria-label="Packing start date from"
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                />
+              </div>
+              <div className="min-w-[155px]">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</label>
+                <input
+                  className={`${inputClass} w-full`}
+                  aria-label="Packing start date to"
+                  type="date"
+                  value={dateTo}
+                  onChange={(event) => setDateTo(event.target.value)}
+                />
+              </div>
+            </>
+          ) : null}
+          {hasActiveFilters ? (
+            <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={clearFilters}>
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      </section>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Pack List</h2>
-            <p className="text-[11px] text-slate-500">{packsWithBreakdown.length} invoice-ready packs (dummy data)</p>
+            <p className="text-[11px] text-slate-500">
+              {filteredPacks.length} approved pack{filteredPacks.length === 1 ? "" : "s"} ready to invoice
+              {filteredPacks.length !== packsWithBreakdown.length ? ` (${packsWithBreakdown.length} total)` : ""}
+            </p>
           </div>
           <Link
             href={selectedPack ? `/accounting/packs-ready-to-invoice/${encodeURIComponent(selectedPack.id)}` : "#"}
@@ -55,72 +206,77 @@ export default function PacksReadyToInvoicePage() {
           </Link>
         </div>
         <div className="max-h-[620px] overflow-auto">
-          <div className="grid min-w-[760px] grid-cols-[140px_minmax(220px,1fr)_130px_130px_130px_160px] border-b border-slate-200 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="grid min-w-[900px] grid-cols-[100px_minmax(220px,1fr)_120px_130px_130px_130px_160px] border-b border-slate-200 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             <span>Pack ID</span>
             <span>Customer / Commodity</span>
+            <span>Packing Start</span>
             <span>Containers</span>
             <span>Total Weight</span>
             <span>Vessel</span>
             <span className="text-right">Invoice Total</span>
           </div>
-          {packsWithBreakdown.map((pack) => {
-            const isSelected = pack.id === selectedPack?.id;
-            return (
-              <div key={pack.id} className="border-b border-slate-100 last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedPackId((prev) => (prev === pack.id ? "" : pack.id))}
-                  className={`grid w-full min-w-[760px] grid-cols-[140px_minmax(220px,1fr)_130px_130px_130px_160px] cursor-pointer items-center px-4 py-3 text-left text-sm transition-colors ${
-                    isSelected ? "bg-blue-50" : "hover:bg-slate-50"
-                  }`}
-                >
-                  <span className="font-semibold text-slate-800">{pack.id}</span>
-                  <span className="text-slate-700">
-                    {pack.customer} <span className="text-slate-400">•</span> {pack.commodity}
-                  </span>
-                  <span className="text-slate-700">{pack.totalContainers}</span>
-                  <span className="text-slate-700">{formatTon(pack.totalWeightTon)}</span>
-                  <span className="text-slate-700">{pack.vessel}</span>
-                  <span className="text-right font-semibold text-brand">{formatCurrency(pack.invoiceTotal)}</span>
-                </button>
+          {filteredPacks.length === 0 ? (
+            <p className="px-4 py-8 text-center text-xs text-slate-400">No approved packs match the current filters.</p>
+          ) : (
+            filteredPacks.map((pack) => {
+              const isSelected = pack.id === selectedPack?.id;
+              return (
+                <div key={pack.id} className="border-b border-slate-100 last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPackId((prev) => (prev === pack.id ? "" : pack.id))}
+                    className={`grid w-full min-w-[900px] grid-cols-[100px_minmax(220px,1fr)_120px_130px_130px_130px_160px] cursor-pointer items-center px-4 py-3 text-left text-sm transition-colors ${
+                      isSelected ? "bg-blue-50" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-800">{pack.id}</span>
+                    <span className="text-slate-700">
+                      {pack.customer} <span className="text-slate-400">•</span> {pack.commodity}
+                    </span>
+                    <span className="text-slate-700">{pack.packingStartDate || "—"}</span>
+                    <span className="text-slate-700">{pack.totalContainers}</span>
+                    <span className="text-slate-700">{formatTon(pack.totalWeightTon)}</span>
+                    <span className="text-slate-700">{pack.vessel}</span>
+                    <span className="text-right font-semibold text-brand">{formatCurrency(pack.invoiceTotal)}</span>
+                  </button>
 
-                {isSelected ? (
-                  <div className="min-w-[760px] bg-blue-50 px-4 pb-3">
-                    <div className="border-t border-blue-100 pt-2">
-                      <div className="grid grid-cols-[56px_minmax(220px,1fr)_150px_100px_120px] items-center gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        <span>Line</span>
-                        <span>Cost line</span>
-                        <span>Unit price</span>
-                        <span>Qty</span>
-                        <span className="text-right">Amount</span>
-                      </div>
-                      <div>
-                        {pack.lineItems.map((item, index) => (
-                          <div
-                            key={item.id}
-                            className="grid grid-cols-[56px_minmax(220px,1fr)_150px_100px_120px] items-center gap-2 border-b border-blue-100/90 py-1.5 text-xs last:border-b-0"
-                          >
-                            <span className="text-slate-500">{index + 1}</span>
-                            <span className="font-medium text-slate-700">{item.label}</span>
-                            <span className="text-slate-600">
-                              {formatCurrency(item.unitPrice)} / {item.unitLabel}
-                            </span>
-                            <span className="text-slate-600">{item.quantity}</span>
-                            <span className="text-right font-semibold text-slate-800">
-                              {formatCurrency(calculateLineItemAmount(item))}
-                            </span>
-                          </div>
-                        ))}
+                  {isSelected ? (
+                    <div className="min-w-[900px] bg-blue-50 px-4 pb-3">
+                      <div className="border-t border-blue-100 pt-2">
+                        <div className="grid grid-cols-[56px_minmax(220px,1fr)_150px_100px_120px] items-center gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          <span>Line</span>
+                          <span>Cost line</span>
+                          <span>Unit price</span>
+                          <span>Qty</span>
+                          <span className="text-right">Amount</span>
+                        </div>
+                        <div>
+                          {pack.lineItems.map((item, index) => (
+                            <div
+                              key={item.id}
+                              className="grid grid-cols-[56px_minmax(220px,1fr)_150px_100px_120px] items-center gap-2 border-b border-blue-100/90 py-1.5 text-xs last:border-b-0"
+                            >
+                              <span className="text-slate-500">{index + 1}</span>
+                              <span className="font-medium text-slate-700">{item.label}</span>
+                              <span className="text-slate-600">
+                                {formatCurrency(item.unitPrice)} / {item.unitLabel}
+                              </span>
+                              <span className="text-slate-600">{item.quantity}</span>
+                              <span className="text-right font-semibold text-slate-800">
+                                {formatCurrency(calculateLineItemAmount(item))}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+                  ) : null}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
   );
 }
-

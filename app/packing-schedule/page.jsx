@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
+import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
 import { Button } from "@/components/ui/button";
 import { PACK_FORM_LOOKUPS, PACK_STATUSES } from "@/lib/Data";
 import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
@@ -105,12 +106,8 @@ export default function PackingSchedulePage() {
     savePackScheduleRows(rows);
   }, [rows]);
 
-  const toggleStatus = (s) => {
-    setSelectedStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-  };
-
   const filtered = useMemo(() => {
-    return rows.filter((p) => selectedStatuses.includes(p.status))
+    return rows.filter((p) => selectedStatuses.length > 0 && selectedStatuses.includes(p.status))
       .filter((p) => importExportFilter === "all" || p.importExport === importExportFilter)
       .filter((p) => {
         if (dateFilterMode === "all") return true;
@@ -254,26 +251,12 @@ export default function PackingSchedulePage() {
           ) : null}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-          <div className="flex flex-1 flex-wrap items-center gap-2">
-            {PACK_STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => toggleStatus(s)}
-                className={cn(
-                  "inline-flex h-7 items-center rounded-md border px-2.5 text-[11px] font-medium transition-colors",
-                  selectedStatuses.includes(s)
-                    ? "border-brand/30 bg-brand/15 text-brand-ink shadow-sm"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800"
-                )}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
+        <StatusFilterBar
+          label="Filter by Status"
+          statuses={PACK_STATUSES}
+          selectedStatuses={selectedStatuses}
+          onSelectedStatusesChange={setSelectedStatuses}
+        />
       </section>
 
       <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>

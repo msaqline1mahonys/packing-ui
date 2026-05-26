@@ -6,19 +6,19 @@ import { useParams } from "next/navigation";
 
 import {
   FEES_AND_CHARGES_LOOKUP,
-  PACKS_READY_TO_INVOICE,
   calculateInitialLineItems,
   calculateLineItemAmount,
   createFeeLineItem,
   formatCurrency,
   formatTon,
 } from "@/lib/packs-ready-to-invoice-dummy";
+import { findPackReadyToInvoice } from "@/lib/packs-ready-to-invoice";
 
 export default function PackInvoiceBreakdownPage() {
   const params = useParams();
   const packId = decodeURIComponent(String(params?.packId || ""));
 
-  const selectedPack = useMemo(() => PACKS_READY_TO_INVOICE.find((pack) => pack.id === packId) || null, [packId]);
+  const selectedPack = useMemo(() => findPackReadyToInvoice(packId), [packId]);
   const [lineItems, setLineItems] = useState(() => (selectedPack ? calculateInitialLineItems(selectedPack) : []));
   const [selectedChargeId, setSelectedChargeId] = useState("");
 

@@ -544,9 +544,15 @@ const gppirTableCompactCol = "w-12 min-w-[3rem] max-w-[4rem] px-1 py-1.5 whitesp
 const gppirTableNarrowCol = "w-16 min-w-[3.5rem] px-1 py-1.5 whitespace-nowrap";
 const gppirTableNumCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap text-right tabular-nums";
 const gppirTableTypeCol = "w-[4.5rem] min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
-const gppirTableResultCol = "w-16 min-w-[4rem] px-1 py-1.5 whitespace-nowrap";
+const gppirTableInspectionLevelCol = "w-[7.5rem] min-w-[7.5rem] px-2 py-2 whitespace-nowrap";
+const gppirTableRfpCol = "w-[6.5rem] min-w-[6.5rem] px-2 py-2 whitespace-nowrap";
+const gppirTableResultCol = "w-[4.5rem] min-w-[4.5rem] px-2 py-2 whitespace-nowrap";
+const gppirTableSealCol = "w-[6rem] min-w-[6rem] px-2 py-2 whitespace-nowrap";
+const gppirTableExpiryDateCol = "w-[6.5rem] min-w-[6.5rem] px-2 py-2 whitespace-nowrap text-center";
+const gppirTableInspectionAoCol = "w-[9rem] min-w-[9rem] px-2 py-2 whitespace-nowrap";
+const gppirTableContainerCol = "w-[7rem] min-w-[7rem] px-2 py-2 whitespace-nowrap";
 const gppirTableCellCol = "px-1.5 py-1.5";
-const gppirTableRemarksCol = "min-w-[8rem] px-1.5 py-1.5 align-top";
+const gppirTableRemarksCol = "w-[10rem] min-w-[10rem] px-2 py-2 align-top";
 
 export default function NewPackFormPage() {
   return (
@@ -2633,25 +2639,25 @@ function NewPackFormPageInner() {
                     <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
                   </div>
                   <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                    <table className="w-full table-fixed text-left text-xs">
+                    <table className="w-full table-fixed text-left text-xs [&_th]:leading-snug [&_td]:leading-snug">
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
-                          <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
-                          <th className={cn(gppirTableTypeCol, "font-semibold")}>Inspection Level</th>
-                          <th className={cn(gppirTableCellCol, "font-semibold")}>RFP Number</th>
+                          <th className={cn(gppirTableContainerCol, "font-semibold")}>Container Number</th>
+                          <th className={cn(gppirTableInspectionLevelCol, "font-semibold")}>Inspection Level</th>
+                          <th className={cn(gppirTableRfpCol, "font-semibold")}>RFP Number</th>
                           <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
-                          <th className={cn(gppirTableCellCol, "font-semibold")}>Seal Number</th>
-                          <th className={cn(gppirTableNarrowCol, "font-semibold")}>Expiry Date</th>
-                          <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
+                          <th className={cn(gppirTableSealCol, "font-semibold")}>Seal Number</th>
+                          <th className={cn(gppirTableExpiryDateCol, "font-semibold")}>Expiry Date</th>
+                          <th className={cn(gppirTableInspectionAoCol, "font-semibold")}>Inspection AO Name</th>
                           <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
                         {stagedPemsContainers.map((container) => (
                           <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                            <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
-                            <td className={gppirTableTypeCol}>Consumable</td>
-                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(packRfpText || container.releaseNumber)}</td>
+                            <td className={cn(gppirTableContainerCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
+                            <td className={gppirTableInspectionLevelCol}>Consumable</td>
+                            <td className={cn(gppirTableRfpCol, "truncate")}>{safeValue(packRfpText || container.releaseNumber)}</td>
                             <td className={gppirTableResultCol}>
                               {container.emptyInspection === "Passed"
                                 ? "Pass"
@@ -2659,9 +2665,9 @@ function NewPackFormPageInner() {
                                   ? "Fail"
                                   : "Pending"}
                             </td>
-                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.sealNumber)}</td>
-                            <td className={gppirTableNarrowCol}>{stagingExpiryDate}</td>
-                            <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
+                            <td className={cn(gppirTableSealCol, "truncate")}>{safeValue(container.sealNumber)}</td>
+                            <td className={gppirTableExpiryDateCol}>{stagingExpiryDate}</td>
+                            <td className={cn(gppirTableInspectionAoCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
                             <td className={gppirTableRemarksCol}>
                               <textarea
                                 className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}

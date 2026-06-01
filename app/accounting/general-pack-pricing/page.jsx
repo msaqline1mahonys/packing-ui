@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
 import {
   COMMODITY_TYPE_MASTER_ROWS,
+  COMMODITY_MASTER_ROWS,
   CUSTOMER_MASTER_ROWS,
   GENERAL_PACK_PRICING_STATE,
   REFERENCE_CONTAINER_CODE_ROWS,
@@ -63,6 +64,7 @@ function InfoRow({ label, value, highlight }) {
 
 export default function GeneralPackPricingPage() {
   const commodityTypes = useMemo(() => COMMODITY_TYPE_MASTER_ROWS.map((row) => ({ ...row })), []);
+  const commodities = useMemo(() => COMMODITY_MASTER_ROWS.map((row) => ({ ...row })), []);
   const customers = useMemo(() => CUSTOMER_MASTER_ROWS.map((row) => ({ ...row })), []);
   const containerSizes = useMemo(() => {
     const sizesFromContainerCodes = Array.from(
@@ -93,7 +95,7 @@ export default function GeneralPackPricingPage() {
     commodityTypeCustomerPrices: initialPricingState.commodityTypeCustomerPrices.map((item) => ({ ...item })),
     commodityCustomerPrices: initialPricingState.commodityCustomerPrices.map((item) => ({ ...item })),
   }));
-  const { defaultPackingPrices, commodityTypeCustomerPrices } = pricingState;
+  const { defaultPackingPrices, commodityPrices, commodityTypeCustomerPrices, commodityCustomerPrices } = pricingState;
 
   const [isMobile, setIsMobile] = useState(false);
   const [selectedCommodityTypeId, setSelectedCommodityTypeId] = useState(commodityTypes[0]?.id ?? null);
@@ -108,6 +110,23 @@ export default function GeneralPackPricingPage() {
   const [baseDirty, setBaseDirty] = useState(false);
   const [dirtyCustomers, setDirtyCustomers] = useState({});
   const [errorText, setErrorText] = useState("");
+
+  const [defaultPricesEditing, setDefaultPricesEditing] = useState(false);
+
+  // Commodity price modal states
+  const [cpModalOpen, setCpModalOpen] = useState(false);
+  const [cpEditId, setCpEditId] = useState(null);
+  const [cpForm, setCpForm] = useState({ commodityId: "", containerSize: "", price: "" });
+
+  // Commodity type + Customer price modal states
+  const [ctcpModalOpen, setCtcpModalOpen] = useState(false);
+  const [ctcpEditId, setCtcpEditId] = useState(null);
+  const [ctcpForm, setCtcpForm] = useState({ customerId: "", commodityTypeId: "", containerSize: "", price: "" });
+
+  // Commodity + Customer price modal states
+  const [ccpModalOpen, setCcpModalOpen] = useState(false);
+  const [ccpEditId, setCcpEditId] = useState(null);
+  const [ccpForm, setCcpForm] = useState({ customerId: "", commodityId: "", containerSize: "", price: "" });
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -264,6 +283,85 @@ export default function GeneralPackPricingPage() {
     });
     setBaseDirty(false);
     setErrorText("");
+  }
+
+  function handleDefaultPriceChange(commodityTypeId, containerSize, value) {
+    const parsed = toNumber(value);
+    setPricingState((prev) => {
+      let nextRows = [...prev.defaultPackingPrices];
+      const existingIdx = nextRows.findIndex(
+        (item) => item.commodityTypeId === commodityTypeId && normalizeContainerSize(item.containerSize) === normalizeContainerSize(containerSize)
+      );
+
+      if (existingIdx >= 0) {
+        if (value === "") {
+          nextRows.splice(existingIdx, 1);
+        } else {
+          nextRows[existingIdx] = { ...nextRows[existingIdx], price: parsed };
+        }
+      } else if (value !== "") {
+        nextRows.push({
+          id: nextId(nextRows),
+          commodityTypeId,
+          containerSize: containerSize,
+          price: parsed,
+          rateBasis: RATE_BASIS_PER_TON,
+        });
+      }
+
+      return {
+        ...prev,
+        defaultPackingPrices: nextRows,
+      };
+    });
+  }
+
+  function openAddCp() {
+    setCpEditId(null);
+    setCpForm({ commodityId: "", containerSize: containerSizes[0] || "", price: "" });
+    setCpModalOpen(true);
+  }
+
+  function openEditCp(entry) {
+    setCpEditId(entry.id);
+    setCpForm({
+      commodityId: String(entry.commodityId),
+      containerSize: entry.containerSize,
+      price: entry.price == null ? "" : String(entry.price),
+    });
+    setCpModalOpen(true);
+  }
+
+  function saveCp() {
+    if (!cpForm.commodityId || !cpForm.containerSize) return;
+    const parsed = toNumber(cpForm.price);
+    if (parsed == null) return;
+
+    setPricingState((prev) => {
+      if (!cpEditId) {
+        const nextItem = {
+          id: nextId(prev.commodityPrices),
+          commodityId: Number(cpForm.commodityId),
+          containerSize: cpForm.containerSize,
+          price: parsed,
+        };
+        return { ...prev, commodityPrices: [...prev.commodityPrices, nextItem] };
+      }
+      return {
+        ...prev,
+        commodityPrices: prev.commodityPrices.map((item) =>
+          item.id === cpEditId
+            ? {
+              ...item,
+              commodityId: Number(cpForm.commodityId),
+              containerSize: cpForm.containerSize,
+              price: parsed,
+            }
+            : item
+        ),
+      };
+    });
+    setCpModalOpen(false);
   }
 
   function openAddCtcp() {
@@ -968,5 +1066,19 @@ function BtnDanger({ className, ...props }) {
       )}
       {...props}
     />
+  );
+}
+
+function SectionCard({ title, description, isMobile, children }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm space-y-3.5">
+      <div>
+        <h2 className="text-sm font-bold text-[#0f1e3d]">{title}</h2>
+        {description && <p className="mt-1 text-xs text-slate-500 leading-relaxed">{description}</p>}
+      </div>
+      <div className="pt-2 border-t border-slate-100/80">
+        {children}
+      </div>
+    </div>
   );
 }

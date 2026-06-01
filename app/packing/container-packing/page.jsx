@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -322,78 +322,81 @@ export default function ContainerPackingPage() {
                 </div>
               </div>
 
-              {/* Verification checklist */}
-              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="mb-3 text-xs font-bold text-slate-600">Verify before packing</p>
-                <div className="flex flex-wrap gap-x-6 gap-y-2">
-                  {VERIFY_ITEMS.map(({ key, label }) => (
-                    <label key={key} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                      <input suppressHydrationWarning type="checkbox" checked={!!verification[key]} onChange={(e) => setVerification(key, e.target.checked)} className="accent-blue-500" />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                {!allVerified && <p className="mt-2 text-xs text-amber-600">Complete all checks before packing containers.</p>}
-              </div>
-            </div>
+              {/* Tab content */}
+              <div className="flex-1 overflow-auto p-5">
+                {rightTab === "checklist" && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-3 text-xs font-bold text-slate-600">Verify before packing</p>
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      {VERIFY_ITEMS.map(({ key, label }) => (
+                        <label key={key} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                          <input suppressHydrationWarning type="checkbox" checked={!!verification[key]} onChange={(e) => setVerification(key, e.target.checked)} className="accent-blue-500" />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    {!allVerified && <p className="mt-2 text-xs text-amber-600">Complete all checks before packing containers.</p>}
+                  </div>
+                )}
 
-          {/* Containers tab */}
-          {rightTab === "containers" && (
-            <>
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700">Containers ({containers.length} / {selectedPack.containersRequired ?? 0})</span>
-                <Button size="sm" disabled={!allVerified} onClick={openNewContainer}>+ Add container</Button>
-              </div>
+                {rightTab === "containers" && (
+                  <>
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-700">Containers ({containers.length} / {selectedPack.containersRequired ?? 0})</span>
+                      <Button size="sm" disabled={!allVerified} onClick={openNewContainer}>+ Add container</Button>
+                    </div>
 
-              {containers.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">No containers yet. Complete verification and add containers.</div>
-              ) : (
-                <div className="overflow-hidden rounded-lg border border-slate-200">
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b-2 border-slate-100 bg-slate-50 text-left">
-                        {["Container", "Packer", "Seal", "ISO", "Release", "Nett (t)", "Empty", "Grain", "Signoff", "Status", ""].map((h) => (
-                          <th key={h} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {containers.map((c) => {
-                        const packer = c.packerId ? MOCK_PACKERS.find((p) => p.id === c.packerId) : null;
-                        const isCompleted = c.status === "completed";
-                        const canComplete = !isCompleted && c.nett != null && c.nett > 0 && c.stockLocationId != null;
-                        return (
-                          <tr key={c.id} onClick={() => openEditContainer(c)} className="cursor-pointer border-b border-slate-50 transition-colors hover:bg-slate-50">
-                            <td className="px-3 py-2.5 text-slate-800">{c.containerNumber || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{packer?.name || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.sealNumber || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.containerIsoCode || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.releaseRef || "â€”"}</td>
-                            <td className="px-3 py-2.5 font-semibold text-emerald-600">{c.nett != null ? (c.nett / 1000).toFixed(3) : "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.emptyContainerInspectionResult || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.grainInspectionResult || "â€”"}</td>
-                            <td className="px-3 py-2.5 text-slate-800">{c.packerSignoff || "â€”"}</td>
-                            <td className="px-3 py-2.5"><StatusBadge status={c.status || "draft"} /></td>
-                            <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                              {!isCompleted && (
-                                <button type="button" disabled={!canComplete} onClick={() => canComplete && completeContainer(c)}
-                                  className={cn("text-xs font-medium", canComplete ? "text-emerald-600 hover:underline" : "cursor-not-allowed text-slate-300")}>
-                                  Complete
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-        </>
+                    {containers.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">No containers yet. Complete verification and add containers.</div>
+                    ) : (
+                      <div className="overflow-hidden rounded-lg border border-slate-200">
+                        <table className="w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="border-b-2 border-slate-100 bg-slate-50 text-left">
+                              {["Container", "Packer", "Seal", "ISO", "Release", "Nett (t)", "Empty", "Grain", "Signoff", "Status", ""].map((h) => (
+                                <th key={h} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {containers.map((c) => {
+                              const packer = c.packerId ? MOCK_PACKERS.find((p) => p.id === c.packerId) : null;
+                              const isCompleted = c.status === "completed";
+                              const canComplete = !isCompleted && c.nett != null && c.nett > 0 && c.stockLocationId != null;
+                              return (
+                                <tr key={c.id} onClick={() => openEditContainer(c)} className="cursor-pointer border-b border-slate-50 transition-colors hover:bg-slate-50">
+                                  <td className="px-3 py-2.5 text-slate-800">{c.containerNumber || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{packer?.name || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.sealNumber || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.containerIsoCode || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.releaseRef || "—"}</td>
+                                  <td className="px-3 py-2.5 font-semibold text-emerald-600">{c.nett != null ? (c.nett / 1000).toFixed(3) : "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.emptyContainerInspectionResult || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.grainInspectionResult || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">{c.packerSignoff || "—"}</td>
+                                  <td className="px-3 py-2.5"><StatusBadge status={c.status || "draft"} /></td>
+                                  <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                                    {!isCompleted && (
+                                      <button type="button" disabled={!canComplete} onClick={() => canComplete && completeContainer(c)}
+                                        className={cn("text-xs font-medium", canComplete ? "text-emerald-600 hover:underline" : "cursor-not-allowed text-slate-300")}>
+                                        Complete
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
           )}
+        </div>
       </div>
-    </div>
 
       {/* Container modal */ }
   <Modal open={containerModalOpen} title={editingContainerId ? "Edit container" : "Add container"} onClose={() => setContainerModalOpen(false)}>

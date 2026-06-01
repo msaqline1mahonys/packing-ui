@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2688,6 +2688,7 @@ function NewPackFormPageInner() {
                           <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
                           <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
                         </div>
+                      </div>
             )}
                         <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
                           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
@@ -2710,9 +2711,10 @@ function NewPackFormPageInner() {
                             </div>
                           )}
                         </div>
-                      </section>
-              </div>
-              </div>
+                      </div>
+                    </section>
+                  </div>
+                </div>
               <PemsSubmissionPreviewModal submission={previewPemsSubmission} onClose={() => setPreviewPemsSubmission(null)} />
             </>
         ) : null}

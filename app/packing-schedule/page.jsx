@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -193,29 +193,67 @@ export default function PackingSchedulePage() {
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name="date-filter-mode" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
+                <input
+                  suppressHydrationWarning
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "all"}
+                  onChange={() => setDateFilterMode("all")}
+                  className="sr-only"
+                />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    !searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                    dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
                   )}
                 >
                   All Dates
                 </span>
               </label>
               <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name="date-filter-mode" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
+                <input
+                  suppressHydrationWarning
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "specific"}
+                  onChange={() => setDateFilterMode("specific")}
+                  className="sr-only"
+                />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                    dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
                   )}
                 >
                   By Date
                 </span>
               </label>
             </div>
-            {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /> : null}
+            {dateFilterMode === "specific" ? (
+              <>
+                <select
+                  suppressHydrationWarning
+                  className={`${inputClass} w-[120px]`}
+                  value={dateFilterField}
+                  onChange={(e) => setDateFilterField(e.target.value)}
+                  aria-label="Select date filter field"
+                >
+                  {DATE_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.key} value={opt.key}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  suppressHydrationWarning
+                  className={`${inputClass} w-[140px]`}
+                  type="date"
+                  value={specificDate}
+                  onChange={(e) => setSpecificDate(e.target.value)}
+                  aria-label="Specific date"
+                />
+              </>
+            ) : null}
           </div>
         </div>
         <StatusFilterBar

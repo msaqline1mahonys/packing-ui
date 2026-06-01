@@ -398,3 +398,22 @@ GET  /api/packs/{id}/fumigation-record/issues/{issuedAt}
 Frontend localStorage keys (until backend is live):
 - `packing-ui-fumigation-certificate-issues` — array of `{ packId, issuedAt, issuedBy, payload }`
 - `packing-ui-fumigation-record-issues` — same shape
+
+---
+
+## PEMS Integration
+
+Full specification: [`docs/pems-backend-guide.md`](docs/pems-backend-guide.md) · SQL: [`docs/pems-schema.sql`](docs/pems-schema.sql)
+
+**Strategy:** extend existing tables; new tables only for inspection submissions.
+
+| Master data | Table | Key additions |
+|---|---|---|
+| Authorised Officers | `users` | `user_classifications[]`, existing `ao_*` fields |
+| Establishments | `sites` | `establishment_number`, `yard_id`, structured address |
+| RFP header | `packs` | `rfp_pack_type`, `rfp_total_quantity`, `rfp_quantity_unit`, `rfp_flow_path`, `original_rfp_number`, `rfp_refresh_snapshot` |
+| Vendor config | `system_settings` | `pems_*` keys |
+
+Transactional: `pack_pems_inspections`, containers, lines, time_entries, inspection_users, attachments, `reference_data_cache`, `integration_api_log`.
+
+Frontend classifications (`lib/user-classifications.js`): `AUTHORISED_OFFICER`, `FUMIGATOR`, `PACKER`, `WEIGHBRIDGE`.

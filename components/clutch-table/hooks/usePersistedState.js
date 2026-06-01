@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { devWarn } from '../utils/safe'
 
 const PREFIX = 'clutch-grid:'
-const VERSION = 2
+const VERSION = 3
 
 export function loadPersistedState(key) {
   if (!key) return null

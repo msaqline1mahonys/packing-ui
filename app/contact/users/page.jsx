@@ -5,6 +5,14 @@ import { useEffect, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { loadContactUsers, saveContactUsers } from "@/lib/contact-users-store";
 import { cn } from "@/lib/utils";
+import {
+  ALL_CLASSIFICATIONS,
+  CLASSIFICATION_LABELS,
+  USER_CLASSIFICATIONS,
+  classificationsFromLegacyUser,
+  legacyFlagsFromClassifications,
+  normalizeClassifications,
+} from "@/lib/user-classifications";
 
 const MOBILE_BREAKPOINT = 900;
 const inputClass =
@@ -53,9 +61,7 @@ function buildFormData(row) {
       email: "",
       role: "",
       active: true,
-      weighbridgeAccess: false,
-      packersAccountAccess: false,
-      aoActive: false,
+      userClassifications: [],
       aoExpiry: "",
       aoNumber: "",
       aoLicenseNumber: "",
@@ -63,21 +69,19 @@ function buildFormData(row) {
       aoPemsPassword: "",
       aoToken: "",
       signature: "",
-      isFumigator: false,
       fumigationExpiry: "",
       fumigatorLicence: "",
       newPassword: "",
       confirmPassword: "",
     };
   }
+  const userClassifications = classificationsFromLegacyUser(row);
   return {
     name: row.name || "",
     email: row.email || "",
     role: row.role || "",
     active: row.active !== false,
-    weighbridgeAccess: row.weighbridgeAccess === true,
-    packersAccountAccess: row.packersAccountAccess === true,
-    aoActive: row.aoActive === true,
+    userClassifications,
     aoExpiry: row.aoExpiry || "",
     aoNumber: row.aoNumber || "",
     aoLicenseNumber: row.aoLicenseNumber || "",
@@ -85,12 +89,15 @@ function buildFormData(row) {
     aoPemsPassword: row.aoPemsPassword || "",
     aoToken: row.aoToken || "",
     signature: row.signature || "",
-    isFumigator: row.isFumigator === true,
     fumigationExpiry: row.fumigationExpiry || "",
     fumigatorLicence: row.fumigatorLicence || "",
     newPassword: "",
     confirmPassword: "",
   };
+}
+
+function hasClassification(formData, classification) {
+  return normalizeClassifications(formData?.userClassifications).includes(classification);
 }
 
 export default function ContactUsersPage() {
@@ -159,20 +166,25 @@ export default function ContactUsersPage() {
       }
     }
 
-    const isActivatingAo = formData.aoActive && (!editMode || !selected || !selected.aoActive);
+    const userClassifications = normalizeClassifications(formData.userClassifications);
+    const legacy = legacyFlagsFromClassifications(userClassifications);
+    const isAo = legacy.aoActive;
+    const isFumigator = legacy.isFumigator;
 
-    if (formData.aoActive && !aoPemsUsername) {
-      window.alert("AO PEMS Username is required when AO is active.");
+    const isActivatingAo = isAo && (!editMode || !selected || !selected.aoActive);
+
+    if (isAo && !aoPemsUsername) {
+      window.alert("AO PEMS Username is required for Authorised Officer classification.");
       return;
     }
 
     if (isActivatingAo && !aoToken) {
-      window.alert("AO Token is required when enabling AO.");
+      window.alert("AO Token is required when enabling Authorised Officer.");
       return;
     }
 
-    if (formData.isFumigator && !fumigatorLicence) {
-      window.alert("Fumigator Licence is required when Fumigator is enabled.");
+    if (isFumigator && !fumigatorLicence) {
+      window.alert("Fumigator Licence is required for Fumigator classification.");
       return;
     }
 
@@ -182,19 +194,20 @@ export default function ContactUsersPage() {
       email: formData.email.trim(),
       role: formData.role.trim(),
       active: formData.active,
-      weighbridgeAccess: formData.weighbridgeAccess,
-      packersAccountAccess: formData.packersAccountAccess,
-      aoActive: formData.aoActive,
-      aoExpiry: formData.aoActive ? formData.aoExpiry : "",
-      aoNumber: formData.aoActive ? aoNumber : "",
-      aoLicenseNumber: formData.aoActive ? aoLicenseNumber : "",
-      aoPemsUsername: formData.aoActive ? aoPemsUsername : "",
-      aoPemsPassword: formData.aoActive ? (formData.aoPemsPassword || "").trim() : "",
-      aoToken: formData.aoActive ? aoToken : "",
+      userClassifications,
+      weighbridgeAccess: legacy.weighbridgeAccess,
+      packersAccountAccess: legacy.packersAccountAccess,
+      aoActive: legacy.aoActive,
+      aoExpiry: isAo ? formData.aoExpiry : "",
+      aoNumber: isAo ? aoNumber : "",
+      aoLicenseNumber: isAo ? aoLicenseNumber : "",
+      aoPemsUsername: isAo ? aoPemsUsername : "",
+      aoPemsPassword: isAo ? (formData.aoPemsPassword || "").trim() : "",
+      aoToken: isAo ? aoToken : "",
       signature,
-      isFumigator: formData.isFumigator,
-      fumigationExpiry: formData.isFumigator ? formData.fumigationExpiry : "",
-      fumigatorLicence: formData.isFumigator ? fumigatorLicence : "",
+      isFumigator,
+      fumigationExpiry: isFumigator ? formData.fumigationExpiry : "",
+      fumigatorLicence: isFumigator ? fumigatorLicence : "",
       password: editMode && selected ? (nextPassword ? nextPassword : selected.password || "") : nextPassword,
       passwordUpdatedAt: editMode && selected ? (nextPassword ? new Date().toISOString() : selected.passwordUpdatedAt || "") : nextPassword ? new Date().toISOString() : "",
     });
@@ -261,6 +274,7 @@ export default function ContactUsersPage() {
                 <DetailItem label="Email" value={selected.email} />
                 <DetailItem label="Role" value={selected.role || "â€”"} />
                 <DetailItem label="Status" value={selected.status} />
+                <DetailItem label="Classifications" value={(classificationsFromLegacyUser(selected).map((c) => CLASSIFICATION_LABELS[c]).join(", ")) || "—"} />
                 <DetailItem label="Weighbridge Access" value={selected.weighbridgeAccess ? "Yes" : "No"} />
                 <DetailItem label="Packers Account Access" value={selected.packersAccountAccess ? "Yes" : "No"} />
                 <DetailItem label="AO Active" value={selected.aoActive ? "Yes" : "No"} />
@@ -346,27 +360,18 @@ export default function ContactUsersPage() {
             </FormRow>
           </div>
 
-          <div className="grid gap-4">
-            <ToggleField
-              label="Weighbridge Access"
-              checked={formData.weighbridgeAccess}
-              onChange={(checked) => setFormData({ ...formData, weighbridgeAccess: checked })}
-            />
-            <ToggleField
-              label="Packers Account Access"
-              checked={formData.packersAccountAccess}
-              onChange={(checked) => setFormData({ ...formData, packersAccountAccess: checked })}
+          <div className="border-t border-slate-200 pt-4">
+            <SectionTitle title="User Classifications" />
+            <p className="mb-3 text-xs text-slate-500">Select all roles that apply. Additional fields appear for each classification.</p>
+            <ClassificationPicker
+              value={formData.userClassifications}
+              onChange={(userClassifications) => setFormData({ ...formData, userClassifications })}
             />
           </div>
 
           <div className="border-t border-slate-200 pt-4">
-            <SectionTitle title="AO Details" />
-            <ToggleField
-              label="AO Active"
-              checked={formData.aoActive}
-              onChange={(checked) => setFormData({ ...formData, aoActive: checked })}
-            />
-            {formData.aoActive ? (
+            <SectionTitle title="Authorised Officer (PEMS)" />
+            {hasClassification(formData, USER_CLASSIFICATIONS.AUTHORISED_OFFICER) ? (
               <div className="mt-3 grid gap-4">
                 <FormRow label="AO PEMs Username" required>
                   <Input
@@ -405,18 +410,13 @@ export default function ContactUsersPage() {
                 </FormRow>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-500">Enable AO Active to capture AO credentials and license details.</p>
+              <p className="mt-2 text-xs text-slate-500">Add the Authorised Officer classification to capture PEMS AO credentials.</p>
             )}
           </div>
 
           <div className="border-t border-slate-200 pt-4">
-            <SectionTitle title="Fumigator Details" />
-            <ToggleField
-              label="Fumigator"
-              checked={formData.isFumigator}
-              onChange={(checked) => setFormData({ ...formData, isFumigator: checked })}
-            />
-            {formData.isFumigator ? (
+            <SectionTitle title="Fumigator" />
+            {hasClassification(formData, USER_CLASSIFICATIONS.FUMIGATOR) ? (
               <div className="mt-3 grid gap-4">
                 <FormRow label="Fumigator Licence" required>
                   <Input
@@ -434,7 +434,7 @@ export default function ContactUsersPage() {
                 </FormRow>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-500">Enable Fumigator to record fumigator licence and expiry.</p>
+              <p className="mt-2 text-xs text-slate-500">Add the Fumigator classification to record licence and expiry.</p>
             )}
           </div>
 
@@ -577,6 +577,36 @@ function FormRow({ label, required, children }) {
 
 function SectionTitle({ title }) {
   return <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">{title}</h3>;
+}
+
+function ClassificationPicker({ value, onChange }) {
+  const selected = new Set(normalizeClassifications(value));
+  function toggle(classification) {
+    const next = new Set(selected);
+    if (next.has(classification)) next.delete(classification);
+    else next.add(classification);
+    onChange(ALL_CLASSIFICATIONS.filter((c) => next.has(c)));
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {ALL_CLASSIFICATIONS.map((classification) => {
+        const active = selected.has(classification);
+        return (
+          <button
+            key={classification}
+            type="button"
+            onClick={() => toggle(classification)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+              active ? "border-brand bg-brand/10 text-brand" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            {CLASSIFICATION_LABELS[classification]}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function ToggleField({ label, checked, onChange }) {

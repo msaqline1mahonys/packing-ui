@@ -67,7 +67,7 @@ export function HeaderCell({
       sx={{
         boxSizing: 'border-box', display: 'flex', alignItems: 'center',
         justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-        gap: 0.5, px: 1.25, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
+        gap: 0.5, px: 1, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
         color: 'text.primary', bgcolor: pin ? 'background.paper' : 'transparent',
         borderRight: '1px solid', borderColor: 'divider', userSelect: 'none',
         position: stickyStyles.position ?? 'relative',

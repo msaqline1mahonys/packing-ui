@@ -30,6 +30,9 @@ const defaultFieldNames = {
   praLastError: "praLastError",
   emptyInspection: "emptyInspection",
   grainInspection: "grainInspection",
+  inspectionLevelCode: "inspectionLevelCode",
+  passedAfterRectification: "passedAfterRectification",
+  inspectionRemarkCode: "inspectionRemarkCode",
   aoSignoff: "aoSignoff",
   aoInspectionRemark: CONTAINER_INSPECTION_REMARK_FIELD,
   packerNotes: "packerNotes",
@@ -47,6 +50,9 @@ export default function ContainerFormSections({
   packerNames,
   yesNoOptions,
   inspectionOptions,
+  inspectionLevelOptions = ["Consumable", "Standard"],
+  rectificationOptions = ["N", "Y"],
+  remarkCodeOptions = [],
   praTemplateOptions,
   praStatusOptions,
   isoOptions,
@@ -164,11 +170,22 @@ export default function ContainerFormSections({
         <div className="grid gap-3 p-3 md:grid-cols-3">
           <PemsSelect label="Empty container inspection" value={getValue(container, names, "emptyInspection")} options={inspectionOptions} onChange={(value) => setField("emptyInspection", value)} inputClass={inputClass} />
           <PemsSelect label="Grain inspection" value={getValue(container, names, "grainInspection")} options={inspectionOptions} onChange={(value) => setField("grainInspection", value)} inputClass={inputClass} />
+          <PemsSelect label="Inspection level (PEMS)" value={getValue(container, names, "inspectionLevelCode", "Consumable")} options={inspectionLevelOptions} onChange={(value) => setField("inspectionLevelCode", value)} inputClass={inputClass} />
+          <PemsSelect label="Passed after rectification" value={getValue(container, names, "passedAfterRectification", "N")} options={rectificationOptions} onChange={(value) => setField("passedAfterRectification", value)} inputClass={inputClass} />
           <PemsSelect label="AO signoff" value={getValue(container, names, "aoSignoff")} options={packerNames} onChange={(value) => setField("aoSignoff", value)} inputClass={inputClass} />
+          {remarkCodeOptions.length ? (
+            <PemsSelect
+              label="Inspection remark code"
+              value={getValue(container, names, "inspectionRemarkCode")}
+              options={remarkCodeOptions}
+              onChange={(value) => setField("inspectionRemarkCode", value)}
+              inputClass={inputClass}
+            />
+          ) : null}
         </div>
         <div className="px-3 pb-3">
-          <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark</label>
-          <textarea suppressHydrationWarning className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
+          <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark (notes)</label>
+          <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
         </div>
       </div>
 

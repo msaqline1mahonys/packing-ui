@@ -3,17 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  COMMODITY_MASTER_ROWS,
   COMMODITY_TYPE_MASTER_ROWS,
   CUSTOMER_MASTER_ROWS,
-  DEFAULT_CONTAINER_SIZES,
   GENERAL_PACK_PRICING_STATE,
+  REFERENCE_CONTAINER_CODE_ROWS,
 } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const RATE_BASIS_PER_TON = "perTon";
+const RATE_BASIS_PER_CONTAINER = "perContainer";
 const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+  "w-full rounded-md border border-slate-200/95 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const initialPricingState = GENERAL_PACK_PRICING_STATE;
 
@@ -27,16 +28,26 @@ function toNumber(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function SectionCard({ title, description, children, isMobile }) {
-  return (
-    <div className="overflow-hidden rounded-[10px] border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-[14px] py-[10px] md:px-[18px] md:py-[14px]">
-        <h3 className="m-0 text-[13px] font-bold text-[#0f1e3d] md:text-sm">{title}</h3>
-        {description && !isMobile ? <p className="mt-1 text-xs leading-[1.4] text-slate-500">{description}</p> : null}
-      </div>
-      <div className="p-3 md:p-[18px]">{children}</div>
-    </div>
-  );
+function toInputValue(value) {
+  if (value == null) return "";
+  return String(value);
+}
+
+function normalizeRateBasis(value) {
+  return value === RATE_BASIS_PER_CONTAINER ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON;
+}
+
+function normalizeContainerSize(value) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
+
+function containerSizeSortValue(size) {
+  const matched = String(size).match(/^(\d+)/);
+  if (!matched) return Number.MAX_SAFE_INTEGER;
+  return Number(matched[1]);
 }
 
 function InfoRow({ label, value, highlight }) {
@@ -52,9 +63,29 @@ function InfoRow({ label, value, highlight }) {
 
 export default function GeneralPackPricingPage() {
   const commodityTypes = useMemo(() => COMMODITY_TYPE_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const commodities = useMemo(() => COMMODITY_MASTER_ROWS.map((row) => ({ ...row })), []);
   const customers = useMemo(() => CUSTOMER_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const containerSizes = useMemo(() => DEFAULT_CONTAINER_SIZES, []);
+  const containerSizes = useMemo(() => {
+    const sizesFromContainerCodes = Array.from(
+      new Set(REFERENCE_CONTAINER_CODE_ROWS.map((row) => normalizeContainerSize(row.containerSize)).filter(Boolean))
+    ).sort((left, right) => {
+      const leftValue = containerSizeSortValue(left);
+      const rightValue = containerSizeSortValue(right);
+      if (leftValue !== rightValue) return leftValue - rightValue;
+      return left.localeCompare(right);
+    });
+
+    if (sizesFromContainerCodes.length > 0) return sizesFromContainerCodes;
+
+    const fallbackFromPricing = Array.from(
+      new Set(
+        [...initialPricingState.defaultPackingPrices, ...initialPricingState.commodityTypeCustomerPrices].map((row) =>
+          normalizeContainerSize(row.containerSize)
+        )
+      )
+    ).filter(Boolean);
+
+    return fallbackFromPricing.length > 0 ? fallbackFromPricing : ["20FT", "40FT"];
+  }, []);
 
   const [pricingState, setPricingState] = useState(() => ({
     defaultPackingPrices: initialPricingState.defaultPackingPrices.map((item) => ({ ...item })),
@@ -62,22 +93,21 @@ export default function GeneralPackPricingPage() {
     commodityTypeCustomerPrices: initialPricingState.commodityTypeCustomerPrices.map((item) => ({ ...item })),
     commodityCustomerPrices: initialPricingState.commodityCustomerPrices.map((item) => ({ ...item })),
   }));
-  const { defaultPackingPrices, commodityPrices, commodityTypeCustomerPrices, commodityCustomerPrices } = pricingState;
+  const { defaultPackingPrices, commodityTypeCustomerPrices } = pricingState;
 
   const [isMobile, setIsMobile] = useState(false);
-  const [defaultPricesEditing, setDefaultPricesEditing] = useState(false);
-
-  const [cpModalOpen, setCpModalOpen] = useState(false);
-  const [cpEditId, setCpEditId] = useState(null);
-  const [cpForm, setCpForm] = useState({ commodityId: "", containerSize: "", price: "" });
-
-  const [ctcpModalOpen, setCtcpModalOpen] = useState(false);
-  const [ctcpEditId, setCtcpEditId] = useState(null);
-  const [ctcpForm, setCtcpForm] = useState({ customerId: "", commodityTypeId: "", containerSize: "", price: "" });
-
-  const [ccpModalOpen, setCcpModalOpen] = useState(false);
-  const [ccpEditId, setCcpEditId] = useState(null);
-  const [ccpForm, setCcpForm] = useState({ customerId: "", commodityId: "", containerSize: "", price: "" });
+  const [selectedCommodityTypeId, setSelectedCommodityTypeId] = useState(commodityTypes[0]?.id ?? null);
+  const [baseDraft, setBaseDraft] = useState(() =>
+    containerSizes.reduce((acc, size) => ({ ...acc, [size]: "" }), {})
+  );
+  const [baseRateBasisDraft, setBaseRateBasisDraft] = useState(() =>
+    containerSizes.reduce((acc, size) => ({ ...acc, [size]: RATE_BASIS_PER_TON }), {})
+  );
+  const [customerDrafts, setCustomerDrafts] = useState({});
+  const [customerRateBasisDrafts, setCustomerRateBasisDrafts] = useState({});
+  const [baseDirty, setBaseDirty] = useState(false);
+  const [dirtyCustomers, setDirtyCustomers] = useState({});
+  const [errorText, setErrorText] = useState("");
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -87,100 +117,153 @@ export default function GeneralPackPricingPage() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  useEffect(() => {
+    if (!selectedCommodityTypeId) return;
+    const nextBase = {};
+    const nextBaseRateBasis = {};
+    containerSizes.forEach((size) => {
+      const match = defaultPackingPrices.find(
+        (item) => item.commodityTypeId === selectedCommodityTypeId && normalizeContainerSize(item.containerSize) === size
+      );
+      nextBase[size] = toInputValue(match?.price);
+      nextBaseRateBasis[size] = normalizeRateBasis(match?.rateBasis);
+    });
+
+    const nextCustomerDrafts = {};
+    const nextCustomerRateBasisDrafts = {};
+    customers.forEach((customer) => {
+      const perCustomer = {};
+      const perCustomerRateBasis = {};
+      containerSizes.forEach((size) => {
+        const match = commodityTypeCustomerPrices.find(
+          (item) =>
+            item.customerId === customer.id &&
+            item.commodityTypeId === selectedCommodityTypeId &&
+            normalizeContainerSize(item.containerSize) === size
+        );
+        perCustomer[size] = toInputValue(match?.price);
+        perCustomerRateBasis[size] = normalizeRateBasis(match?.rateBasis);
+      });
+      nextCustomerDrafts[customer.id] = perCustomer;
+      nextCustomerRateBasisDrafts[customer.id] = perCustomerRateBasis;
+    });
+
+    setBaseDraft(nextBase);
+    setBaseRateBasisDraft(nextBaseRateBasis);
+    setCustomerDrafts(nextCustomerDrafts);
+    setCustomerRateBasisDrafts(nextCustomerRateBasisDrafts);
+    setBaseDirty(false);
+    setDirtyCustomers({});
+    setErrorText("");
+  }, [selectedCommodityTypeId, containerSizes, customers, defaultPackingPrices, commodityTypeCustomerPrices]);
+
   function getDefaultPrice(commodityTypeId, containerSize) {
     return defaultPackingPrices.find(
-      (item) => item.commodityTypeId === commodityTypeId && item.containerSize === containerSize
+      (item) => item.commodityTypeId === commodityTypeId && normalizeContainerSize(item.containerSize) === containerSize
     );
   }
 
-  function handleDefaultPriceChange(commodityTypeId, containerSize, value) {
-    if (!defaultPricesEditing) return;
-    const parsed = toNumber(value);
-    const trimmed = value.trim();
+  function getCustomerPrice(customerId, commodityTypeId, containerSize) {
+    return commodityTypeCustomerPrices.find(
+      (item) =>
+        item.customerId === customerId &&
+        item.commodityTypeId === commodityTypeId &&
+        normalizeContainerSize(item.containerSize) === containerSize
+    );
+  }
+
+  function handleBaseInputChange(size, value) {
+    setBaseDraft((prev) => ({ ...prev, [size]: value }));
+    setBaseDirty(true);
+    setErrorText("");
+  }
+
+  function handleBaseRateBasisChange(size, checked) {
+    setBaseRateBasisDraft((prev) => ({
+      ...prev,
+      [size]: checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON,
+    }));
+    setBaseDirty(true);
+    setErrorText("");
+  }
+
+  function handleCustomerInputChange(customerId, size, value) {
+    setCustomerDrafts((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...(prev[customerId] || {}),
+        [size]: value,
+      },
+    }));
+    setDirtyCustomers((prev) => ({ ...prev, [customerId]: true }));
+    setErrorText("");
+  }
+
+  function handleCustomerRateBasisChange(customerId, size, checked) {
+    setCustomerRateBasisDrafts((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...(prev[customerId] || {}),
+        [size]: checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON,
+      },
+    }));
+    setDirtyCustomers((prev) => ({ ...prev, [customerId]: true }));
+    setErrorText("");
+  }
+
+  function saveBasePrices() {
+    if (!selectedCommodityTypeId) return;
+    const parsedBySize = {};
+    for (const size of containerSizes) {
+      const raw = String(baseDraft[size] ?? "").trim();
+      if (!raw) {
+        parsedBySize[size] = "";
+        continue;
+      }
+      const parsed = toNumber(raw);
+      if (parsed == null) {
+        setErrorText(`Base ${size} price must be a valid number.`);
+        return;
+      }
+      parsedBySize[size] = parsed;
+    }
 
     setPricingState((prev) => {
-      const existing = prev.defaultPackingPrices.find(
-        (item) => item.commodityTypeId === commodityTypeId && item.containerSize === containerSize
-      );
+      let nextRows = [...prev.defaultPackingPrices];
+      let maxId = nextId(nextRows) - 1;
 
-      if (trimmed === "") {
-        if (!existing) return prev;
-        return {
-          ...prev,
-          defaultPackingPrices: prev.defaultPackingPrices.filter((item) => item.id !== existing.id),
-        };
-      }
-      if (parsed == null) return prev;
+      containerSizes.forEach((size) => {
+        const idx = nextRows.findIndex(
+          (item) => item.commodityTypeId === selectedCommodityTypeId && normalizeContainerSize(item.containerSize) === size
+        );
+        const parsed = parsedBySize[size];
+        const rateBasis = normalizeRateBasis(baseRateBasisDraft[size]);
+        if (parsed === "") {
+          if (idx >= 0) nextRows.splice(idx, 1);
+          return;
+        }
 
-      if (existing) {
-        return {
-          ...prev,
-          defaultPackingPrices: prev.defaultPackingPrices.map((item) =>
-            item.id === existing.id ? { ...item, price: parsed } : item
-          ),
-        };
-      }
-      return {
-        ...prev,
-        defaultPackingPrices: [
-          ...prev.defaultPackingPrices,
-          {
-            id: nextId(prev.defaultPackingPrices),
-            commodityTypeId,
-            containerSize,
+        if (idx >= 0) {
+          nextRows[idx] = { ...nextRows[idx], price: parsed, rateBasis };
+        } else {
+          maxId += 1;
+          nextRows.push({
+            id: maxId,
+            commodityTypeId: selectedCommodityTypeId,
+            containerSize: size,
             price: parsed,
-          },
-        ],
-      };
-    });
-  }
+            rateBasis,
+          });
+        }
+      });
 
-  function openAddCp() {
-    setCpEditId(null);
-    setCpForm({ commodityId: "", containerSize: containerSizes[0] || "", price: "" });
-    setCpModalOpen(true);
-  }
-
-  function openEditCp(entry) {
-    setCpEditId(entry.id);
-    setCpForm({
-      commodityId: String(entry.commodityId),
-      containerSize: entry.containerSize,
-      price: entry.price == null ? "" : String(entry.price),
-    });
-    setCpModalOpen(true);
-  }
-
-  function saveCp() {
-    if (!cpForm.commodityId || !cpForm.containerSize) return;
-    const parsed = toNumber(cpForm.price);
-    if (parsed == null) return;
-
-    setPricingState((prev) => {
-      if (!cpEditId) {
-        const nextItem = {
-          id: nextId(prev.commodityPrices),
-          commodityId: Number(cpForm.commodityId),
-          containerSize: cpForm.containerSize,
-          price: parsed,
-        };
-        return { ...prev, commodityPrices: [...prev.commodityPrices, nextItem] };
-      }
       return {
         ...prev,
-        commodityPrices: prev.commodityPrices.map((item) =>
-          item.id === cpEditId
-            ? {
-                ...item,
-                commodityId: Number(cpForm.commodityId),
-                containerSize: cpForm.containerSize,
-                price: parsed,
-              }
-            : item
-        ),
+        defaultPackingPrices: nextRows,
       };
     });
-    setCpModalOpen(false);
+    setBaseDirty(false);
+    setErrorText("");
   }
 
   function openAddCtcp() {
@@ -221,12 +304,12 @@ export default function GeneralPackPricingPage() {
         commodityTypeCustomerPrices: prev.commodityTypeCustomerPrices.map((item) =>
           item.id === ctcpEditId
             ? {
-                ...item,
-                customerId: Number(ctcpForm.customerId),
-                commodityTypeId: Number(ctcpForm.commodityTypeId),
-                containerSize: ctcpForm.containerSize,
-                price: parsed,
-              }
+              ...item,
+              customerId: Number(ctcpForm.customerId),
+              commodityTypeId: Number(ctcpForm.commodityTypeId),
+              containerSize: ctcpForm.containerSize,
+              price: parsed,
+            }
             : item
         ),
       };
@@ -272,12 +355,12 @@ export default function GeneralPackPricingPage() {
         commodityCustomerPrices: prev.commodityCustomerPrices.map((item) =>
           item.id === ccpEditId
             ? {
-                ...item,
-                customerId: Number(ccpForm.customerId),
-                commodityId: Number(ccpForm.commodityId),
-                containerSize: ccpForm.containerSize,
-                price: parsed,
-              }
+              ...item,
+              customerId: Number(ccpForm.customerId),
+              commodityId: Number(ccpForm.commodityId),
+              containerSize: ccpForm.containerSize,
+              price: parsed,
+            }
             : item
         ),
       };
@@ -286,17 +369,14 @@ export default function GeneralPackPricingPage() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-5">
-      <div className="space-y-1">
+    <div className="space-y-3 md:space-y-4">
+      <div className="space-y-0.5">
         <p className="text-xs text-slate-500">Accounting / General Pack Pricing</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">General Pack Pricing</h1>
-        {!isMobile ? (
-          <p className="text-xs leading-relaxed text-slate-500">
-            Packing prices resolve in order: <strong>Commodity + Customer</strong> -&gt;{" "}
-            <strong>Commodity Type + Customer</strong> -&gt; <strong>Commodity</strong> -&gt;{" "}
-            <strong>Default by commodity type</strong>. The first price set wins.
-          </p>
-        ) : null}
+        <h1 className="text-xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.5rem]">General Pack Pricing</h1>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Set base prices by commodity type and optional customer-specific overrides for both container sizes in one
+          place.
+        </p>
       </div>
 
       <SectionCard
@@ -845,7 +925,7 @@ function PriceModal({ open, title, onClose, onSave, children }) {
 
 function FormRow({ label, required, children }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
         {label}
         {required ? <span className="text-red-500"> *</span> : null}

@@ -1,13 +1,17 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import { DEMO_COMMODITY_TYPES, DEMO_STOCK_LOCATIONS } from "@/lib/demo-in-ticket-data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const PACKERS_ENDPOINT = `${API_BASE_URL}/reference-data/packers`;
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
@@ -21,28 +25,6 @@ const config = {
     { key: "commodityTypesAllowed", label: "Commodity Types" },
     { key: "stockLocationsAllowed", label: "Stock Locations" },
   ],
-  rows: [
-    {
-      id: 1,
-      name: "Dock North A",
-      description: "Heavy lift bay",
-      status: "Active",
-      commodityMode: "all",
-      commodityTypeIds: [],
-      stockLocationMode: "selected",
-      stockLocationIds: [1, 2, 3],
-    },
-    {
-      id: 2,
-      name: "Dock South",
-      description: "General cargo",
-      status: "Under maintenance",
-      commodityMode: "selected",
-      commodityTypeIds: [1, 2],
-      stockLocationMode: "all",
-      stockLocationIds: [],
-    },
-  ],
   formFields: [
     { key: "name", label: "Name", required: true },
     { key: "status", label: "Status", type: "select", options: ["Active", "Under maintenance", "Inactive"] },
@@ -50,7 +32,6 @@ const config = {
   ],
 };
 
-// Column definitions for clutch-table Grid
 const gridColumns = config.columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -60,24 +41,59 @@ const gridColumns = config.columns.map((col) => ({
   resizable: true,
 }));
 
-const commodityTypeOptions = DEMO_COMMODITY_TYPES.map((item) => ({
-  id: Number(item.id),
-  name: String(item.name ?? ""),
-}));
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
 
-const commodityTypeMap = new Map(commodityTypeOptions.map((item) => [item.id, item.name]));
-const stockLocationOptions = DEMO_STOCK_LOCATIONS.map((item) => ({
-  id: Number(item.id),
-  name: String(item.name ?? ""),
-}));
-const stockLocationMap = new Map(stockLocationOptions.map((item) => [item.id, item.name]));
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
-function normalizeCommodityTypeIds(ids) {
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function packerRequest(path = "", options = {}) {
+  const response = await fetch(`${PACKERS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Packer request failed."));
+  }
+  return result?.data ?? result;
+}
+
+function normalizeIdList(ids, validIds) {
   if (!Array.isArray(ids)) return [];
   const uniq = new Set();
   for (const rawId of ids) {
-    const id = Number(rawId);
-    if (Number.isNaN(id) || !commodityTypeMap.has(id)) continue;
+    const id = String(rawId ?? "").trim();
+    if (!id || !validIds.has(id)) continue;
     uniq.add(id);
   }
   return Array.from(uniq);
@@ -108,13 +124,19 @@ function buildStockLocationSummary(mode, ids) {
   return `${selected.length} selected`;
 }
 
-function toDisplayRow(row) {
-  const commodityMode = row?.commodityMode === "selected" ? "selected" : "all";
-  const commodityTypeIds = normalizeCommodityTypeIds(row?.commodityTypeIds);
-  const stockLocationMode = row?.stockLocationMode === "selected" ? "selected" : "all";
-  const stockLocationIds = normalizeStockLocationIds(row?.stockLocationIds);
+function toDisplayRow(row, commodityTypeMap, stockLocationMap) {
+  const commodityModeRaw = row?.commodity_mode ?? row?.commodityMode;
+  const commodityMode = commodityModeRaw === "selected" ? "selected" : "all";
+  const commodityTypeIds = normalizeIdList(row?.commodity_type_ids ?? row?.commodityTypeIds, commodityTypeMap);
+  const stockLocationModeRaw = row?.stock_location_mode ?? row?.stockLocationMode;
+  const stockLocationMode = stockLocationModeRaw === "selected" ? "selected" : "all";
+  const stockLocationIds = normalizeIdList(row?.stock_location_ids ?? row?.stockLocationIds, stockLocationMap);
+
   return {
-    ...row,
+    id: row.id,
+    name: row.name ?? "",
+    description: row.description ?? "",
+    status: row.status ?? "Active",
     commodityMode,
     commodityTypeIds,
     stockLocationMode,
@@ -128,26 +150,122 @@ function buildDraft(row) {
   const next = {};
   for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
   next.commodityMode = row?.commodityMode === "selected" ? "selected" : "all";
-  next.commodityTypeIds = normalizeCommodityTypeIds(row?.commodityTypeIds);
+  next.commodityTypeIds = Array.isArray(row?.commodityTypeIds) ? [...row.commodityTypeIds] : [];
   next.stockLocationMode = row?.stockLocationMode === "selected" ? "selected" : "all";
-  next.stockLocationIds = normalizeStockLocationIds(row?.stockLocationIds);
+  next.stockLocationIds = Array.isArray(row?.stockLocationIds) ? [...row.stockLocationIds] : [];
+  if (!next.status) next.status = "Active";
   return next;
 }
 
-function parseFieldValue(field, value) {
-  if (field.type !== "number") return value;
-  if (value === "") return "";
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? value : String(parsed);
+function toApiPayload(draft) {
+  const commodityMode = draft.commodityMode === "selected" ? "selected" : "all";
+  const stockLocationMode = draft.stockLocationMode === "selected" ? "selected" : "all";
+
+  return {
+    ...getTenantPayload(),
+    name: String(draft.name ?? "").trim(),
+    description: String(draft.description ?? "").trim() || null,
+    status: String(draft.status ?? "").trim() || "Active",
+    commodity_mode: commodityMode,
+    commodity_type_ids: commodityMode === "selected" ? draft.commodityTypeIds : [],
+    stock_location_mode: stockLocationMode,
+    stock_location_ids: stockLocationMode === "selected" ? draft.stockLocationIds : [],
+  };
 }
 
 export default function PackerPage() {
-  const [rows, setRows] = useState(() => config.rows.map(toDisplayRow));
+  const [packerRecords, setPackerRecords] = useState([]);
+  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
+  const [stockLocationOptions, setStockLocationOptions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const commodityTypeMap = useMemo(
+    () => new Map(commodityTypeOptions.map((item) => [item.id, item.name])),
+    [commodityTypeOptions]
+  );
+  const stockLocationMap = useMemo(
+    () => new Map(stockLocationOptions.map((item) => [item.id, item.name])),
+    [stockLocationOptions]
+  );
+
+  const rows = useMemo(
+    () =>
+      packerRecords
+        .map((row) => toDisplayRow(row, commodityTypeMap, stockLocationMap))
+        .filter(Boolean),
+    [packerRecords, commodityTypeMap, stockLocationMap]
+  );
+
+  const formDataQuery = useMemo(() => {
+    const tenant = getTenantPayload();
+    const params = new URLSearchParams();
+    if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+    if (tenant.site_id) params.set("site_id", tenant.site_id);
+    return params.toString() ? `?${params.toString()}` : "";
+  }, []);
+
+  const applyFormData = useCallback((payload) => {
+    const commodityTypes = Array.isArray(payload?.commodityTypes) ? payload.commodityTypes : [];
+    const stockLocations = Array.isArray(payload?.stockLocations) ? payload.stockLocations : [];
+    setCommodityTypeOptions(
+      commodityTypes.map((item) => ({ id: String(item.id), name: String(item.name ?? "") }))
+    );
+    setStockLocationOptions(
+      stockLocations.map((item) => ({ id: String(item.id), name: String(item.name ?? "") }))
+    );
+  }, []);
+
+  const loadPackers = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const payload = await packerRequest("?per_page=500");
+      const apiRows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setPackerRecords(apiRows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load packers.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loadPageData = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const [formPayload, packersPayload] = await Promise.all([
+        packerRequest(`/form-data${formDataQuery}`),
+        packerRequest("?per_page=500"),
+      ]);
+      applyFormData(formPayload);
+      const apiRows = Array.isArray(packersPayload?.data)
+        ? packersPayload.data
+        : Array.isArray(packersPayload)
+          ? packersPayload
+          : [];
+      setPackerRecords(apiRows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load packer data.");
+      setCommodityTypeOptions([]);
+      setStockLocationOptions([]);
+      setPackerRecords([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyFormData, formDataQuery]);
+
+  useEffect(() => {
+    loadPageData();
+  }, [loadPageData]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -158,9 +276,7 @@ export default function PackerPage() {
   }, []);
 
   useEffect(() => {
-    if (!isMobile) {
-      return;
-    }
+    if (!isMobile) return;
     const onScroll = () => setShowGoToTop(window.scrollY > 400);
     onScroll();
     window.addEventListener("scroll", onScroll);
@@ -168,46 +284,82 @@ export default function PackerPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalMode ? error : "";
 
   function openAddModal() {
+    setError("");
+    setNotice("");
     setDraft(buildDraft());
     setModalMode("add");
   }
 
   function openEditModal() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
+    if (isSaving) return;
     setModalMode(null);
+    setError("");
   }
 
-  function saveModal() {
-    const requiredMissing = config.formFields.some((field) => field.required && !String(draft[field.key] ?? "").trim());
-    if (requiredMissing) return;
-    const normalized = {};
-    for (const field of config.formFields) normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
-    const commodityMode = draft.commodityMode === "selected" ? "selected" : "all";
-    const commodityTypeIds = commodityMode === "selected" ? normalizeCommodityTypeIds(draft.commodityTypeIds) : [];
-    const stockLocationMode = draft.stockLocationMode === "selected" ? "selected" : "all";
-    const stockLocationIds = stockLocationMode === "selected" ? normalizeStockLocationIds(draft.stockLocationIds) : [];
-    if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
-      const nextRow = toDisplayRow({ id: nextId, ...normalized, commodityMode, commodityTypeIds, stockLocationMode, stockLocationIds });
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextId);
-      setModalMode(null);
+  async function saveModal() {
+    const requiredMissing = config.formFields.some(
+      (field) => field.required && !String(draft[field.key] ?? "").trim()
+    );
+    if (requiredMissing) {
+      setError("Please fill all required fields.");
       return;
     }
-    if (modalMode === "edit" && selected) {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === selected.id ? toDisplayRow({ ...row, ...normalized, commodityMode, commodityTypeIds, stockLocationMode, stockLocationIds }) : row
-        )
-      );
-      setModalMode(null);
+
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a packer.");
+      return;
+    }
+
+    const body = toApiPayload({
+      ...draft,
+      commodityTypeIds: normalizeIdList(draft.commodityTypeIds, commodityTypeMap),
+      stockLocationIds: normalizeIdList(draft.stockLocationIds, stockLocationMap),
+    });
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      if (modalMode === "add") {
+        const payload = await packerRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        if (!payload?.id) throw new Error("Invalid response from server.");
+        setPackerRecords((prev) => [payload, ...prev]);
+        setSelectedId(payload.id);
+        setNotice("Packer created successfully.");
+        setModalMode(null);
+        return;
+      }
+
+      if (modalMode === "edit" && selected) {
+        const payload = await packerRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        if (!payload?.id) throw new Error("Invalid response from server.");
+        setPackerRecords((prev) => prev.map((row) => (row.id === selected.id ? payload : row)));
+        setNotice("Packer updated successfully.");
+        setModalMode(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save packer.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -221,7 +373,7 @@ export default function PackerPage() {
 
   function toggleCommodityType(id) {
     setDraft((prev) => {
-      const current = normalizeCommodityTypeIds(prev.commodityTypeIds);
+      const current = normalizeIdList(prev.commodityTypeIds, commodityTypeMap);
       const exists = current.includes(id);
       return {
         ...prev,
@@ -241,7 +393,7 @@ export default function PackerPage() {
 
   function toggleStockLocation(id) {
     setDraft((prev) => {
-      const current = normalizeStockLocationIds(prev.stockLocationIds);
+      const current = normalizeIdList(prev.stockLocationIds, stockLocationMap);
       const exists = current.includes(id);
       return {
         ...prev,
@@ -251,11 +403,48 @@ export default function PackerPage() {
     });
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
+    if (!window.confirm(`Delete packer "${selected.name}" permanently?`)) return;
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await packerRequest(`/${selected.id}`, { method: "DELETE" });
+      setPackerRecords((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice("Packer deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete packer.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
+
+  const toolbarActions = (
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" onClick={openAddModal} disabled={isLoading}>
+        + Add
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={loadPackers} disabled={isLoading}>
+        Refresh
+      </Button>
+      <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEditModal}>
+        Edit
+      </Button>
+      <Button
+        type="button"
+        variant="destructive"
+        size="sm"
+        disabled={!selected || isLoading || isDeleting}
+        onClick={removeSelected}
+      >
+        {isDeleting ? "Deleting…" : "Delete"}
+      </Button>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -265,19 +454,30 @@ export default function PackerPage() {
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p> : null}
       </div>
 
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
+
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList
-              rows={rows}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              search=""
-              title={config.title}
-              primaryKey={config.columns[0]?.key}
-              secondaryKey={config.columns[2]?.key ?? config.columns[1]?.key}
-              summaryKeys={config.columns.slice(1, 4).map((column) => column.key)}
-            />
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
+              <MobileList
+                rows={rows}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                title={config.title}
+                isLoading={isLoading}
+                primaryKey={config.columns[0]?.key}
+                secondaryKey={config.columns[2]?.key ?? config.columns[1]?.key}
+                summaryKeys={config.columns.slice(1, 4).map((column) => column.key)}
+              />
+            </>
           ) : (
             <Grid
               columns={gridColumns}
@@ -287,14 +487,10 @@ export default function PackerPage() {
               density="standard"
               fileName={config.title}
               visibleRows={12}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading packers…" : "No packers found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-              toolbarActions={
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={openAddModal}>+ Add</Button>
-                  <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEditModal}>Edit</Button>
-                  <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={removeSelected}>Delete</Button>
-                </div>
-              }
+              toolbarActions={toolbarActions}
             />
           )}
         </div>
@@ -307,7 +503,12 @@ export default function PackerPage() {
             ) : (
               <dl className="mt-4 space-y-3 text-sm">
                 {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
+                  <DetailItem
+                    key={column.key}
+                    label={column.label}
+                    value={selected[column.key]}
+                    highlight={column === config.columns[0]}
+                  />
                 ))}
               </dl>
             )}
@@ -316,9 +517,18 @@ export default function PackerPage() {
       </div>
 
       <Modal open={modalMode != null} title={modalMode === "edit" ? `Edit ${config.title}` : `Add ${config.title}`} onClose={closeModal}>
+        {modalError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields.map((field) => (
-            <FormField key={field.key} field={field} value={draft[field.key] ?? ""} onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))} />
+            <FormField
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              disabled={isSaving}
+              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+            />
           ))}
         </div>
         <div className="mt-4 space-y-2">
@@ -333,6 +543,7 @@ export default function PackerPage() {
                 type="radio"
                 name="commodity-mode"
                 checked={draft.commodityMode === "selected"}
+                disabled={isSaving}
                 onChange={() => setCommodityMode("selected")}
               />
               Select commodity types
@@ -341,7 +552,7 @@ export default function PackerPage() {
               commodityTypeOptions.length ? (
                 <div className="grid gap-2 pt-1 sm:grid-cols-2">
                   {commodityTypeOptions.map((option) => {
-                    const checked = normalizeCommodityTypeIds(draft.commodityTypeIds).includes(option.id);
+                    const checked = normalizeIdList(draft.commodityTypeIds, commodityTypeMap).includes(option.id);
                     return (
                       <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
                         <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => toggleCommodityType(option.id)} />
@@ -351,7 +562,7 @@ export default function PackerPage() {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">No commodity types found in the commodity base table.</p>
+                <p className="text-xs text-slate-500">No commodity types found.</p>
               )
             ) : null}
           </div>
@@ -368,6 +579,7 @@ export default function PackerPage() {
                 type="radio"
                 name="stock-location-mode"
                 checked={draft.stockLocationMode === "selected"}
+                disabled={isSaving}
                 onChange={() => setStockLocationMode("selected")}
               />
               Select stock locations
@@ -376,7 +588,7 @@ export default function PackerPage() {
               stockLocationOptions.length ? (
                 <div className="grid gap-2 pt-1 sm:grid-cols-2">
                   {stockLocationOptions.map((option) => {
-                    const checked = normalizeStockLocationIds(draft.stockLocationIds).includes(option.id);
+                    const checked = normalizeIdList(draft.stockLocationIds, stockLocationMap).includes(option.id);
                     return (
                       <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
                         <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => toggleStockLocation(option.id)} />
@@ -386,14 +598,18 @@ export default function PackerPage() {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">No stock locations found in the stock location base table.</p>
+                <p className="text-xs text-slate-500">No stock locations found.</p>
               )
             ) : null}
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>Cancel</Button>
-          <Button type="button" size="sm" onClick={saveModal}>{modalMode === "edit" ? "Save changes" : "Create"}</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
+          </Button>
         </div>
       </Modal>
 
@@ -411,7 +627,7 @@ export default function PackerPage() {
   );
 }
 
-function FormField({ field, value, onChange }) {
+function FormField({ field, value, onChange, disabled }) {
   return (
     <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
@@ -422,7 +638,9 @@ function FormField({ field, value, onChange }) {
         <select suppressHydrationWarning className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>
           <option value="">Select...</option>
           {field.options?.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>
+              {option}
+            </option>
           ))}
         </select>
       ) : field.type === "textarea" ? (
@@ -434,11 +652,15 @@ function FormField({ field, value, onChange }) {
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys }) {
-  const emptyMessage = search ? `No ${title.toLowerCase()} match your search.` : `No ${title.toLowerCase()} found. Add your first one!`;
+function MobileList({ rows, selectedId, onSelect, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
+  const emptyMessage = isLoading
+    ? `Loading ${title.toLowerCase()}…`
+    : `No ${title.toLowerCase()} found. Add your first one!`;
   return (
     <div className="space-y-2 p-3">
-      <div className="px-0.5 text-xs font-semibold text-slate-600">{title} ({rows.length})</div>
+      <div className="px-0.5 text-xs font-semibold text-slate-600">
+        {title} ({rows.length})
+      </div>
       {rows.length === 0 ? (
         <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>
       ) : (
@@ -450,7 +672,10 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
               key={row.id}
               type="button"
               onClick={() => onSelect(isSelected ? null : row.id)}
-              className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
+              className={cn(
+                "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+              )}
             >
               <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
@@ -477,10 +702,21 @@ function Modal({ open, title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-labelledby="reference-data-modal-title" className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reference-data-modal-title"
+        className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
-          <h2 id="reference-data-modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+          <h2 id="reference-data-modal-title" className="text-sm font-semibold text-slate-900">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
             x
           </button>
         </div>

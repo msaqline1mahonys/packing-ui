@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,73 @@ const gridColumns = config.columns.map((col) => ({
   filterable: true,
   resizable: true,
 }));
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function commodityTypeRequest(path = "", options = {}) {
+  const response = await fetch(`${COMMODITY_TYPES_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Commodity type request failed."));
+  }
+  return result;
+}
+
+function fromApiCommodityType(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    acosCode: row.acos_code ?? row.acosCode ?? "",
+    testRequired: row.test_required ?? row.testRequired ?? "No",
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  return {
+    ...tenant,
+    name: String(draft.name ?? "").trim(),
+    acos_code: String(draft.acosCode ?? "").trim(),
+    test_required: draft.testRequired === "Yes" ? "Yes" : "No",
+  };
+}
 
 function buildDraft(row) {
   const next = {};
@@ -113,6 +181,7 @@ function toApiPayload(draft) {
 
 export default function CommodityTypePage() {
   const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
@@ -160,6 +229,7 @@ export default function CommodityTypePage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalMode ? error : "";
 
   const openAddModal = () => {
     setError("");
@@ -170,6 +240,8 @@ export default function CommodityTypePage() {
 
   const openEditModal = () => {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setError("");
     setNotice("");
     setDraft(buildDraft(selected));
@@ -260,9 +332,18 @@ export default function CommodityTypePage() {
     <div className="space-y-5">
       <div>
         <p className="text-xs text-slate-500">Product Settings / {config.title}</p>
+        <p className="text-xs text-slate-500">Product Settings / {config.title}</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p> : null}
       </div>
+
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
 
       {!modalMode && error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
@@ -307,6 +388,8 @@ export default function CommodityTypePage() {
               visibleRows={12}
               loading={isLoading}
               emptyMessage={isLoading ? "Loading commodity types…" : "No commodity types found."}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading commodity types…" : "No commodity types found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
@@ -330,7 +413,12 @@ export default function CommodityTypePage() {
             ) : (
               <dl className="mt-4 space-y-3 text-sm">
                 {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
+                  <DetailItem
+                    key={column.key}
+                    label={column.label}
+                    value={selected[column.key]}
+                    highlight={column === config.columns[0]}
+                  />
                 ))}
               </dl>
             )}
@@ -344,6 +432,13 @@ export default function CommodityTypePage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields.map((field) => (
+            <FormField
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              disabled={isSaving}
+              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+            />
             <FormField
               key={field.key}
               field={field}
@@ -376,100 +471,114 @@ export default function CommodityTypePage() {
 }
 
 function FormField({ field, value, onChange, disabled }) {
-  return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Select...</option>
-          {field.options?.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-      ) : field.type === "textarea" ? (
-        <textarea
-          suppressHydrationWarning
-          className={cn(inputClass, "min-h-20 resize-y")}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          rows={3}
-        />
-      ) : (
-        <input
-          suppressHydrationWarning
-          type={field.type || "text"}
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-        />
-      )}
-    </div>
-  );
-}
-
-function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
-  const emptyMessage = isLoading
-    ? `Loading ${title.toLowerCase()}…`
-    : search
-      ? `No ${title.toLowerCase()} match your search.`
-      : `No ${title.toLowerCase()} found. Add your first one!`;
-  return (
-    <div className="space-y-2 p-3">
-      <div className="px-0.5 text-xs font-semibold text-slate-600">{title} ({rows.length})</div>
-      {rows.length === 0 ? (
-        <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>
-      ) : (
-        rows.map((row) => {
-          const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
-          return (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => onSelect(isSelected ? null : row.id)}
-              className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
-            >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "—"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "—"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "—"}</p>
-            </button>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function DetailItem({ label, value, highlight }) {
-  return (
-    <div>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
-    </div>
-  );
-}
-
-function Modal({ open, title, onClose, children }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-labelledby="modal-title" className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
-          <h2 id="modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <div className="p-4">{children}</div>
+  function FormField({ field, value, onChange, disabled }) {
+    return (
+      <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+          {field.label}
+          {field.required ? <span className="text-red-500"> *</span> : null}
+        </label>
+        {field.type === "select" ? (
+          <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+            <option value="">Select...</option>
+            {field.options?.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : field.type === "textarea" ? (
+          <textarea
+            suppressHydrationWarning
+            className={cn(inputClass, "min-h-20 resize-y")}
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={field.placeholder}
+            rows={3}
+          />
+        ) : (
+          <input
+            suppressHydrationWarning
+            type={field.type || "text"}
+            className={inputClass}
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={field.placeholder}
+          />
+        )}
       </div>
-    </div>
-  );
-}
+    );
+  }
+
+  function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
+    const emptyMessage = isLoading
+      ? `Loading ${title.toLowerCase()}…`
+      : search
+        ? `No ${title.toLowerCase()} match your search.`
+        : `No ${title.toLowerCase()} found. Add your first one!`;
+    function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
+      const emptyMessage = isLoading
+        ? `Loading ${title.toLowerCase()}…`
+        : search
+          ? `No ${title.toLowerCase()} match your search.`
+          : `No ${title.toLowerCase()} found. Add your first one!`;
+      return (
+        <div className="space-y-2 p-3">
+          <div className="px-0.5 text-xs font-semibold text-slate-600">
+            {title} ({rows.length})
+          </div>
+          {rows.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>
+          ) : (
+            rows.map((row) => {
+              const isSelected = row.id === selectedId;
+              const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
+              return (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => onSelect(isSelected ? null : row.id)}
+                  className={cn(
+                    "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                    isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+                  )}
+                >
+                  <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "—"}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "—"}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">{summary || "—"}</p>
+                </button>
+              );
+            })
+          )}
+        </div>
+      );
+    }
+
+    function DetailItem({ label, value, highlight }) {
+      return (
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
+          <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+        </div>
+      );
+    }
+
+    function Modal({ open, title, onClose, children }) {
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
+          <div role="dialog" aria-modal="true" aria-labelledby="modal-title" className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
+              <h2 id="modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
+              <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+                ×
+              </button>
+            </div>
+            <div className="p-4">{children}</div>
+          </div>
+        </div>
+      );
+    }

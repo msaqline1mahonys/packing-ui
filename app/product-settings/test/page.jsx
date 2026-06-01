@@ -15,23 +15,38 @@ const TESTS_ENDPOINT = `${API_BASE_URL}/product-settings/tests`;
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
+const APPLIES_TO_OPTIONS = ["Incoming Tickets", "Outgoing Tickets", "Outgoing Containers"];
+const TEST_TYPES = ["Percentage", "Count", "Group"];
+
+function formatMembers(ids, allRows) {
+  if (!Array.isArray(ids) || ids.length === 0) return "";
+  const lookup = new Map((allRows ?? []).map((r) => [r.id, r.testName]));
+  return ids.map((id) => lookup.get(id) ?? `#${id}`).join(", ");
+}
+
 const config = {
   title: "Tests",
-  subtitle: "Manage product testing parameters and units.",
+  subtitle: "Manage product testing parameters, units, and groups.",
   columns: [
     { key: "testName", label: "TEST NAME" },
     { key: "type", label: "TYPE" },
     { key: "unit", label: "UNIT" },
+    {
+      key: "members",
+      label: "MEMBERS",
+      format: (v, row, allRows) => (row.type === "Group" ? formatMembers(v, allRows) : "—"),
+    },
+    { key: "appliesTo", label: "APPLIES TO", format: (v) => (Array.isArray(v) ? v.join(", ") : (v ?? "")) },
     { key: "status", label: "STATUS" },
   ],
   formFields: [
-    { key: "testName", label: "TEST NAME", required: true, placeholder: "e.g., Protein, Moisture, Falling Number" },
+    { key: "testName", label: "TEST NAME", required: true, placeholder: "e.g., Protein, Moisture, Total Defects" },
     {
       key: "type",
       label: "TYPE",
       required: true,
       type: "select",
-      options: ["Percentage", "Count"],
+      options: TEST_TYPES,
     },
     { key: "unit", label: "UNIT", required: true, placeholder: "%" },
     {
@@ -328,8 +343,14 @@ export default function TestPage() {
             </>
           ) : (
             <Grid
-              columns={gridColumns}
-              rows={rows}
+              columns={gridColumns.map((c) => {
+                const colDef = config.columns.find((cc) => cc.key === c.key);
+                if (colDef?.format) {
+                  return { ...c, format: (val, row) => colDef.format(val, row, rows) };
+                }
+                return c;
+              })}
+              rows={rowsWithRefs}
               getRowId={(row) => row.id}
               theme="light"
               density="standard"
@@ -359,9 +380,13 @@ export default function TestPage() {
               <p className="mt-4 text-sm leading-relaxed text-slate-500">Select a row to view details.</p>
             ) : (
               <dl className="mt-4 space-y-3 text-sm">
-                {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
-                ))}
+                {config.columns.map((column) => {
+                  const raw = selected[column.key];
+                  const display = column.format ? column.format(raw, selected, rows) : raw;
+                  return (
+                    <DetailItem key={column.key} label={column.label} value={display} highlight={column === config.columns[0]} />
+                  );
+                })}
               </dl>
             )}
           </aside>
@@ -419,6 +444,61 @@ function FormField({ field, value, onChange, disabled }) {
             <option key={option} value={option}>{option}</option>
           ))}
         </select>
+      ) : field.type === "checkboxes" ? (
+        <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200/95 bg-white px-3 py-2.5">
+          {field.options?.map((option) => {
+            const selected = Array.isArray(value) ? value.includes(option) : false;
+            return (
+              <label key={option} className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                  checked={selected}
+                  onChange={(event) => {
+                    const arr = Array.isArray(value) ? value : [];
+                    onChange(event.target.checked ? [...arr, option] : arr.filter((v) => v !== option));
+                  }}
+                />
+                {option}
+              </label>
+            );
+          })}
+        </div>
+      ) : field.type === "test-members" ? (
+        <div className="rounded-lg border border-slate-200/95 bg-white p-2.5">
+          {(memberCandidates ?? []).length === 0 ? (
+            <p className="px-1 py-2 text-xs text-slate-400">
+              No Count-type tests available. Add Count tests first.
+            </p>
+          ) : (
+            <div className="max-h-44 overflow-y-auto space-y-1">
+              {memberCandidates.map((test) => {
+                const selected = Array.isArray(value) ? value.includes(test.id) : false;
+                return (
+                  <label
+                    key={test.id}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                      selected ? "bg-blue-50" : "hover:bg-slate-50"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                      checked={selected}
+                      onChange={(event) => {
+                        const arr = Array.isArray(value) ? value : [];
+                        onChange(event.target.checked ? [...arr, test.id] : arr.filter((v) => v !== test.id));
+                      }}
+                    />
+                    <span className={cn(selected && "font-medium text-slate-900")}>{test.testName}</span>
+                    {test.unit ? <span className="ml-auto text-[11px] text-slate-400">{test.unit}</span> : null}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
       ) : field.type === "textarea" ? (
         <textarea
           suppressHydrationWarning
@@ -458,7 +538,14 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
+          const summary = (summaryColumns ?? [])
+            .map((col) => {
+              const raw = row[col.key];
+              const v = col.format ? col.format(raw, row, allRows) : raw;
+              return Array.isArray(v) ? v.join(", ") : v;
+            })
+            .filter((v) => v && v !== "—")
+            .join(" · ");
           return (
             <button
               key={row.id}

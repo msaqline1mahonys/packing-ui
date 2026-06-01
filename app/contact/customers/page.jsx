@@ -1,12 +1,16 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
-import { CUSTOMER_CONTACT_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const CUSTOMERS_ENDPOINT = `${API_BASE_URL}/reference-data/customers`;
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 const textareaClass =
@@ -20,7 +24,6 @@ const columns = [
   { key: "warningsCount", label: "Warning(s)" },
 ];
 
-// Column definitions for clutch-table Grid
 const gridColumns = columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -29,8 +32,6 @@ const gridColumns = columns.map((col) => ({
   filterable: true,
   resizable: true,
 }));
-
-const initialRows = CUSTOMER_CONTACT_ROWS;
 
 const emptyContact = () => ({ name: "", email: "", phone: "" });
 const emptyWarning = () => ({ warningDescription: "", showOnPacks: true });
@@ -41,9 +42,13 @@ function normalizeWarnings(warnings) {
     typeof warning === "string"
       ? { warningDescription: warning, showOnPacks: true }
       : {
-          warningDescription: warning.warningDescription || "",
-          showOnPacks: warning.showOnPacks !== false,
-        }
+        warningDescription:
+          warning.warningDescription ??
+          warning.warning_description ??
+          warning.description ??
+          "",
+        showOnPacks: warning.showOnPacks !== false && warning.show_on_packs !== false,
+      }
   );
 }
 
@@ -53,10 +58,10 @@ function normalizeContacts(contacts) {
     typeof contact === "string"
       ? { name: contact, email: "", phone: "" }
       : {
-          name: contact.name || "",
-          email: contact.email || "",
-          phone: contact.phone || "",
-        }
+        name: contact.name || "",
+        email: contact.email || "",
+        phone: contact.phone || "",
+      }
   );
 }
 
@@ -65,18 +70,117 @@ function pluralize(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function toDisplayRow(row) {
-  const emails = Array.isArray(row.emails) ? row.emails : [];
-  const contacts = normalizeContacts(row.contacts).filter((contact) => contact.name || contact.email || contact.phone);
-  const warnings = normalizeWarnings(row.warnings).filter((warning) => (warning.warningDescription || "").trim());
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
   return {
-    ...row,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function customerRequest(path = "", options = {}) {
+  const response = await fetch(`${CUSTOMERS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Customer request failed."));
+  }
+  return result;
+}
+
+function fromApiCustomer(row) {
+  if (!row) return null;
+
+  const emails = Array.isArray(row.emails) ? row.emails : [];
+  const addresses = Array.isArray(row.addresses) ? row.addresses : [];
+  const contacts = normalizeContacts(row.contacts ?? []).filter(
+    (contact) => contact.name || contact.email || contact.phone
+  );
+  const warnings = normalizeWarnings(row.warnings ?? []).filter((warning) =>
+    (warning.warningDescription || "").trim()
+  );
+
+  return {
+    id: row.id,
+    code: row.code ?? "",
+    name: row.name ?? "",
     emails,
+    addresses,
+    website: row.website ?? "",
+    notes: row.notes ?? "",
+    invoicingContact: row.invoicing_contact ?? row.invoicingContact ?? "",
     contacts,
     warnings,
     emailsCount: pluralize(emails.length, "email"),
     contactsCount: pluralize(contacts.length, "contact"),
     warningsCount: pluralize(warnings.length, "warning"),
+  };
+}
+
+function toApiPayload(formData) {
+  const tenant = getTenantPayload();
+
+  const contacts = (formData.contacts || [])
+    .map((contact) => ({
+      name: (contact.name || "").trim(),
+      email: (contact.email || "").trim(),
+      phone: (contact.phone || "").trim(),
+    }))
+    .filter((contact) => contact.name || contact.email || contact.phone);
+
+  const warnings = (formData.warnings || [])
+    .filter((warning) => (warning.warningDescription || "").trim())
+    .map((warning) => ({
+      warningDescription: warning.warningDescription.trim(),
+      showOnPacks: warning.showOnPacks !== false,
+    }));
+
+  return {
+    ...tenant,
+    code: formData.code.trim(),
+    name: formData.name.trim(),
+    emails: formData.emails
+      .split("\n")
+      .map((email) => email.trim())
+      .filter(Boolean),
+    addresses: formData.addresses
+      .split("\n")
+      .map((address) => address.trim())
+      .filter(Boolean),
+    website: formData.website.trim() || null,
+    notes: formData.notes.trim() || null,
+    invoicingContact: formData.invoicingContact.trim() || null,
+    contacts,
+    warnings,
   };
 }
 
@@ -95,27 +199,57 @@ function buildFormData(row) {
     };
   }
 
+  const rowContacts = normalizeContacts(row.contacts);
+  const rowWarnings = normalizeWarnings(row.warnings);
+
   return {
     code: row.code || "",
     name: row.name || "",
     emails: Array.isArray(row.emails) ? row.emails.join("\n") : "",
-    contacts: normalizeContacts(row.contacts),
+    contacts: rowContacts.length ? rowContacts : [emptyContact()],
     addresses: Array.isArray(row.addresses) ? row.addresses.join("\n") : "",
     website: row.website || "",
     notes: row.notes || "",
     invoicingContact: row.invoicingContact || "",
-    warnings: normalizeWarnings(row.warnings),
+    warnings: rowWarnings.length ? rowWarnings : [emptyWarning()],
   };
 }
 
 export default function ContactCustomersPage() {
-  const [rows, setRows] = useState(() => initialRows.map(toDisplayRow));
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const loadCustomers = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const result = await customerRequest("?per_page=500");
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+      setRows(apiRows.map(fromApiCustomer).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load customers.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadCustomers();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadCustomers]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -134,8 +268,11 @@ export default function ContactCustomersPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalOpen ? error : "";
 
   function openCreateModal() {
+    setError("");
+    setNotice("");
     setEditMode(false);
     setFormData(buildFormData());
     setModalOpen(true);
@@ -143,62 +280,90 @@ export default function ContactCustomersPage() {
 
   function openEditModal() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setEditMode(true);
     setFormData(buildFormData(selected));
     setModalOpen(true);
   }
 
-  function handleSubmit() {
+  function closeModal() {
+    if (isSaving) return;
+    setModalOpen(false);
+    setError("");
+  }
+
+  async function handleSubmit() {
     if (!formData.code.trim() || !formData.name.trim()) {
+      setError("Customer code and name are required.");
       return;
     }
 
-    const nextRow = toDisplayRow({
-      id: editMode && selected ? selected.id : Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1,
-      code: formData.code.trim(),
-      name: formData.name.trim(),
-      emails: formData.emails
-        .split("\n")
-        .map((email) => email.trim())
-        .filter(Boolean),
-      contacts: (formData.contacts || [])
-        .map((contact) => ({
-          name: (contact.name || "").trim(),
-          email: (contact.email || "").trim(),
-          phone: (contact.phone || "").trim(),
-        }))
-        .filter((contact) => contact.name || contact.email || contact.phone),
-      addresses: formData.addresses
-        .split("\n")
-        .map((address) => address.trim())
-        .filter(Boolean),
-      website: formData.website.trim(),
-      notes: formData.notes.trim(),
-      invoicingContact: formData.invoicingContact.trim(),
-      warnings: (formData.warnings || [])
-        .filter((warning) => (warning.warningDescription || "").trim())
-        .map((warning) => ({
-          warningDescription: warning.warningDescription.trim(),
-          showOnPacks: warning.showOnPacks !== false,
-        })),
-    });
-
-    if (editMode && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
-    } else {
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextRow.id);
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a customer.");
+      return;
     }
 
-    setModalOpen(false);
-    setFormData(buildFormData());
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload(formData);
+
+      if (!editMode) {
+        const result = await customerRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCustomer(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Customer created successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+        return;
+      }
+
+      if (selected) {
+        const result = await customerRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCustomer(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Customer updated successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save customer.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function removeSelected() {
-    if (!selected) return;
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
     if (!window.confirm(`Delete customer "${selected.name}" permanently?`)) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await customerRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Customer deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete customer.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   function setContact(index, key, value) {
@@ -224,7 +389,9 @@ export default function ContactCustomersPage() {
   function updateWarning(index, key, value) {
     setFormData((prev) => ({
       ...prev,
-      warnings: (prev.warnings || []).map((warning, itemIndex) => (itemIndex === index ? { ...warning, [key]: value } : warning)),
+      warnings: (prev.warnings || []).map((warning, itemIndex) =>
+        itemIndex === index ? { ...warning, [key]: value } : warning
+      ),
     }));
   }
 
@@ -242,18 +409,48 @@ export default function ContactCustomersPage() {
     });
   }
 
+  const toolbarActions = (
+    <div className="flex flex-wrap gap-2">
+      <BtnPrimary type="button" onClick={openCreateModal} disabled={isLoading}>
+        + Add
+      </BtnPrimary>
+      <BtnSecondary type="button" onClick={loadCustomers} disabled={isLoading}>
+        Refresh
+      </BtnSecondary>
+      <BtnSecondary type="button" disabled={!selected || isLoading} onClick={openEditModal}>
+        Edit
+      </BtnSecondary>
+      <BtnDanger type="button" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
+        {isDeleting ? "Deleting…" : "Delete"}
+      </BtnDanger>
+    </div>
+  );
+
   return (
     <div className="space-y-5">
       <div>
         <p className="text-xs text-slate-500">Contacts / Customers</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Customers</h1>
-        {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage customer master records, contacts, and warnings.</p> : null}
+        {!isMobile ? (
+          <p className="mt-1 text-xs text-slate-500">Manage customer master records, contacts, and warnings.</p>
+        ) : null}
       </div>
+
+      {!modalOpen && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
 
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" />
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
+              <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" isLoading={isLoading} />
+            </>
           ) : (
             <Grid
               columns={gridColumns}
@@ -263,14 +460,10 @@ export default function ContactCustomersPage() {
               density="standard"
               fileName="Customers"
               visibleRows={12}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading customers…" : "No customers found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-              toolbarActions={
-                <div className="flex flex-wrap gap-2">
-                  <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>
-                  <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>Edit</BtnSecondary>
-                  <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>Delete</BtnDanger>
-                </div>
-              }
+              toolbarActions={toolbarActions}
             />
           )}
         </div>
@@ -294,8 +487,11 @@ export default function ContactCustomersPage() {
                   value={
                     selected.warnings.length
                       ? selected.warnings
-                          .map((warning) => `${warning.warningDescription} (Show on Packs: ${warning.showOnPacks ? "Yes" : "No"})`)
-                          .join(" | ")
+                        .map(
+                          (warning) =>
+                            `${warning.warningDescription} (Show on Packs: ${warning.showOnPacks ? "Yes" : "No"})`
+                        )
+                        .join(" | ")
                       : "â€”"
                   }
                 />
@@ -305,7 +501,15 @@ export default function ContactCustomersPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit Customer" : "Add New Customer"} width={600}>
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title={editMode ? "Edit Customer" : "Add New Customer"}
+        width={600}
+      >
+        {modalError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="space-y-3 pe-2">
           <FormRow label="Customer Code" required>
             <input suppressHydrationWarning value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="e.g., AC001" />
@@ -318,6 +522,7 @@ export default function ContactCustomersPage() {
           <FormRow label="Customer Email(s)">
             <textarea
               value={formData.emails}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, emails: event.target.value })}
               placeholder={"Enter one email per line\naccounts@company.com.au\nadmin@company.com.au"}
               rows={3}
@@ -331,7 +536,8 @@ export default function ContactCustomersPage() {
               <button
                 type="button"
                 onClick={addContact}
-                className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-100"
+                disabled={isSaving}
+                className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 disabled:opacity-50"
               >
                 + Add contact
               </button>
@@ -342,8 +548,9 @@ export default function ContactCustomersPage() {
                   <span className="text-[11px] font-semibold text-slate-500">Contact {index + 1}</span>
                   <button
                     type="button"
+                    disabled={isSaving}
                     onClick={() => removeContact(index)}
-                    className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-600 hover:bg-rose-100"
+                    className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-600 hover:bg-rose-100 disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -358,6 +565,7 @@ export default function ContactCustomersPage() {
           <FormRow label="Customer Address(es)">
             <textarea
               value={formData.addresses}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, addresses: event.target.value })}
               placeholder={"Enter one address per line\n123 Farm Road, Toowoomba QLD 4350"}
               rows={2}
@@ -372,6 +580,7 @@ export default function ContactCustomersPage() {
           <FormRow label="Customer Invoicing Contact">
             <Input
               value={formData.invoicingContact}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, invoicingContact: event.target.value })}
               placeholder="e.g., John Smith - accounts@company.com.au"
             />
@@ -380,6 +589,7 @@ export default function ContactCustomersPage() {
           <FormRow label="Notes">
             <textarea
               value={formData.notes}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, notes: event.target.value })}
               placeholder="Any additional notes about this customer"
               rows={2}
@@ -394,13 +604,19 @@ export default function ContactCustomersPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-slate-500">Warning {index + 1}</span>
                     {(formData.warnings || []).length > 1 ? (
-                      <button type="button" onClick={() => removeWarningRow(index)} className="px-1 text-[11px] text-rose-600 hover:text-rose-700">
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => removeWarningRow(index)}
+                        className="px-1 text-[11px] text-rose-600 hover:text-rose-700 disabled:opacity-50"
+                      >
                         Remove
                       </button>
                     ) : null}
                   </div>
                   <Input
                     value={warning.warningDescription}
+                    disabled={isSaving}
                     onChange={(event) => updateWarning(index, "warningDescription", event.target.value)}
                     placeholder="Warning Description"
                   />
@@ -410,7 +626,7 @@ export default function ContactCustomersPage() {
                   </label>
                 </div>
               ))}
-              <BtnSecondary type="button" onClick={addWarningRow}>
+              <BtnSecondary type="button" onClick={addWarningRow} disabled={isSaving}>
                 + Add Warning
               </BtnSecondary>
             </div>
@@ -418,10 +634,10 @@ export default function ContactCustomersPage() {
         </div>
 
         <div className="mt-5 flex gap-2 border-t border-slate-200 pt-4">
-          <BtnPrimary type="button" className="flex-1 justify-center" onClick={handleSubmit}>
-            {editMode ? "Update Customer" : "Add Customer"}
+          <BtnPrimary type="button" className="flex-1 justify-center" onClick={handleSubmit} disabled={isSaving}>
+            {isSaving ? "Saving…" : editMode ? "Update Customer" : "Add Customer"}
           </BtnPrimary>
-          <BtnSecondary type="button" className="flex-1 justify-center" onClick={() => setModalOpen(false)}>
+          <BtnSecondary type="button" className="flex-1 justify-center" onClick={closeModal} disabled={isSaving}>
             Cancel
           </BtnSecondary>
         </div>
@@ -441,8 +657,12 @@ export default function ContactCustomersPage() {
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search }) {
-  const emptyMessage = search ? "No customers match your search." : "No customers found. Add your first one!";
+function MobileList({ rows, selectedId, onSelect, search, isLoading }) {
+  const emptyMessage = isLoading
+    ? "Loading customers…"
+    : search
+      ? "No customers match your search."
+      : "No customers found. Add your first one!";
   return (
     <div className="space-y-2 p-3">
       <div className="px-0.5 text-xs font-semibold text-slate-600">Customers ({rows.length})</div>
@@ -456,7 +676,10 @@ function MobileList({ rows, selectedId, onSelect, search }) {
               key={row.id}
               type="button"
               onClick={() => onSelect(isSelected ? null : row.id)}
-              className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
+              className={cn(
+                "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+              )}
             >
               <p className="text-xs font-bold text-blue-600">{row.code || "â€”"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
@@ -496,7 +719,11 @@ function Modal({ open, title, onClose, children, width = 640 }) {
           <h2 id="customers-modal-title" className="text-sm font-semibold text-slate-900">
             {title}
           </h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
             x
           </button>
         </div>

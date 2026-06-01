@@ -31,6 +31,18 @@ const TABLE_COLUMNS = [
   { key: "importExport", label: "I/E" },
 ];
 
+const DATE_FILTER_OPTIONS = [
+  { key: "vesselCutoffDate", label: "Cut-off" },
+  { key: "etd", label: "ETD" },
+  { key: "packingStartDate", label: "Packing Start Date" },
+];
+
+const DATE_FILTER_MODES = [
+  { key: "all", label: "Any Date" },
+  { key: "specific", label: "Specific Date" },
+  { key: "range", label: "Date Range" },
+];
+
 function formatCutoffOrEtdDisplay(value) {
   if (value == null || String(value).trim() === "") return "â€”";
   const str = String(value).trim();
@@ -62,12 +74,27 @@ function emptyParkDisplay(row, parkIdToName) {
   const s = emptyParkRaw(row, parkIdToName);
   return s || "â€”";
 }
+
+function getDateOnlyValue(rawValue) {
+  if (rawValue == null) return "";
+  const value = String(rawValue).trim();
+  if (!value) return "";
+  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 export default function PackingSchedulePage() {
   const router = useRouter();
   const [rows, setRows] = useState(() => loadPackScheduleRows());
   const [importExportFilter, setImportExportFilter] = useState("all");
-  const [searchByDate, setSearchByDate] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateFilterField, setDateFilterField] = useState("vesselCutoffDate");
+  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [specificDate, setSpecificDate] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
   useEffect(() => {
@@ -85,10 +112,24 @@ export default function PackingSchedulePage() {
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.includes(p.status))
       .filter((p) => importExportFilter === "all" || p.importExport === importExportFilter)
-      .filter((p) => (searchByDate ? p.date === selectedDate : true));
-  }, [rows, importExportFilter, selectedStatuses, searchByDate, selectedDate]);
+      .filter((p) => {
+        if (dateFilterMode === "all") return true;
+        const rowDate = getDateOnlyValue(p[dateFilterField]);
+        if (!rowDate) return false;
+        if (dateFilterMode === "specific") {
+          if (!specificDate) return true;
+          return rowDate === specificDate;
+        }
+        if (!dateFrom && !dateTo) return true;
+        if (dateFrom && !dateTo) return rowDate >= dateFrom;
+        if (!dateFrom && dateTo) return rowDate <= dateTo;
+        if (dateFrom && rowDate < dateFrom) return false;
+        if (dateTo && rowDate > dateTo) return false;
+        return true;
+      });
+  }, [rows, importExportFilter, selectedStatuses, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
-  const selected = useMemo(() => filtered.find((p) => p.id === selectedId) || null, [filtered, selectedId]);
+  const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
 
   const parkIdToName = useMemo(() => {
     const m = new Map();
@@ -180,7 +221,8 @@ export default function PackingSchedulePage() {
             {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /> : null}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
           <div className="flex flex-1 flex-wrap items-center gap-2">
             {PACK_STATUSES.map((s) => (
               <button
@@ -201,7 +243,7 @@ export default function PackingSchedulePage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start">
+      <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
             columns={gridColumns}
@@ -246,11 +288,11 @@ export default function PackingSchedulePage() {
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-3 py-3">
-            <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
-          </div>
-          {selected ? (
+        {selected ? (
+          <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-3 py-3">
+              <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
+            </div>
             <div className="space-y-3 p-3 text-xs">
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
@@ -261,14 +303,13 @@ export default function PackingSchedulePage() {
               <Field label="Vessel" value={selected.vessel} />
               <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />
               <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vesselCutoffDate)} />
+              <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packingStartDate)} />
               <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
               <Field label="Count" value={String(selected.containersRequired)} />
               <Field label="MT" value={selected.mtTotal?.toFixed(1)} />
             </div>
-          ) : (
-            <div className="p-6 text-center text-xs text-slate-400">Select a pack to view details</div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
     </div>

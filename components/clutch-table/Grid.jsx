@@ -77,6 +77,13 @@ export function Grid(props) {
     fillContainerWidth = true
   } = props;
   const persisted = useMemo(() => loadPersistedState(persistKey), [persistKey]);
+  const dndContextId = useMemo(() => {
+    const slug = String(persistKey ?? fileName ?? 'default')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `clutch-grid-${slug || 'default'}`;
+  }, [persistKey, fileName]);
   const dimensions = DENSITIES[density];
   const effectiveRowHeight = rowHeight ?? dimensions.rowHeight;
   const effectiveHeaderHeight = headerHeight ?? dimensions.headerHeight;
@@ -987,7 +994,7 @@ export function Grid(props) {
           display: 'flex',
           flexDirection: 'column'
         }}>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleColumns.filter(c => c.state.pin == null).map(c => c.def.key)} strategy={horizontalListSortingStrategy}>
                 <Box role="row" sx={{
                 display: 'flex',

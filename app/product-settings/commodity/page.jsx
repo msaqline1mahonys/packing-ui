@@ -16,6 +16,7 @@ const TESTS_ENDPOINT = `${API_BASE_URL}/product-settings/tests`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+"w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const UNIT_TYPE_OPTIONS = ["kg (Kilograms)", "t (Tonnes)", "lb (Pounds)", "g (Grams)"];
 
@@ -179,6 +180,13 @@ export default function CommodityPage() {
     return () => cancelAnimationFrame(frame);
   }, [loadRows, loadFormData]);
 
+  useEffect(() => {
+    const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const handleMedia = () => setIsMobile(query.matches);
+    handleMedia();
+    query.addEventListener("change", handleMedia);
+    return () => query.removeEventListener("change", handleMedia);
+  }, []);
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const handleMedia = () => setIsMobile(query.matches);
@@ -671,6 +679,12 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
 }
 
 function DetailItem({ label, value, highlight }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+    </div>
+  );
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>

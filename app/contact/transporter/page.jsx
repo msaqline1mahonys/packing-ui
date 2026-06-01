@@ -1,12 +1,16 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
-import { TRANSPORTER_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const TRANSPORTERS_ENDPOINT = `${API_BASE_URL}/contacts/transporters`;
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
@@ -17,7 +21,6 @@ const columns = [
   { key: "contactsCount", label: "Contacts" },
 ];
 
-// Column definitions for clutch-table Grid
 const gridColumns = columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -27,8 +30,6 @@ const gridColumns = columns.map((col) => ({
   resizable: true,
 }));
 
-const initialRows = TRANSPORTER_MASTER_ROWS;
-
 const emptyContact = () => ({ name: "", email: "", phone: "" });
 
 function normalizeContacts(contacts) {
@@ -37,18 +38,98 @@ function normalizeContacts(contacts) {
     typeof contact === "string"
       ? { name: contact, email: "", phone: "" }
       : {
-          name: contact.name || "",
-          email: contact.email || "",
-          phone: contact.phone || "",
-        }
+        name: contact.name || "",
+        email: contact.email || "",
+        phone: contact.phone || "",
+      }
   );
 }
 
-function toDisplayRow(row) {
-  const contacts = normalizeContacts(row.contacts).filter((contact) => contact.name || contact.email || contact.phone);
+function pluralize(count, noun) {
+  if (count === 0) return "—";
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
   return {
-    ...row,
-    email: row.email || "",
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function transporterRequest(path = "", options = {}) {
+  const response = await fetch(`${TRANSPORTERS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Transporter request failed."));
+  }
+  return result;
+}
+
+function fromApiTransporter(row) {
+  if (!row) return null;
+
+  const contacts = normalizeContacts(row.contacts ?? []).filter(
+    (contact) => contact.name || contact.email || contact.phone
+  );
+
+  return {
+    id: row.id,
+    code: row.code ?? "",
+    name: row.name ?? "",
+    email: row.email ?? "",
+    contacts,
+    contactsCount: pluralize(contacts.length, "contact"),
+  };
+}
+
+function toApiPayload(formData) {
+  const tenant = getTenantPayload();
+
+  const contacts = (formData.contacts || [])
+    .map((contact) => ({
+      name: (contact.name || "").trim(),
+      email: (contact.email || "").trim(),
+      phone: (contact.phone || "").trim(),
+    }))
+    .filter((contact) => contact.name || contact.email || contact.phone);
+
+  return {
+    ...tenant,
+    code: formData.code.trim() || null,
+    name: formData.name.trim(),
+    email: formData.email.trim() || null,
     contacts,
     contactsCount: contacts.length ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "â€”",
   };
@@ -58,22 +139,52 @@ function buildFormData(row) {
   if (!row) {
     return { code: "", name: "", email: "", contacts: [emptyContact()] };
   }
+
+  const rowContacts = normalizeContacts(row.contacts);
+
   return {
     code: row.code || "",
     name: row.name || "",
     email: row.email || "",
-    contacts: normalizeContacts(row.contacts),
+    contacts: rowContacts.length ? rowContacts : [emptyContact()],
   };
 }
 
 export default function TransporterPage() {
-  const [rows, setRows] = useState(() => initialRows.map(toDisplayRow));
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const loadTransporters = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const result = await transporterRequest("?per_page=500");
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+      setRows(apiRows.map(fromApiTransporter).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load transporters.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadTransporters();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadTransporters]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -92,8 +203,11 @@ export default function TransporterPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalOpen ? error : "";
 
   function openCreateModal() {
+    setError("");
+    setNotice("");
     setEditMode(false);
     setFormData(buildFormData());
     setModalOpen(true);
@@ -101,34 +215,90 @@ export default function TransporterPage() {
 
   function openEditModal() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setEditMode(true);
     setFormData(buildFormData(selected));
     setModalOpen(true);
   }
 
-  function handleSubmit() {
-    if (!formData.name.trim()) return;
-    const nextRow = toDisplayRow({
-      id: editMode && selected ? selected.id : Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1,
-      code: formData.code.trim(),
-      name: formData.name.trim(),
-      email: formData.email.trim(),
-      contacts: (formData.contacts || [])
-        .map((contact) => ({
-          name: (contact.name || "").trim(),
-          email: (contact.email || "").trim(),
-          phone: (contact.phone || "").trim(),
-        }))
-        .filter((contact) => contact.name || contact.email || contact.phone),
-    });
-    if (editMode && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
-    } else {
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextRow.id);
-    }
+  function closeModal() {
+    if (isSaving) return;
     setModalOpen(false);
-    setFormData(buildFormData());
+    setError("");
+  }
+
+  async function handleSubmit() {
+    if (!formData.name.trim()) {
+      setError("Transporter name is required.");
+      return;
+    }
+
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a transporter.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload(formData);
+
+      if (!editMode) {
+        const result = await transporterRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiTransporter(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Transporter created successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+        return;
+      }
+
+      if (selected) {
+        const result = await transporterRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiTransporter(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Transporter updated successfully.");
+        setModalOpen(false);
+        setFormData(buildFormData());
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save transporter.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
+    if (!window.confirm(`Delete transporter "${selected.name}" permanently?`)) return;
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await transporterRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Transporter deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete transporter.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   function setContact(index, key, value) {
@@ -151,12 +321,22 @@ export default function TransporterPage() {
     });
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    if (!window.confirm(`Delete transporter "${selected.name}" permanently?`)) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
-  }
+  const toolbarActions = (
+    <div className="flex flex-wrap gap-2">
+      <BtnPrimary type="button" onClick={openCreateModal} disabled={isLoading}>
+        + Add
+      </BtnPrimary>
+      <BtnSecondary type="button" onClick={loadTransporters} disabled={isLoading}>
+        Refresh
+      </BtnSecondary>
+      <BtnSecondary type="button" disabled={!selected || isLoading} onClick={openEditModal}>
+        Edit
+      </BtnSecondary>
+      <BtnDanger type="button" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
+        {isDeleting ? "Deleting…" : "Delete"}
+      </BtnDanger>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -166,10 +346,21 @@ export default function TransporterPage() {
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage transporter master records.</p> : null}
       </div>
 
+      {!modalOpen && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
+
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
-            <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" />
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
+              <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" isLoading={isLoading} />
+            </>
           ) : (
             <Grid
               columns={gridColumns}
@@ -179,14 +370,10 @@ export default function TransporterPage() {
               density="standard"
               fileName="Transporter"
               visibleRows={12}
+              loading={isLoading}
+              emptyMessage={isLoading ? "Loading transporters…" : "No transporters found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-              toolbarActions={
-                <div className="flex flex-wrap gap-2">
-                  <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>
-                  <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>Edit</BtnSecondary>
-                  <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>Delete</BtnDanger>
-                </div>
-              }
+              toolbarActions={toolbarActions}
             />
           )}
         </div>
@@ -215,7 +402,15 @@ export default function TransporterPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit transporter" : "Add transporter"} width={500}>
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title={editMode ? "Edit transporter" : "Add transporter"}
+        width={500}
+      >
+        {modalError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="space-y-3">
           <FormRow label="Code (optional)">
             <input suppressHydrationWarning value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
@@ -229,6 +424,7 @@ export default function TransporterPage() {
             <Input
               type="email"
               value={formData.email}
+              disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, email: event.target.value })}
               placeholder="dispatcher@company.com"
             />
@@ -240,7 +436,8 @@ export default function TransporterPage() {
               <button
                 type="button"
                 onClick={addContact}
-                className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-100"
+                disabled={isSaving}
+                className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 disabled:opacity-50"
               >
                 + Add contact
               </button>
@@ -251,8 +448,9 @@ export default function TransporterPage() {
                   <span className="text-[11px] font-semibold text-slate-500">Contact {index + 1}</span>
                   <button
                     type="button"
+                    disabled={isSaving}
                     onClick={() => removeContact(index)}
-                    className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-600 hover:bg-rose-100"
+                    className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-600 hover:bg-rose-100 disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -266,11 +464,11 @@ export default function TransporterPage() {
         </div>
 
         <div className="mt-5 flex justify-end gap-2 border-t border-slate-200 pt-4">
-          <BtnSecondary type="button" onClick={() => setModalOpen(false)}>
+          <BtnSecondary type="button" onClick={closeModal} disabled={isSaving}>
             Cancel
           </BtnSecondary>
-          <BtnPrimary type="button" onClick={handleSubmit}>
-            {editMode ? "Update" : "Add"}
+          <BtnPrimary type="button" onClick={handleSubmit} disabled={isSaving}>
+            {isSaving ? "Saving…" : editMode ? "Update" : "Add"}
           </BtnPrimary>
         </div>
       </Modal>
@@ -289,8 +487,12 @@ export default function TransporterPage() {
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search }) {
-  const emptyMessage = search ? "No transporter match your search." : "No transporter found. Add your first one!";
+function MobileList({ rows, selectedId, onSelect, search, isLoading }) {
+  const emptyMessage = isLoading
+    ? "Loading transporters…"
+    : search
+      ? "No transporter match your search."
+      : "No transporter found. Add your first one!";
   return (
     <div className="space-y-2 p-3">
       <div className="px-0.5 text-xs font-semibold text-slate-600">Transporter ({rows.length})</div>
@@ -304,7 +506,10 @@ function MobileList({ rows, selectedId, onSelect, search }) {
               key={row.id}
               type="button"
               onClick={() => onSelect(isSelected ? null : row.id)}
-              className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
+              className={cn(
+                "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+              )}
             >
               <p className="text-xs font-bold text-blue-600">{row.code || "â€”"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
@@ -343,7 +548,11 @@ function Modal({ open, title, onClose, children, width = 640 }) {
           <h2 id="transporter-modal-title" className="text-sm font-semibold text-slate-900">
             {title}
           </h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
             x
           </button>
         </div>

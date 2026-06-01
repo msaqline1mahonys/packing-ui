@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const FUMIGANTS_ENDPOINT = `${API_BASE_URL}/fumigation/fumigants`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
@@ -12,28 +17,87 @@ const inputClass =
 const PRODUCT_FORMS = ["Cylinder", "Tablet", "Liquid", "Gas", "Granule"];
 const DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
 
-const initialRows = [
-  {
-    id: 1,
-    code: "PH3",
-    name: "Phosphine",
-    chemicalFamily: "Metal phosphide",
-    activeConstituent: "Phosphine gas",
-    productForm: "Cylinder",
-    reEntryPpm: "0.3",
-    defaultUnit: "ppm",
-  },
-  {
-    id: 2,
-    code: "MBR",
-    name: "Methyl Bromide",
-    chemicalFamily: "Halocarbon",
-    activeConstituent: "Bromomethane",
-    productForm: "Gas",
-    reEntryPpm: "5",
-    defaultUnit: "ppm",
-  },
-];
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function fumigantRequest(path = "", options = {}) {
+  const response = await fetch(`${FUMIGANTS_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Fumigant request failed."));
+  }
+  return result;
+}
+
+function fromApiFumigant(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    code: row.code ?? "",
+    name: row.name ?? "",
+    chemicalFamily: row.chemical_family ?? row.chemicalFamily ?? "",
+    activeConstituent: row.active_constituent ?? row.activeConstituent ?? "",
+    productForm: row.product_form ?? row.productForm ?? PRODUCT_FORMS[0],
+    reEntryPpm:
+      row.re_entry_ppm != null && row.re_entry_ppm !== ""
+        ? String(row.re_entry_ppm)
+        : row.reEntryPpm != null
+          ? String(row.reEntryPpm)
+          : "",
+    defaultUnit: row.default_unit ?? row.defaultUnit ?? DOSAGE_UNITS[0],
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  const reEntryPpm = draft.reEntryPpm === "" ? null : Number(draft.reEntryPpm);
+
+  return {
+    ...tenant,
+    code: String(draft.code ?? "").trim(),
+    name: String(draft.name ?? "").trim(),
+    chemical_family: String(draft.chemicalFamily ?? "").trim() || null,
+    active_constituent: String(draft.activeConstituent ?? "").trim() || null,
+    product_form: draft.productForm || null,
+    default_unit: draft.defaultUnit || null,
+    re_entry_ppm: reEntryPpm == null || Number.isNaN(reEntryPpm) ? null : reEntryPpm,
+  };
+}
 
 function buildDraft(row) {
   return {
@@ -48,11 +112,43 @@ function buildDraft(row) {
 }
 
 export default function FumigantsPage() {
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const loadFumigants = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams({ per_page: "500" });
+      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+      if (tenant.site_id) params.set("site_id", tenant.site_id);
+
+      const result = await fumigantRequest(`?${params.toString()}`);
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+      setRows(apiRows.map(fromApiFumigant).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load fumigants.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      loadFumigants();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadFumigants]);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -63,6 +159,7 @@ export default function FumigantsPage() {
   }, [rows, search]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const modalError = modalMode ? error : "";
 
   const gridColumns = useMemo(
     () => [
@@ -84,42 +181,98 @@ export default function FumigantsPage() {
   );
 
   function openAdd() {
+    setError("");
+    setNotice("");
     setDraft(buildDraft());
     setModalMode("add");
   }
 
   function openEdit() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
+    if (isSaving) return;
     setModalMode(null);
+    setError("");
   }
 
-  function saveModal() {
-    if (!draft.code.trim() || !draft.name.trim()) return;
-
-    if (modalMode === "add") {
-      const nextId = Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
-      const nextRow = { id: nextId, ...draft };
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextId);
-      setModalMode(null);
+  async function saveModal() {
+    if (!draft.code.trim() || !draft.name.trim()) {
+      setError("Code and name are required.");
       return;
     }
 
-    if (modalMode === "edit" && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? { ...row, ...draft } : row)));
-      setModalMode(null);
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a fumigant.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload(draft);
+
+      if (modalMode === "add") {
+        const result = await fumigantRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiFumigant(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Fumigant created successfully.");
+        setModalMode(null);
+        return;
+      }
+
+      if (modalMode === "edit" && selected) {
+        const result = await fumigantRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiFumigant(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Fumigant updated successfully.");
+        setModalMode(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save fumigant.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
+    const shouldDelete = window.confirm(
+      `Delete fumigant "${selected.name || selected.code || selected.id}"?`
+    );
+    if (!shouldDelete) return;
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await fumigantRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Fumigant deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete fumigant.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   return (
@@ -134,6 +287,14 @@ export default function FumigantsPage() {
         </p>
       </div>
 
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
+
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -143,14 +304,23 @@ export default function FumigantsPage() {
             placeholder="Search code, name, or family..."
           />
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={openAdd}>
+            <Button type="button" size="sm" onClick={openAdd} disabled={isLoading}>
               + Add
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEdit}>
+            <Button type="button" variant="outline" size="sm" onClick={loadFumigants} disabled={isLoading}>
+              Refresh
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEdit}>
               Edit
             </Button>
-            <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={removeSelected}>
-              Delete
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={!selected || isLoading || isDeleting}
+              onClick={removeSelected}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </div>
@@ -168,7 +338,8 @@ export default function FumigantsPage() {
             visibleRows={12}
             persistKey="fumigation-fumigants"
             enableGlobalSearch={false}
-            emptyMessage="No fumigants found."
+            loading={isLoading}
+            emptyMessage={isLoading ? "Loading fumigants…" : "No fumigants found."}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
@@ -198,6 +369,9 @@ export default function FumigantsPage() {
         title={modalMode === "edit" ? "Edit fumigant" : "Add fumigant"}
         onClose={closeModal}
       >
+        {modalError ? (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{modalError}</div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Code *">
             <input
@@ -265,11 +439,11 @@ export default function FumigantsPage() {
           </FormField>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={saveModal}>
-            {modalMode === "edit" ? "Save changes" : "Create"}
+          <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
       </Modal>

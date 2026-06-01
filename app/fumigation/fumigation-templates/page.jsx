@@ -1,30 +1,105 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import {
-  loadCertificateTemplates,
-  nextLocalEntityId,
-  saveCertificateTemplates,
-} from "@/lib/fumigation-store";
+import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
+import { CERTIFICATE_SECTIONS } from "@/lib/fumigation-fields";
 import { cn } from "@/lib/utils";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
+).replace(/\/+$/, "");
+const CERTIFICATE_TEMPLATES_ENDPOINT = `${API_BASE_URL}/fumigation/certificate-templates`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-const DEFAULT_FIELDS = [
-  "Template name",
-  "Customer",
-  "Commodity",
-  "Fumigant",
-  "Dosage",
-  "Exposure",
-  "Location",
-  "Fumigator",
-  "Date issued",
-];
+const ALL_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
+
+function readAuthPayload() {
+  try {
+    return JSON.parse(localStorage.getItem("authPayload") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("authToken");
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function getTenantPayload() {
+  const authPayload = readAuthPayload();
+  return {
+    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
+    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
+  };
+}
+
+function extractApiError(result, fallback) {
+  if (result?.errors) {
+    return Object.values(result.errors).flat().join(", ");
+  }
+  return result?.message || fallback;
+}
+
+async function certificateTemplateRequest(path = "", options = {}) {
+  const response = await fetch(`${CERTIFICATE_TEMPLATES_ENDPOINT}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.success === false) {
+    throw new Error(extractApiError(result, "Certificate template request failed."));
+  }
+  return result;
+}
+
+function parseList(result) {
+  const pager = result?.data;
+  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+}
+
+function fromApiCertificateTemplate(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    headerText: row.header_text ?? row.headerText ?? "",
+    footerText: row.footer_text ?? row.footerText ?? "",
+    body: row.body ?? "",
+    sections: Array.isArray(row.sections) ? row.sections : ALL_SECTION_KEYS,
+    additionalDeclarationsText:
+      row.additional_declarations_text ?? row.additionalDeclarationsText ?? "",
+    logoDataUrl: row.logo_data_url ?? row.logoDataUrl ?? "",
+    footerLogoDataUrl: row.footer_logo_data_url ?? row.footerLogoDataUrl ?? "",
+  };
+}
+
+function toApiPayload(draft) {
+  const tenant = getTenantPayload();
+  return {
+    ...tenant,
+    name: String(draft.name ?? "").trim(),
+    header_text: String(draft.headerText ?? "").trim() || null,
+    footer_text: String(draft.footerText ?? "").trim() || null,
+    body: String(draft.body ?? "").trim() || null,
+    sections: draft.sections ?? ALL_SECTION_KEYS,
+    additional_declarations_text: String(draft.additionalDeclarationsText ?? "").trim() || null,
+    logo_data_url: draft.logoDataUrl || null,
+    footer_logo_data_url: draft.footerLogoDataUrl || null,
+  };
+}
 
 function buildDraft(row) {
   return {
@@ -32,7 +107,109 @@ function buildDraft(row) {
     headerText: row?.headerText ?? "",
     footerText: row?.footerText ?? "",
     body: row?.body ?? "",
-    fields: row?.fields?.length ? row.fields : DEFAULT_FIELDS,
+    sections: Array.isArray(row?.sections) ? row.sections : ALL_SECTION_KEYS,
+    additionalDeclarationsText: row?.additionalDeclarationsText ?? "",
+    logoDataUrl: row?.logoDataUrl ?? "",
+    footerLogoDataUrl: row?.footerLogoDataUrl ?? "",
+  };
+}
+
+/** Read a file as a base64 data URL */
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      resolve("");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Build a placeholder model for the live preview. */
+function buildPreviewModel(draft) {
+  return {
+    packId: 0,
+    packRef: "PREVIEW-000001",
+    certificateNumber: "CERT-000001-001",
+    issuedDate: new Date().toLocaleDateString("en-AU"),
+    treatmentProviderId: "AEI-DEMO-001",
+    fumigatorName: "Sample Fumigator",
+    fumigatorAccreditationNumber: "FUM-1234",
+    customerName: "Demo Customer Pty Ltd",
+    customerAddress: "12 Sample Street, Melbourne VIC 3000",
+    commodityDescription: "Wheat — Premium Grade",
+    commodityCode: "WHT-PREM",
+    commodityCountryOfOrigin: "Australia",
+    commodityQuantity: "20 t",
+    portOfLoading: "Port of Melbourne",
+    destinationCountry: "Vietnam",
+    containerNumbers: ["ABCU1234567"],
+    sealNumbers: ["SL12345"],
+    targetOfFumigation: ["commodity"],
+    enclosureType: "unsheeted-container",
+    enclosureOtherText: "",
+    enclosureLengthM: "5.9",
+    enclosureWidthM: "2.4",
+    enclosureHeightM: "2.4",
+    volumeM3: "33.2",
+    prescribedDoseRate: "48",
+    prescribedDoseUnit: "g/m3",
+    prescribedExposure: "24",
+    prescribedExposureUnit: "hours",
+    prescribedTemperature: "21",
+    fumigationType: "ambient",
+    dosageValue: "48",
+    dosageUnit: "g/m3",
+    calculatedDosageValue: "1593.6",
+    calculatedDosageUnit: "g",
+    actualDosageAppliedValue: "1600",
+    actualDosageAppliedUnit: "g",
+    chloropicrinUsed: false,
+    chloropicrinPercent: "",
+    heatersUsed: false,
+    exposureTimeValue: "24",
+    exposureTimeUnit: "hours",
+    actualTemperature: "22",
+    minForecastedTemperature: "18",
+    minAmbientTemperature: "20",
+    placeStreet: "12 Example Drive",
+    placeSuburb: "Altona",
+    placeCountry: "Australia",
+    placePostcode: "3018",
+    fumigationStartAt: new Date().toISOString().slice(0, 16),
+    dosingFinishAt: new Date().toISOString().slice(0, 16),
+    fumigationEndAt: new Date().toISOString().slice(0, 16),
+    ventilationStartAt: new Date().toISOString().slice(0, 16),
+    finalTlvPpm1: "0.2",
+    finalTlvPpm2: "0.1",
+    finalTlvPpm3: "",
+    endPointConcentration: "",
+    endPointConcentrationUnit: "g/m3",
+    ctRequired: "",
+    ctAchieved: "",
+    thirdPartySystem: false,
+    thirdPartySystemName: "",
+    fumigationResult: "pass",
+    governmentOfficerName: "",
+    governmentOfficerSignature: "",
+    additionalDeclarations: draft.additionalDeclarationsText || "",
+    fumigant: { name: "Methyl Bromide", code: "MBR", activeConstituent: "Bromomethane", productForm: "Gas" },
+    methodology: { name: "MBR container fumigation", version: "v3.0" },
+    template: {
+      name: draft.name,
+      headerText: draft.headerText,
+      footerText: draft.footerText,
+      body: draft.body,
+      sections: draft.sections,
+      additionalDeclarationsText: draft.additionalDeclarationsText,
+      logoDataUrl: draft.logoDataUrl,
+      footerLogoDataUrl: draft.footerLogoDataUrl,
+    },
+    site: { name: "Mahonys Packing" },
+    siteAddress: { line1: "Mahonys Packing Pty Ltd", line2: "Melbourne, VIC", phone: "+61 3 9000 0000", email: "ops@mahonys.local" },
   };
 }
 
@@ -42,15 +219,44 @@ export default function FumigationTemplatesPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const headerFileRef = useRef(null);
+  const footerFileRef = useRef(null);
+  const modalError = modalMode ? error : "";
+
+  const loadTemplates = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams({ per_page: "500" });
+      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+      if (tenant.site_id) params.set("site_id", tenant.site_id);
+
+      const result = await certificateTemplateRequest(`?${params.toString()}`);
+      setRows(parseList(result).map(fromApiCertificateTemplate).filter(Boolean));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load certificate templates.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setRows(loadCertificateTemplates());
-  }, []);
+    const frame = requestAnimationFrame(() => {
+      loadTemplates();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadTemplates]);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
     const needle = search.toLowerCase();
-    return rows.filter((row) => `${row.name} ${row.body}`.toLowerCase().includes(needle));
+    return rows.filter((row) => `${row.name} ${row.body || ""}`.toLowerCase().includes(needle));
   }, [rows, search]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
@@ -61,75 +267,156 @@ export default function FumigationTemplatesPage() {
       { key: "headerText", header: "Header", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "footerText", header: "Footer", type: "text", sortable: true, filterable: true, resizable: true },
       {
-        key: "fieldCount",
-        header: "Fields",
-        type: "number",
+        key: "sectionsEnabled",
+        header: "Sections enabled",
+        type: "text",
         sortable: true,
         filterable: true,
         resizable: true,
-        valueGetter: (row) => row.fields.length,
+        valueGetter: (row) => {
+          const enabled = Array.isArray(row.sections) ? row.sections : ALL_SECTION_KEYS;
+          return `${enabled.length} / ${ALL_SECTION_KEYS.length}`;
+        },
+      },
+      {
+        key: "hasLogo",
+        header: "Logo",
+        type: "text",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+        valueGetter: (row) => (row.logoDataUrl ? "Custom" : "Default"),
       },
     ],
     []
   );
 
   function openAdd() {
+    setError("");
+    setNotice("");
     setDraft(buildDraft());
     setModalMode("add");
   }
 
   function openEdit() {
     if (!selected) return;
+    setError("");
+    setNotice("");
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
 
   function closeModal() {
+    if (isSaving) return;
     setModalMode(null);
+    setError("");
   }
 
-  function toggleField(label) {
+  function toggleSection(key) {
     setDraft((prev) => {
-      const next = new Set(prev.fields);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return { ...prev, fields: [...next] };
+      const next = new Set(prev.sections ?? []);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, sections: [...next] };
     });
   }
 
-  function saveModal() {
-    if (!draft.name.trim()) return;
-    const normalized = { ...draft, name: draft.name.trim() };
+  async function onPickLogo(target, fileList) {
+    const file = fileList?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Logo must be an image file.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Logo must be 2 MB or smaller.");
+      return;
+    }
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setDraft((prev) => ({ ...prev, [target]: dataUrl }));
+      setError("");
+    } catch {
+      setError("Could not read logo file.");
+    }
+  }
 
-    if (modalMode === "add") {
-      const nextId = nextLocalEntityId(rows);
-      const nextRows = [{ id: nextId, ...normalized }, ...rows];
-      setRows(nextRows);
-      saveCertificateTemplates(nextRows);
-      setSelectedId(nextId);
-      setModalMode(null);
+  function clearLogo(target) {
+    setDraft((prev) => ({ ...prev, [target]: "" }));
+  }
+
+  async function saveModal() {
+    if (!draft.name.trim()) {
+      setError("Template name is required.");
       return;
     }
 
-    if (modalMode === "edit" && selected) {
-      const nextRows = rows.map((row) =>
-        row.id === selected.id ? { ...row, ...normalized } : row
-      );
-      setRows(nextRows);
-      saveCertificateTemplates(nextRows);
-      setModalMode(null);
+    const tenant = getTenantPayload();
+    if (!tenant.organization_id || !tenant.site_id) {
+      setError("Organization and current site are required to save a template.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = toApiPayload({ ...draft, name: draft.name.trim() });
+
+      if (modalMode === "add") {
+        const result = await certificateTemplateRequest("", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCertificateTemplate(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => [nextRow, ...prev]);
+        setSelectedId(nextRow.id);
+        setNotice(result.message || "Certificate template created successfully.");
+        setModalMode(null);
+        return;
+      }
+
+      if (modalMode === "edit" && selected) {
+        const result = await certificateTemplateRequest(`/${selected.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const nextRow = fromApiCertificateTemplate(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
+        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setNotice(result.message || "Certificate template updated successfully.");
+        setModalMode(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save certificate template.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    const nextRows = rows.filter((row) => row.id !== selected.id);
-    setRows(nextRows);
-    saveCertificateTemplates(nextRows);
-    setSelectedId(null);
+  async function removeSelected() {
+    if (!selected || isDeleting) return;
+    if (!window.confirm(`Delete template "${selected.name}" permanently?`)) return;
+
+    setIsDeleting(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await certificateTemplateRequest(`/${selected.id}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+      setNotice(result.message || "Certificate template deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete certificate template.");
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
-  const previewFields = draft.fields.length ? draft.fields : ["No fields selected"];
+  const previewModel = useMemo(() => buildPreviewModel(draft), [draft]);
 
   return (
     <div className="space-y-5">
@@ -139,9 +426,18 @@ export default function FumigationTemplatesPage() {
           Fumigation Templates
         </h1>
         <p className="mt-1 text-xs text-slate-500">
-          Configure certificate template content and the visible data fields.
+          Toggle which gov-aligned sections render on the printed certificate, upload header/footer
+          logos, and set boilerplate declaration text.
         </p>
       </div>
+
+      {!modalMode && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
+      ) : null}
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+      ) : null}
 
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
@@ -152,14 +448,23 @@ export default function FumigationTemplatesPage() {
             placeholder="Search template..."
           />
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={openAdd}>
+            <Button type="button" size="sm" onClick={openAdd} disabled={isLoading}>
               + Add
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEdit}>
+            <Button type="button" variant="outline" size="sm" onClick={loadTemplates} disabled={isLoading}>
+              Refresh
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEdit}>
               Edit
             </Button>
-            <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={removeSelected}>
-              Delete
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={!selected || isLoading || isDeleting}
+              onClick={removeSelected}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </div>
@@ -177,7 +482,8 @@ export default function FumigationTemplatesPage() {
             visibleRows={12}
             persistKey="fumigation-certificate-templates"
             enableGlobalSearch={false}
-            emptyMessage="No templates found."
+            loading={isLoading}
+            emptyMessage={isLoading ? "Loading templates…" : "No templates found."}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
@@ -193,8 +499,26 @@ export default function FumigationTemplatesPage() {
               <DetailItem label="Template name" value={selected.name} highlight />
               <DetailItem label="Header text" value={selected.headerText} />
               <DetailItem label="Footer text" value={selected.footerText} />
-              <DetailItem label="Body" value={selected.body} />
-              <DetailItem label="Field count" value={String(selected.fields.length)} />
+              <DetailItem
+                label="Sections enabled"
+                value={
+                  (Array.isArray(selected.sections) ? selected.sections : ALL_SECTION_KEYS).length
+                  + " of " + ALL_SECTION_KEYS.length
+                }
+              />
+              <DetailItem
+                label="Disabled sections"
+                value={
+                  Array.isArray(selected.sections)
+                    ? CERTIFICATE_SECTIONS.filter((s) => !selected.sections.includes(s.key))
+                        .map((s) => s.label)
+                        .join(", ") || "—"
+                    : "—"
+                }
+              />
+              <DetailItem label="Header logo" value={selected.logoDataUrl ? "Custom uploaded" : "Default (Mahonys)"} />
+              <DetailItem label="Footer logo" value={selected.footerLogoDataUrl ? "Custom uploaded" : "None"} />
+              <DetailItem label="Boilerplate declaration" value={selected.additionalDeclarationsText || "—"} />
             </dl>
           )}
         </aside>
@@ -205,82 +529,165 @@ export default function FumigationTemplatesPage() {
         title={modalMode === "edit" ? "Edit certificate template" : "Add certificate template"}
         onClose={closeModal}
       >
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormField label="Template name *" wide>
-              <input
-                className={inputClass}
-                value={draft.name}
-                onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-              />
-            </FormField>
-            <FormField label="Header text">
-              <textarea
-                className={cn(inputClass, "min-h-20 resize-y")}
-                rows={3}
-                value={draft.headerText}
-                onChange={(event) => setDraft((prev) => ({ ...prev, headerText: event.target.value }))}
-              />
-            </FormField>
-            <FormField label="Footer text">
-              <textarea
-                className={cn(inputClass, "min-h-20 resize-y")}
-                rows={3}
-                value={draft.footerText}
-                onChange={(event) => setDraft((prev) => ({ ...prev, footerText: event.target.value }))}
-              />
-            </FormField>
-            <FormField label="Body" wide>
-              <textarea
-                className={cn(inputClass, "min-h-24 resize-y")}
-                rows={4}
-                value={draft.body}
-                onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
-              />
-            </FormField>
-          </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveModal();
+          }}
+        >
+        {modalError ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-600">{modalError}</div>
+        ) : null}
 
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Certificate fields</p>
-            <div className="mt-2 grid gap-2 rounded-lg border border-slate-200/95 bg-white p-3 sm:grid-cols-2">
-              {DEFAULT_FIELDS.map((label) => (
-                <label key={label} className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={draft.fields.includes(label)}
-                    onChange={() => toggleField(label)}
-                  />
-                  {label}
-                </label>
-              ))}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)]">
+          {/* ─── EDITOR ─── */}
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Template name *" wide>
+                <input
+                  className={inputClass}
+                  value={draft.name}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+                />
+              </FormField>
+              <FormField label="Header text">
+                <textarea
+                  className={cn(inputClass, "min-h-16 resize-y")}
+                  rows={2}
+                  value={draft.headerText}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, headerText: event.target.value }))}
+                />
+              </FormField>
+              <FormField label="Footer text">
+                <textarea
+                  className={cn(inputClass, "min-h-16 resize-y")}
+                  rows={2}
+                  value={draft.footerText}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, footerText: event.target.value }))}
+                />
+              </FormField>
+              <FormField label="Internal description (not printed)" wide>
+                <textarea
+                  className={cn(inputClass, "min-h-16 resize-y")}
+                  rows={2}
+                  value={draft.body}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
+                />
+              </FormField>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Sections rendered on the certificate
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Unchecked sections disappear from the printed document.
+              </p>
+              <div className="mt-2 grid gap-2 rounded-lg border border-slate-200/95 bg-white p-3">
+                {CERTIFICATE_SECTIONS.map((section) => (
+                  <label key={section.key} className="inline-flex items-start gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={(draft.sections ?? []).includes(section.key)}
+                      onChange={() => toggleSection(section.key)}
+                    />
+                    <span>{section.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <FormField label="Boilerplate declaration text">
+              <textarea
+                className={cn(inputClass, "min-h-20 resize-y")}
+                rows={3}
+                placeholder="Pre-fills the 'Additional declarations' field on every certificate generated from this template. Fumigators can still override per pack."
+                value={draft.additionalDeclarationsText}
+                onChange={(event) => setDraft((prev) => ({ ...prev, additionalDeclarationsText: event.target.value }))}
+              />
+            </FormField>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <LogoUploader
+                label="Header logo (override default)"
+                value={draft.logoDataUrl}
+                inputRef={headerFileRef}
+                onPick={(files) => onPickLogo("logoDataUrl", files)}
+                onClear={() => clearLogo("logoDataUrl")}
+              />
+              <LogoUploader
+                label="Footer logo (optional)"
+                value={draft.footerLogoDataUrl}
+                inputRef={footerFileRef}
+                onPick={(files) => onPickLogo("footerLogoDataUrl", files)}
+                onClear={() => clearLogo("footerLogoDataUrl")}
+              />
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Preview</p>
-            <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-sm">
-              <p className="font-semibold text-slate-900">{draft.name || "Template name"}</p>
-              <p className="text-slate-600">{draft.headerText || "Header text"}</p>
-              <p className="text-slate-700">{draft.body || "Certificate body"}</p>
-              <ul className="list-inside list-disc text-slate-600">
-                {previewFields.map((field) => (
-                  <li key={field}>{field}</li>
-                ))}
-              </ul>
-              <p className="text-slate-500">{draft.footerText || "Footer text"}</p>
+          {/* ─── LIVE PREVIEW ─── */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 overflow-hidden">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Live preview (placeholder data)
+            </p>
+            <div className="origin-top-left bg-white rounded" style={{ transform: "scale(0.55)", width: "182%", transformOrigin: "top left" }}>
+              <FumigationCertificateDocument model={previewModel} hideToolbar />
             </div>
           </div>
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={saveModal}>
-            {modalMode === "edit" ? "Save changes" : "Create"}
+          <Button type="submit" size="sm" disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
+        </form>
       </Modal>
+    </div>
+  );
+}
+
+function LogoUploader({ label, value, inputRef, onPick, onClear }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
+      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-2 flex items-center gap-2 min-h-[64px]">
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="Logo preview" className="h-12 w-auto object-contain" />
+        ) : (
+          <span className="text-xs text-slate-400 px-2">No custom logo set</span>
+        )}
+        <div className="ml-auto flex flex-col gap-1">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              onPick(event.target.files);
+              if (inputRef.current) inputRef.current.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => inputRef.current?.click()}
+          >
+            {value ? "Replace" : "Upload"}
+          </Button>
+          {value && (
+            <Button type="button" size="sm" variant="ghost" onClick={onClear}>
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -298,7 +705,7 @@ function DetailItem({ label, value, highlight = false }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
 }
@@ -308,7 +715,7 @@ function Modal({ open, title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div className="relative max-h-[min(90vh,760px)] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+      <div className="relative max-h-[min(95vh,920px)] w-full max-w-6xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
           <button

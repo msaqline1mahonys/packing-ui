@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import {
   completeTicket,
   fetchTicket,
@@ -90,6 +91,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [locationWarning, setLocationWarning] = useState(null);
 
   const [newCmo, setNewCmo] = useState({
+    cmoReference: "",
     direction: cmoDirection,
     customerId: "",
     commodityTypeId: "",
@@ -355,11 +357,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <p className="mt-0.5 text-xs text-slate-500">{ticketSubtitle}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {printHref ? (
+            <>
+              <Link
+                href={printHref}
+                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
+                onClick={() => persistTicketSnapshot(ticket)}
+              >
+                Print overview
+              </Link>
+            </>
+          ) : null}
           {isCompleted ? (
             <>
-              <Button type="button" variant="secondary" size="sm" className="text-xs" onClick={() => window.print()}>
-                Print
-              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -831,9 +841,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       </div>
 
       <Modal open={showCmoModal} title={`Create New CMO (${isIncoming ? "Incoming" : "Outgoing"})`} onClose={() => setShowCmoModal(false)}>
-        <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CMO Reference will be auto-generated</span>
-        </div>
+        <FormRow label="CMO Reference" required>
+          <input
+            className={inputClass}
+            value={newCmo.cmoReference}
+            onChange={(e) => setNewCmo({ ...newCmo, cmoReference: e.target.value })}
+            placeholder="e.g. CMO-0142"
+          />
+        </FormRow>
         <FormRow label="Customer / Account" required>
           <select
             className={inputClass}
@@ -880,11 +895,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           >
             <option value="">Select commodity</option>
             {commodities
-                .filter(
-                  (c) =>
-                    c.status === "active" &&
-                    (!newCmo.commodityTypeId || c.commodityTypeId === newCmo.commodityTypeId)
-                )
+              .filter(
+                (c) =>
+                  c.status === "active" &&
+                  (!newCmo.commodityTypeId || c.commodityTypeId === newCmo.commodityTypeId)
+              )
               .map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.commodityCode}
@@ -893,11 +908,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           </select>
         </FormRow>
         <FormRow
-          label={`Estimated Amount${
-            newCmo.commodityId
+          label={`Estimated Amount${newCmo.commodityId
               ? ` (${commodities.find((c) => c.id === newCmo.commodityId)?.unitType || "kg"})`
               : " (kg)"
-          }`}
+            }`}
         >
           <input
             className={inputClass}
@@ -945,6 +959,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 }));
                 setShowCmoModal(false);
                 setNewCmo({
+                  cmoReference: "",
                   direction: cmoDirection,
                   customerId: "",
                   commodityTypeId: "",
@@ -1038,9 +1053,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       <Modal open={showPrintConfirm} title="Ticket Completed" onClose={() => setShowPrintConfirm(false)}>
         <p className="text-center text-sm text-slate-800">The ticket has been completed successfully.</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <Button type="button" size="sm" onClick={() => { setShowPrintConfirm(false); window.print(); }}>
+          <Link
+            href={ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath}
+            className={cn(buttonVariants({ size: "sm" }), "inline-flex items-center justify-center")}
+            onClick={() => setShowPrintConfirm(false)}
+          >
             Print Ticket
-          </Button>
+          </Link>
           <Link
             href={ticket.id ? `${detailPathBase}/${ticket.id}` : listPath}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center justify-center")}
@@ -1323,14 +1342,14 @@ function WeightSection({
                 />
               </div>
               <div>
-              <label className="mb-1 block text-[10px] font-semibold text-slate-500">Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                disabled={disabled}
-                value={displayDateTimes[i] || ""}
-                onChange={(e) => onUpdateDateTime(i, e.target.value)}
-                className={cn(inputClass, "w-[180px] text-xs")}
-              />
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  disabled={disabled}
+                  value={displayDateTimes[i] || ""}
+                  onChange={(e) => onUpdateDateTime(i, e.target.value)}
+                  className={cn(inputClass, "w-[180px] text-xs")}
+                />
               </div>
               {splitLoad && !disabled && weights.length > 1 ? (
                 <button

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
@@ -14,7 +14,9 @@ import {
   PACK_FORM_LOOKUPS,
   PACK_STATUSES,
   PACK_TEMPLATE,
+  REFERENCE_CONTAINER_CODE_ROWS,
   REFERENCE_COUNTRIES_ROWS,
+  REFERENCE_TERMINAL_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
 import {
@@ -23,10 +25,19 @@ import {
   loadMethodologies,
   loadRecordTemplates,
 } from "@/lib/fumigation-store";
+import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
+import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
+import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
+import {
+  CONTAINER_INSPECTION_REMARK_FIELD,
+  containerInspectionRemarkPatch,
+  getContainerInspectionRemark,
+} from "@/lib/pems-container-fields";
 import { readSiteRows } from "@/lib/site-data";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -103,6 +114,24 @@ function formatDateTimeInput(value) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function formatDateDisplay(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = parsed.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function addDaysToDate(value, days) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  parsed.setDate(parsed.getDate() + days);
+  return parsed.toISOString();
+}
+
 function defaultPemsDraft() {
   return {
     recordType: ECR_RECORD_TYPE,
@@ -110,6 +139,7 @@ function defaultPemsDraft() {
     inspectionEnd: "",
     aoSignoff: "",
     aoNumber: "",
+    ecrComments: "N/A",
     stagedContainerIds: [],
   };
 }
@@ -123,27 +153,60 @@ function toRoundedNumber(value) {
 function blankFumigationDetail() {
   return {
     applicationMethod: "in-container",
+    fumigationType: "ambient",
+    targetOfFumigation: ["commodity"],
+    enclosureType: "",
+    enclosureOtherText: "",
     enclosureDescription: "",
+    enclosureLengthM: "",
+    enclosureWidthM: "",
+    enclosureHeightM: "",
     volumeM3: "",
+    consignmentSuitable: true,
+    consignmentRemedialAction: "",
     actualTonnage: "",
     minForecastedTemperature: "",
     minAmbientTemperature: "",
     actualTemperature: "",
+    prescribedDoseRate: "",
+    prescribedDoseUnit: "g/m3",
+    prescribedExposure: "",
+    prescribedExposureUnit: "hours",
+    prescribedTemperature: "",
     dosageValue: "",
-    dosageUnit: "ppm",
+    dosageUnit: "g/m3",
     calculatedDosageValue: "",
     calculatedDosageUnit: "g",
     specificDosageRateValue: "",
-    specificDosageRateUnit: "ppm",
+    specificDosageRateUnit: "g/m3",
     actualDosageAppliedValue: "",
     actualDosageAppliedUnit: "g",
+    chloropicrinUsed: null,
+    chloropicrinPercent: "",
+    heatersUsed: null,
+    endPointConcentration: "",
+    endPointConcentrationUnit: "g/m3",
+    ctRequired: "",
+    ctAchieved: "",
+    thirdPartySystem: false,
+    thirdPartySystemName: "",
     exposureTimeValue: "",
     exposureTimeUnit: "hours",
-    dosingFinishAt: "",
     fumigationStartAt: "",
+    dosingFinishAt: "",
     fumigationEndAt: "",
+    ventilationStartAt: "",
+    monitoringDeviceSerials: "",
+    finalTlvPpm1: "",
+    finalTlvPpm2: "",
+    finalTlvPpm3: "",
     clearanceValue: "",
+    topUpEntries: [],
     fumigatorName: "",
+    fumigationResult: "pass",
+    governmentOfficerName: "",
+    governmentOfficerSignature: "",
+    additionalDeclarations: "",
     fumigationNotes: "",
   };
 }
@@ -190,7 +253,7 @@ function createDraftContainer(pack, index, existing = {}) {
     praLastSubmittedTime: existing.praLastSubmittedTime ?? "",
     praLastError: existing.praLastError ?? "",
     aoSignoff: existing.aoSignoff ?? "",
-    aoInspectionRemark: existing.aoInspectionRemark ?? "",
+    [CONTAINER_INSPECTION_REMARK_FIELD]: existing[CONTAINER_INSPECTION_REMARK_FIELD] ?? existing.aoInspectionRemark ?? "",
     ecrSubmitted: Boolean(existing.ecrSubmitted),
     ecrLastSubmittedAt: existing.ecrLastSubmittedAt ?? "",
     ecrLastBatchId: existing.ecrLastBatchId ?? "",
@@ -271,6 +334,7 @@ function normalizeFileItems(items) {
       size: Number.isFinite(item?.size) ? item.size : null,
       type: item?.type ?? "",
       file: item?.file instanceof File ? item.file : null,
+      url: typeof item?.url === "string" ? item.url : undefined,
     };
   });
 }
@@ -301,10 +365,10 @@ function rowToPack(row, siteId) {
   const legacyReleaseDetails =
     maxLegacyRows > 0
       ? Array.from({ length: maxLegacyRows }).map((_, index) => ({
-          releaseRef: legacyReleaseNumbers[index] ?? "",
-          emptyContainerParkId: legacyCollectFrom[index] ?? null,
-          transporterId: legacyTransporters[index] ?? null,
-        }))
+        releaseRef: legacyReleaseNumbers[index] ?? "",
+        emptyContainerParkId: legacyCollectFrom[index] ?? null,
+        transporterId: legacyTransporters[index] ?? null,
+      }))
       : [];
   const detail =
     row.fumigationDetail && typeof row.fumigationDetail === "object"
@@ -324,6 +388,11 @@ function rowToPack(row, siteId) {
     containerCode: row.containerCode || "",
     releaseDetails: Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
     destinationCountry: row.destinationCountry || "",
+    terminalId: row.terminalId ?? "",
+    portOfLoading: row.portOfLoading || "",
+    commodityCountryOfOrigin: row.commodityCountryOfOrigin || "Australia",
+    treatmentProviderId: row.treatmentProviderId || "",
+    fumigatorAccreditationNumber: row.fumigatorAccreditationNumber || "",
     vesselDepartureId: null,
     vesselName: row.vessel || "",
     packingStartDate: row.packingStartDate || "",
@@ -334,6 +403,7 @@ function rowToPack(row, siteId) {
     etd: row.etd || "",
     fumigation: row.fumigation || "",
     fumigationRequired: Boolean(row.fumigationRequired),
+    fumigationTiming: row.fumigationTiming || "",
     fumigantId: row.fumigantId ?? null,
     methodologyId: row.methodologyId ?? null,
     certificateTemplateId: row.certificateTemplateId ?? null,
@@ -342,6 +412,9 @@ function rowToPack(row, siteId) {
     fumigationDetail: detail,
     daffPermission: row.daffPermission || "N/A",
     edn: row.edn || "",
+    importPermitRequired: Boolean(row.importPermitRequired),
+    importPermitNumber: row.importPermitNumber || "",
+    importPermitDate: row.importPermitDate || "",
     packWarningRequired: Boolean(row.packWarningRequired),
     packWarning: row.packWarning || "",
     jobNotes: row.jobNotes || "",
@@ -349,15 +422,17 @@ function rowToPack(row, siteId) {
     sampleEntries: Array.isArray(row.sampleEntries)
       ? row.sampleEntries
       : (row.sampleStatuses || []).map((status, index) => ({
-          type: "Pre",
-          sampleLocation: row.sampleLocations?.[index] || "",
-          sampleSentDate: row.sampleSentDates?.[index] || "",
-          status: status || SAMPLE_STATUSES[0] || "Pending",
-          notes: "",
-        })),
+        type: "Pre",
+        sampleLocation: row.sampleLocations?.[index] || "",
+        sampleSentDate: row.sampleSentDates?.[index] || "",
+        status: status || SAMPLE_STATUSES[0] || "Pending",
+        notes: "",
+      })),
     importPermitFiles: normalizeFileItems(row.importPermitFiles),
     additionalDeclarationFiles: normalizeFileItems(row.additionalDeclarationFiles),
+    rfp: row.rfp || "",
     rfpFiles: normalizeFileItems(row.rfpFiles),
+    rfpAdditionalDeclarationRequired: Boolean(row.rfpAdditionalDeclarationRequired),
     packingInstructionFiles: normalizeFileItems(row.packingInstructionFiles),
     pemsDraft: { ...defaultPemsDraft(), ...(row.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(row.pemsSubmissions) ? row.pemsSubmissions : [],
@@ -393,6 +468,11 @@ function packToScheduleRow(pack, existingRow) {
     transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
     exporter: exporterName,
     destinationCountry: pack.destinationCountry || "",
+    terminalId: pack.terminalId ?? "",
+    portOfLoading: pack.portOfLoading || "",
+    commodityCountryOfOrigin: pack.commodityCountryOfOrigin || "Australia",
+    treatmentProviderId: pack.treatmentProviderId || "",
+    fumigatorAccreditationNumber: pack.fumigatorAccreditationNumber || "",
     vessel: pack.vesselName || existingRow?.vessel || "",
     packingStartDate: pack.packingStartDate || "",
     packConfirmed: Boolean(pack.packConfirmed),
@@ -402,6 +482,7 @@ function packToScheduleRow(pack, existingRow) {
     etd: pack.etd || "",
     fumigation: fumigationSummary,
     fumigationRequired: Boolean(pack.fumigationRequired),
+    fumigationTiming: pack.fumigationTiming || "",
     fumigantId: pack.fumigantId ? Number(pack.fumigantId) : null,
     methodologyId: pack.methodologyId ? Number(pack.methodologyId) : null,
     certificateTemplateId: pack.certificateTemplateId ? Number(pack.certificateTemplateId) : null,
@@ -417,10 +498,15 @@ function packToScheduleRow(pack, existingRow) {
     sampleLocations: sampleEntries.map((entry) => entry.sampleLocation).filter(Boolean),
     sampleSentDates: sampleEntries.map((entry) => entry.sampleSentDate).filter(Boolean),
     sampleStatuses: sampleEntries.map((entry) => entry.status).filter(Boolean),
-      importPermitFiles: normalizeFileItems(pack.importPermitFiles),
-      additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
-      rfpFiles: normalizeFileItems(pack.rfpFiles),
-      packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+    importPermitRequired: Boolean(pack.importPermitRequired),
+    importPermitNumber: pack.importPermitNumber || "",
+    importPermitDate: pack.importPermitDate || "",
+    importPermitFiles: normalizeFileItems(pack.importPermitFiles),
+    additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
+    rfp: pack.rfp || "",
+    rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
+    rfpFiles: normalizeFileItems(pack.rfpFiles),
+    packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
   };
@@ -435,13 +521,49 @@ function FormRow({ label, labelClassName, children, className = "" }) {
   );
 }
 
+/** Read-only field — matches packers schedule PEMs staging `Field` layout. */
+function PemsStagingField({ label, value, labelClassName = "", valueClassName = "" }) {
+  return (
+    <div className="space-y-1">
+      <div className={cn("text-[11px] font-semibold uppercase tracking-wide text-slate-500", labelClassName)}>{label}</div>
+      <div className={cn("rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] text-slate-700", valueClassName)}>{value}</div>
+    </div>
+  );
+}
+
+/** Editable staging field — same label layout as `PemsStagingField`, General-form controls inside. */
+function PemsStagingFormField({ label, children, labelClassName = "" }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className={cn("text-[11px] font-semibold uppercase tracking-wide text-slate-500", labelClassName)}>{label}</div>
+      <div className="w-full min-w-0">{children}</div>
+    </div>
+  );
+}
+
+const stagingInputClass = cn(inputClass, "min-w-0");
+const stagingGridClass = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
+const stagingGrid6Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
+const stagingGrid3Class = "grid gap-4 sm:grid-cols-2 md:grid-cols-3";
+const GPPIR_WEIGHT_UNIT = "M/TONS";
+const gppirTableCompactCol = "w-16 min-w-[4rem] px-1.5 py-2 whitespace-nowrap";
+
 export default function NewPackFormPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewPackFormPageInner />
+    </Suspense>
+  );
+}
+
+function NewPackFormPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { siteId: activeSiteId, site } = useSite();
   const { dock, verticalExpanded } = useNavDock();
   const mode = searchParams.get("mode") === "edit" ? "edit" : "add";
   const editId = Number(searchParams.get("id"));
+  const requestedTab = searchParams.get("tab");
   const currentSite = Number(activeSiteId) || 1;
   const [vesselDepartures, setVesselDepartures] = useState([]);
   const [fumigants] = useState(() => loadFumigants());
@@ -455,13 +577,23 @@ export default function NewPackFormPage() {
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [samplePanelOpen, setSamplePanelOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(() =>
+    ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
+  );
   const [editingContainerId, setEditingContainerId] = useState(null);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
+  const [pemsContainerSearch, setPemsContainerSearch] = useState("");
+  const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
+  const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
   const userClosedSampleWhileRequiredRef = useRef(false);
   const prevSampleRequiredRef = useRef(undefined);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
+
+  useEffect(() => {
+    if (!["general", "fumigation", "accounting", "pems"].includes(requestedTab || "")) return;
+    setActiveTab(requestedTab);
+  }, [requestedTab]);
   function addFiles(key, files) {
     const nextEntries = toFileEntries(files);
     if (!nextEntries.length) return;
@@ -496,6 +628,155 @@ export default function NewPackFormPage() {
     if (!methodologyId) return null;
     return methodologies.find((item) => Number(item.id) === methodologyId) || null;
   }, [pack.methodologyId, methodologies]);
+
+  /** Match a temperature value against the methodology's dosage bands (half-open [min, max)). */
+  const findBandForTemp = useCallback(
+    (rawTemp) => {
+      const ranges = selectedFumigationMethodology?.dosageRanges;
+      if (!Array.isArray(ranges) || ranges.length === 0) return null;
+      const t = Number(rawTemp);
+      if (!Number.isFinite(t)) return null;
+      return ranges.find((r) => Number(r.minTempC) <= t && t < Number(r.maxTempC)) ?? null;
+    },
+    [selectedFumigationMethodology],
+  );
+
+  // Prescribed schedule lookup is keyed off the forecast minimum temperature
+  const matchedPrescribedRange = useMemo(
+    () => findBandForTemp(fd.minForecastedTemperature),
+    [findBandForTemp, fd.minForecastedTemperature],
+  );
+  // Applied schedule lookup is keyed off the actual measured start temperature
+  const matchedAppliedRange = useMemo(
+    () => findBandForTemp(fd.actualTemperature),
+    [findBandForTemp, fd.actualTemperature],
+  );
+  // Reference-panel highlight uses whichever temperature the user has entered most recently
+  // (actual takes priority, falls back to forecast)
+  const matchedDosageRange = matchedAppliedRange ?? matchedPrescribedRange;
+
+  // Auto-prefill prescribed dose rate / exposure from the band matched against min forecast temp.
+  // Only writes when the prescribed field is currently empty so we don't clobber user edits.
+  useEffect(() => {
+    if (!matchedPrescribedRange) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.prescribedDoseRate) && !empty(current.prescribedExposure)) return;
+    updateFumigationDetail({
+      prescribedDoseRate: empty(current.prescribedDoseRate)
+        ? String(matchedPrescribedRange.dosageValue)
+        : current.prescribedDoseRate,
+      prescribedDoseUnit: matchedPrescribedRange.dosageUnit || "g/m3",
+      prescribedExposure: empty(current.prescribedExposure)
+        ? String(matchedPrescribedRange.exposureValue)
+        : current.prescribedExposure,
+      prescribedExposureUnit: matchedPrescribedRange.exposureUnit || "hours",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedPrescribedRange?.id]);
+
+  // Auto-prefill applied dose rate / exposure from the band matched against actual start temp.
+  useEffect(() => {
+    if (!matchedAppliedRange) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.dosageValue) && !empty(current.exposureTimeValue)) return;
+    updateFumigationDetail({
+      dosageValue: empty(current.dosageValue) ? String(matchedAppliedRange.dosageValue) : current.dosageValue,
+      dosageUnit: matchedAppliedRange.dosageUnit || "g/m3",
+      exposureTimeValue: empty(current.exposureTimeValue)
+        ? String(matchedAppliedRange.exposureValue)
+        : current.exposureTimeValue,
+      exposureTimeUnit: matchedAppliedRange.exposureUnit || "hours",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedAppliedRange?.id]);
+
+  // ── Derived values: volume, tonnage, calculated dose, amount applied ──────
+  const matchedContainerCode = useMemo(() => {
+    const code = String(pack.containerCode || "").trim().toUpperCase();
+    if (!code) return null;
+    return REFERENCE_CONTAINER_CODE_ROWS.find((row) => String(row.containerSize || "").toUpperCase() === code) ?? null;
+  }, [pack.containerCode]);
+
+  const derivedVolumeM3 = useMemo(() => {
+    const containers = Number(pack.containersRequired || 0);
+    const m3PerContainer = Number(matchedContainerCode?.cubicMeters || 0);
+    if (!containers || !m3PerContainer) return null;
+    return Number((containers * m3PerContainer).toFixed(2));
+  }, [pack.containersRequired, matchedContainerCode]);
+
+  const derivedActualTonnageMT = useMemo(() => {
+    const containers = Array.isArray(pack.containers) ? pack.containers : [];
+    if (!containers.length) return null;
+    const totalNettKg = containers.reduce((acc, c) => {
+      const nett = Number(c?.nettWeight);
+      return acc + (Number.isFinite(nett) ? nett : 0);
+    }, 0);
+    if (!totalNettKg) return null;
+    return Number((totalNettKg / 1000).toFixed(3));
+  }, [pack.containers]);
+
+  // Auto-fill volume when blank
+  useEffect(() => {
+    if (derivedVolumeM3 == null) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.volumeM3)) return;
+    updateFumigationDetail({ volumeM3: String(derivedVolumeM3) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedVolumeM3]);
+
+  // Auto-fill actual tonnage when blank
+  useEffect(() => {
+    if (derivedActualTonnageMT == null) return;
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.actualTonnage)) return;
+    updateFumigationDetail({ actualTonnage: String(derivedActualTonnageMT) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedActualTonnageMT]);
+
+  // Auto-fill calculated dose = prescribedDoseRate × volume (g) when blank
+  useEffect(() => {
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.calculatedDosageValue)) return;
+    const rate = Number(current.prescribedDoseRate);
+    const volume = Number(current.volumeM3);
+    if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    updateFumigationDetail({
+      calculatedDosageValue: String(Number((rate * volume).toFixed(2))),
+      calculatedDosageUnit: "g",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fd.prescribedDoseRate, fd.volumeM3]);
+
+  // Auto-fill amount of fumigant applied = appliedDoseRate × volume (g) when blank
+  useEffect(() => {
+    const current = pack.fumigationDetail ?? {};
+    const empty = (v) => v == null || String(v).trim() === "";
+    if (!empty(current.actualDosageAppliedValue)) return;
+    const rate = Number(current.dosageValue);
+    const volume = Number(current.volumeM3);
+    if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    updateFumigationDetail({
+      actualDosageAppliedValue: String(Number((rate * volume).toFixed(2))),
+      actualDosageAppliedUnit: "g",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fd.dosageValue, fd.volumeM3]);
+
+  // ── Employee lists for Fumigator + Authorised Officer dropdowns ──────────
+  const contactUsers = useMemo(() => loadContactUsers(), []);
+  const fumigatorOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.isFumigator && u.active !== false),
+    [contactUsers],
+  );
+  const aoOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.aoActive && u.active !== false),
+    [contactUsers],
+  );
 
   function updateFumigationDetail(patch) {
     setPack((prev) => {
@@ -553,6 +834,17 @@ export default function NewPackFormPage() {
     });
   }
 
+  async function handleDownloadPemsSubmission(submission) {
+    const batchId = submission?.batchId;
+    if (!batchId || downloadingPemsBatchId) return;
+    setDownloadingPemsBatchId(batchId);
+    try {
+      await downloadPemsSubmissionPdf(submission);
+    } finally {
+      setDownloadingPemsBatchId("");
+    }
+  }
+
   function submitPemsFromForm() {
     const isGppir = pemsDraft.recordType === GPPIR_RECORD_TYPE;
     const stagedIds = pemsDraft.stagedContainerIds || [];
@@ -567,33 +859,51 @@ export default function NewPackFormPage() {
         setPemsSubmitError("ECR must be submitted before GPPIR for all staged containers.");
         return;
       }
+    } else if (!String(pemsDraft.ecrComments ?? "").trim()) {
+      setPemsSubmitError("Enter comments before submitting the empty container inspection record.");
+      return;
     }
     const submittedAt = new Date().toISOString();
     const batchId = `PEMS-${Date.now()}`;
     setPemsSubmitError("");
+    const submission = attachPemsSubmissionSnapshot({
+      batchId,
+      submittedAt,
+      status: "Accepted",
+      recordType: pemsDraft.recordType,
+      packId: pack.id || editingRow?.id || "draft",
+      jobReference: pack.jobReference || "",
+      rfp: pack.rfp || "",
+      exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
+      destinationCountry: pack.destinationCountry || "",
+      importPermitRequired: Boolean(pack.importPermitRequired),
+      importPermitNumber: pack.importPermitNumber || "",
+      rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
+      establishmentName: selectedPackSite?.name || site?.label || site?.name || "",
+      establishmentNumber: String(selectedPackSite?.yardNo || ""),
+      commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
+      aoSignoff: pemsDraft.aoSignoff,
+      aoNumber: selectedAoNumber,
+      inspectionStart: pemsDraft.inspectionStart,
+      inspectionEnd: pemsDraft.inspectionEnd,
+      ecrComments: pemsDraft.ecrComments || "N/A",
+      yardId: String(selectedPackSite?.yardNo || ""),
+      placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${pack.siteId || ""}`,
+      containerIds: containers.map((container) => container.id),
+      containers: containers.map((container) => ({
+        ...container,
+        containerNo: container.containerNumber,
+        sealNo: container.sealNumber,
+      })),
+    });
     setPack((prev) => {
       const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
       const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
       const stagedSet = new Set(stagedIds);
-      const nextSubmission = {
-        batchId,
-        submittedAt,
-        status: "Accepted",
-        recordType: currentDraft.recordType,
-        aoSignoff: currentDraft.aoSignoff,
-        aoNumber: selectedAoNumber,
-        inspectionStart: currentDraft.inspectionStart,
-        inspectionEnd: currentDraft.inspectionEnd,
-        yardId: String(selectedPackSite?.yardNo || ""),
-        placeOfInspection: selectedPackSite?.name || site?.label || site?.name || `Site ${prev.siteId || ""}`,
-        packId: prev.id || editingRow?.id || "draft",
-        containerIds: containers.map((container) => container.id),
-        containers,
-      };
-      return {
+      const nextPack = {
         ...prev,
         pemsDraft: { ...currentDraft, stagedContainerIds: [] },
-        pemsSubmissions: [nextSubmission, ...previousSubs],
+        pemsSubmissions: [submission, ...previousSubs],
         containers: (Array.isArray(prev.containers) ? prev.containers : []).map((container) => {
           if (!stagedSet.has(container.id)) return container;
           return isGppir
@@ -601,6 +911,15 @@ export default function NewPackFormPage() {
             : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
         }),
       };
+      const packId = nextPack.id || editingRow?.id;
+      if (packId) {
+        const rows = loadPackScheduleRows();
+        const existingRow = rows.find((row) => Number(row.id) === Number(packId)) || editingRow;
+        if (existingRow) {
+          savePackScheduleRows(rows.map((row) => (Number(row.id) === Number(packId) ? packToScheduleRow(nextPack, existingRow) : row)));
+        }
+      }
+      return nextPack;
     });
   }
 
@@ -610,6 +929,17 @@ export default function NewPackFormPage() {
   }, [pack.vesselDepartureId, vesselDepartures]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  const filteredPemsPackContainers = useMemo(() => {
+    const q = pemsContainerSearch.trim().toLowerCase();
+    if (!q) return packContainers;
+    return packContainers.filter((c) =>
+      [c.order, c.containerNumber, c.sealNumber, c.releaseNumber, c.id, c.stockBayId, c.grainLocation].some((v) =>
+        String(v ?? "")
+          .toLowerCase()
+          .includes(q)
+      )
+    );
+  }, [packContainers, pemsContainerSearch]);
   const pemsDraft = useMemo(() => ({ ...defaultPemsDraft(), ...(pack.pemsDraft || {}) }), [pack.pemsDraft]);
   const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
   const siteRows = useMemo(() => readSiteRows(), []);
@@ -617,6 +947,16 @@ export default function NewPackFormPage() {
     const byId = siteRows.find((row) => Number(row.id) === Number(pack.siteId));
     return byId || siteRows[0] || null;
   }, [siteRows, pack.siteId]);
+
+  // Treatment Provider ID auto-derive from the pack's selected site (only when blank)
+  useEffect(() => {
+    const site = selectedPackSite;
+    if (!site?.treatmentProviderId) return;
+    if (String(pack.treatmentProviderId ?? "").trim()) return;
+    setPack((prev) => ({ ...prev, treatmentProviderId: site.treatmentProviderId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPackSite?.id]);
+
   const aoNumberByName = useMemo(() => {
     const map = new Map();
     loadContactUsers().forEach((row) => {
@@ -638,6 +978,72 @@ export default function NewPackFormPage() {
     });
   }, [selectedEditContainer, packerNames]);
   const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));
+  const pemsEligibleContainerIds = useMemo(
+    () =>
+      packContainers
+        .filter((container) => pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted)
+        .map((container) => container.id),
+    [packContainers, pemsDraft.recordType]
+  );
+  const stagedPemsIds = pemsDraft.stagedContainerIds || [];
+  const allPemsEligibleStaged =
+    pemsEligibleContainerIds.length > 0 && pemsEligibleContainerIds.every((id) => stagedPemsIds.includes(id));
+  const stagingRfpSummary = useMemo(() => {
+    const refs = (Array.isArray(pack.releaseDetails) ? pack.releaseDetails : []).map((r) => r?.releaseRef).filter(Boolean);
+    return resolvePackRfpRef({
+      packRfp: pack.rfp,
+      stagedContainers: stagedPemsContainers,
+      allContainers: packContainers,
+      releaseRefs: refs,
+    });
+  }, [pack.rfp, pack.releaseDetails, stagedPemsContainers, packContainers]);
+  const isGppirPems = pemsDraft.recordType === GPPIR_RECORD_TYPE;
+  const stagingExpiryDate = useMemo(() => {
+    const anchor = pemsDraft.inspectionEnd || pemsDraft.inspectionStart;
+    return formatDateDisplay(addDaysToDate(anchor, isGppirPems ? 28 : 90));
+  }, [pemsDraft.inspectionEnd, pemsDraft.inspectionStart, isGppirPems]);
+  const gppirStagingTotalWeight = useMemo(
+    () =>
+      toRoundedNumber(
+        stagedPemsContainers.reduce(
+          (sum, container) => sum + (Number.isFinite(Number(container.nettWeight)) ? Number(container.nettWeight) : 0),
+          0
+        )
+      ),
+    [stagedPemsContainers]
+  );
+  const gppirStagingPassedWeight = useMemo(
+    () =>
+      toRoundedNumber(
+        stagedPemsContainers.reduce((sum, container) => {
+          const weight = Number(container.nettWeight);
+          if (container.grainInspection !== "Passed" || !Number.isFinite(weight)) return sum;
+          return sum + weight;
+        }, 0)
+      ),
+    [stagedPemsContainers]
+  );
+  const gppirStagingFailedWeight = useMemo(
+    () =>
+      toRoundedNumber(
+        stagedPemsContainers.reduce((sum, container) => {
+          const weight = Number(container.nettWeight);
+          if (container.grainInspection !== "Failed" || !Number.isFinite(weight)) return sum;
+          return sum + weight;
+        }, 0)
+      ),
+    [stagedPemsContainers]
+  );
+  const gppirStagingFlowResult =
+    stagedPemsContainers.length && stagedPemsContainers.every((container) => container.grainInspection === "Passed")
+      ? "Passed"
+      : "Pending";
+  const packRfpText = String(pack.rfp || "").trim();
+  const packPemsCommodityLabel = useMemo(
+    () => safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description),
+    [pack.commodityId]
+  );
+  const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
   const containersLeftToPack = packContainers.filter((container) => {
     const status = String(container.status || "").toLowerCase();
     return status !== "complete" && status !== "completed";
@@ -790,14 +1196,14 @@ export default function NewPackFormPage() {
           : null,
       certificateTemplateId:
         pack.certificateTemplateId !== null &&
-        pack.certificateTemplateId !== undefined &&
-        pack.certificateTemplateId !== ""
+          pack.certificateTemplateId !== undefined &&
+          pack.certificateTemplateId !== ""
           ? Number(pack.certificateTemplateId)
           : null,
       recordTemplateId:
         pack.recordTemplateId !== null &&
-        pack.recordTemplateId !== undefined &&
-        pack.recordTemplateId !== ""
+          pack.recordTemplateId !== undefined &&
+          pack.recordTemplateId !== ""
           ? Number(pack.recordTemplateId)
           : null,
       fumigationDetail:
@@ -915,925 +1321,1103 @@ export default function NewPackFormPage() {
           </button>
         </div>
 
-      {activeTab === "general" ? (
-      <>
-      <section className={sectionClass} aria-label="Pack basics">
-        <div className={gridClass}>
-          <FormRow label="Pack type">
-            <select suppressHydrationWarning className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
-              <option value="container">Container</option>
-              <option value="bulk">Bulk</option>
-            </select>
-          </FormRow>
-          <FormRow label="Import / Export">
-            <select suppressHydrationWarning className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
-              <option value="Import">Import</option>
-              <option value="Export">Export</option>
-            </select>
-          </FormRow>
-          <FormRow label="Status">
-            <select suppressHydrationWarning className={inputClass} value={pack.status} onChange={(e) => set("status", e.target.value)}>
-              {PACK_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-        </div>
-      </section>
+        {activeTab === "general" ? (
+          <>
+            <section className={sectionClass} aria-label="Pack basics">
+              <div className={gridClass}>
+                <FormRow label="Pack type">
+                  <select suppressHydrationWarning className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
+                    <option value="container">Container</option>
+                    <option value="bulk">Bulk</option>
+                  </select>
+                </FormRow>
+                <FormRow label="Import / Export">
+                  <select suppressHydrationWarning className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
+                    <option value="Import">Import</option>
+                    <option value="Export">Export</option>
+                  </select>
+                </FormRow>
+                <FormRow label="Status">
+                  <select suppressHydrationWarning className={inputClass} value={pack.status} onChange={(e) => set("status", e.target.value)}>
+                    {PACK_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+              </div>
+            </section>
 
-      <details className={accentDetailsClass}>
-        <summary className={accentSummaryClass}>
-          <span>Site &amp; import</span>
-          <ChevronDown className={accentChevronClass} aria-hidden />
-        </summary>
-        <div className={cn("mt-1.5 grid gap-2 pt-2 sm:grid-cols-2 md:grid-cols-3", accentDetailsRule)}>
-          <FormRow label="Site">
-            <input suppressHydrationWarning className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
-          </FormRow>
-          {pack.packType === "bulk" ? (
-            <FormRow label="Test required">
-              <select suppressHydrationWarning className={inputClass} value={pack.testRequired ? "yes" : "no"} onChange={(e) => set("testRequired", e.target.value === "yes")}>
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </select>
-            </FormRow>
-          ) : null}
-          <FormRow label="Shrink taken (Import jobs)">
-            <select suppressHydrationWarning className={inputClass} value={pack.shrinkTaken ? "yes" : "no"} onChange={(e) => set("shrinkTaken", e.target.value === "yes")}>
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-        </div>
-      </details>
+            <details className={accentDetailsClass}>
+              <summary className={accentSummaryClass}>
+                <span>Site &amp; import</span>
+                <ChevronDown className={accentChevronClass} aria-hidden />
+              </summary>
+              <div className={cn("mt-1.5 grid gap-2 pt-2 sm:grid-cols-2 md:grid-cols-3", accentDetailsRule)}>
+                <FormRow label="Site">
+                  <input suppressHydrationWarning className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
+                </FormRow>
+                {pack.packType === "bulk" ? (
+                  <FormRow label="Test required">
+                    <select suppressHydrationWarning className={inputClass} value={pack.testRequired ? "yes" : "no"} onChange={(e) => set("testRequired", e.target.value === "yes")}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                  </FormRow>
+                ) : null}
+                <FormRow label="Shrink taken (Import jobs)">
+                  <select suppressHydrationWarning className={inputClass} value={pack.shrinkTaken ? "yes" : "no"} onChange={(e) => set("shrinkTaken", e.target.value === "yes")}>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </FormRow>
+              </div>
+            </details>
 
-      <section className={cn(sectionClass, "!mt-2")} aria-label="Basic details">
-        <div className={gridClass}>
-          <FormRow label="Customer">
-            <select suppressHydrationWarning className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
-              <option value="">- Select -</option>
-              {customerOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Exporter">
-            <select suppressHydrationWarning className={inputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
-              <option value="">- Select -</option>
-              {customerOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Commodity">
-            <select
-              className={inputClass}
-              value={pack.commodityId}
-              onChange={(e) => {
-                const id = e.target.value;
-                const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
-                setPack((prev) => ({
-                  ...prev,
-                  commodityId: id,
-                  commodityTypeId: row?.commodityTypeId != null ? String(row.commodityTypeId) : "",
-                }));
-              }}
-            >
-              <option value="">- Select -</option>
-              {commodityOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.description}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Job reference">
-            <input suppressHydrationWarning className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
-          </FormRow>
-          <FormRow label="Packing start date">
-            <input suppressHydrationWarning className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
-          </FormRow>
-          <FormRow label="Pack confirmed">
-            <select suppressHydrationWarning className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          <div className="sm:col-span-2 md:col-span-3">
-            <div className={cn("grid gap-4", pack.fumigationRequired ? "sm:grid-cols-3" : "sm:grid-cols-1")}>
-              <FormRow label="Fumigation required">
-                <select
-                  className={inputClass}
-                  value={pack.fumigationRequired ? "yes" : "no"}
-                  onChange={(e) => {
-                    const enabled = e.target.value === "yes";
-                    setPack((prev) => ({
-                      ...prev,
-                      fumigationRequired: enabled,
-                      fumigantId: enabled ? prev.fumigantId : null,
-                      methodologyId: enabled ? prev.methodologyId : null,
-                      certificateTemplateId: enabled ? prev.certificateTemplateId : null,
-                      recordTemplateId: enabled ? prev.recordTemplateId : null,
-                    }));
-                  }}
-                >
-                  <option value="no">No</option>
-                  <option value="yes">Yes</option>
-                </select>
-              </FormRow>
-              {pack.fumigationRequired ? (
-                <FormRow label="Fumigant selector">
+            <section className={cn(sectionClass, "!mt-2")} aria-label="Basic details">
+              <div className={gridClass}>
+                <FormRow label="Customer">
+                  <select suppressHydrationWarning className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
+                    <option value="">- Select -</option>
+                    {customerOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Exporter">
+                  <select suppressHydrationWarning className={inputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
+                    <option value="">- Select -</option>
+                    {customerOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Commodity">
                   <select
                     className={inputClass}
-                    value={pack.fumigationDetail?.fumigationNotes || pack.fumigation || ""}
+                    value={pack.commodityId}
                     onChange={(e) => {
-                      const value = e.target.value;
-                      const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
+                      const id = e.target.value;
+                      const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
                       setPack((prev) => ({
                         ...prev,
-                        fumigantId: matched ? Number(matched.id) : prev.fumigantId,
-                        fumigation: value,
-                        fumigationDetail: {
-                          ...(prev.fumigationDetail || blankFumigationDetail()),
-                          fumigationNotes: value,
-                        },
+                        commodityId: id,
+                        commodityTypeId: row?.commodityTypeId != null ? String(row.commodityTypeId) : "",
                       }));
                     }}
                   >
-                    <option value="">- Select fumigant -</option>
-                    {fumigants.map((item) => {
-                      const label = `${item.code} - ${item.name}`;
-                      return (
-                        <option key={item.id} value={label}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </FormRow>
-              ) : null}
-              {pack.fumigationRequired ? (
-                <FormRow label="DAFF Permission">
-                  <select suppressHydrationWarning className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
-                    {DAFF_PERMISSION_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
+                    <option value="">- Select -</option>
+                    {commodityOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.description}
                       </option>
                     ))}
                   </select>
                 </FormRow>
-              ) : null}
-            </div>
-          </div>
-          <FormRow label="Pack warning" className="sm:col-span-2 md:col-span-3">
-            <div className="flex flex-wrap items-center gap-4">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="radio"
-                  name="pack-warning-required"
-                  className="size-4 border-slate-300 text-brand accent-brand focus:ring-brand/30"
-                  checked={!pack.packWarningRequired}
-                  onChange={() =>
-                    setPack((prev) => ({
-                      ...prev,
-                      packWarningRequired: false,
-                      packWarning: "",
-                    }))
-                  }
-                />
-                No
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="radio"
-                  name="pack-warning-required"
-                  className="size-4 border-slate-300 text-brand accent-brand focus:ring-brand/30"
-                  checked={pack.packWarningRequired}
-                  onChange={() => set("packWarningRequired", true)}
-                />
-                Yes
-              </label>
-            </div>
-          </FormRow>
-          {pack.packWarningRequired ? (
-            <FormRow label="Pack warning details" className="sm:col-span-2 md:col-span-3">
-              <textarea
-                className={`${inputClass} min-h-[88px] resize-y`}
-                value={pack.packWarning || ""}
-                onChange={(e) => set("packWarning", e.target.value)}
-                placeholder="Enter pack warningâ€¦"
-              />
-            </FormRow>
-          ) : null}
-        </div>
-      </section>
+                <FormRow label="Job reference">
+                  <input suppressHydrationWarning className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
+                </FormRow>
+                <FormRow label="Packing start date">
+                  <input suppressHydrationWarning className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
+                </FormRow>
+                <FormRow label="Pack confirmed">
+                  <select suppressHydrationWarning className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </FormRow>
+                <div className="sm:col-span-2 md:col-span-3">
+                  <div className={cn("grid gap-4", pack.fumigationRequired ? "sm:grid-cols-3" : "sm:grid-cols-1")}>
+                    <FormRow label="Fumigation required">
+                      <select
+                        className={inputClass}
+                        value={pack.fumigationRequired ? "yes" : "no"}
+                        onChange={(e) => {
+                          const enabled = e.target.value === "yes";
+                          setPack((prev) => ({
+                            ...prev,
+                            fumigationRequired: enabled,
+                            fumigationTiming: enabled ? prev.fumigationTiming : "",
+                            fumigantId: enabled ? prev.fumigantId : null,
+                            methodologyId: enabled ? prev.methodologyId : null,
+                            certificateTemplateId: enabled ? prev.certificateTemplateId : null,
+                            recordTemplateId: enabled ? prev.recordTemplateId : null,
+                          }));
+                        }}
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </FormRow>
+                    {pack.fumigationRequired ? (
+                      <FormRow label="Fumigant selector">
+                        <select
+                          className={inputClass}
+                          value={pack.fumigationDetail?.fumigationNotes || pack.fumigation || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
+                            setPack((prev) => ({
+                              ...prev,
+                              fumigantId: matched ? Number(matched.id) : prev.fumigantId,
+                              fumigation: value,
+                              fumigationDetail: {
+                                ...(prev.fumigationDetail || blankFumigationDetail()),
+                                fumigationNotes: value,
+                              },
+                            }));
+                          }}
+                        >
+                          <option value="">- Select fumigant -</option>
+                          {fumigants.map((item) => {
+                            const label = `${item.code} - ${item.name}`;
+                            return (
+                              <option key={item.id} value={label}>
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </FormRow>
+                    ) : null}
+                    {pack.fumigationRequired ? (
+                      <FormRow label="DAFF Permission">
+                        <select suppressHydrationWarning className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
+                          {DAFF_PERMISSION_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </FormRow>
+                    ) : null}
+                  </div>
+                </div>
+                <FormRow label="Pack warning" className="sm:col-span-2 md:col-span-3">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        name="pack-warning-required"
+                        className="size-4 border-slate-300 text-brand accent-brand focus:ring-brand/30"
+                        checked={!pack.packWarningRequired}
+                        onChange={() =>
+                          setPack((prev) => ({
+                            ...prev,
+                            packWarningRequired: false,
+                            packWarning: "",
+                          }))
+                        }
+                      />
+                      No
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        name="pack-warning-required"
+                        className="size-4 border-slate-300 text-brand accent-brand focus:ring-brand/30"
+                        checked={pack.packWarningRequired}
+                        onChange={() => set("packWarningRequired", true)}
+                      />
+                      Yes
+                    </label>
+                  </div>
+                </FormRow>
+                {pack.packWarningRequired ? (
+                  <FormRow label="Pack warning details" className="sm:col-span-2 md:col-span-3">
+                    <textarea
+                      className={`${inputClass} min-h-[88px] resize-y`}
+                      value={pack.packWarning || ""}
+                      onChange={(e) => set("packWarning", e.target.value)}
+                      placeholder="Enter pack warningâ€¦"
+                    />
+                  </FormRow>
+                ) : null}
+              </div>
+            </section>
 
-      <details className={accentDetailsClass} open={samplePanelOpen} onToggle={handleSampleDetailsToggle}>
-        <summary className={accentSummaryClass}>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span>Sample</span>
-            {!samplePanelOpen && sampleRowCount > 0 ? (
-              <span className="rounded-full bg-slate-200/90 px-1.5 py-0 text-[9px] font-semibold tabular-nums leading-none text-slate-700">
-                {sampleRowCount}
-              </span>
-            ) : null}
-          </span>
-          <ChevronDown className={accentChevronClass} aria-hidden />
-        </summary>
-        <div className={cn("mt-1.5 space-y-3 pt-2", accentDetailsRule)}>
-          <FormRow label="Sample required" labelClassName="normal-case tracking-normal text-[11px] font-semibold text-slate-700">
-            <select
-              className={inputClass}
-              value={pack.sampleRequired ? "yes" : "no"}
-              onChange={(e) => {
-                const enabled = e.target.value === "yes";
-                setPack((prev) => {
-                  const nextEntries = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
-                  return {
-                    ...prev,
-                    sampleRequired: enabled,
-                    sampleEntries: enabled && nextEntries.length === 0 ? [createSampleEntry()] : nextEntries,
-                  };
-                });
-              }}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          {pack.sampleRequired ? (
-            <div className="space-y-3">
-              {(pack.sampleEntries || []).map((entry, index) => (
-                <div
-                  key={`sample-${index}`}
-                  className="grid gap-2 md:grid-cols-[minmax(7rem,140px)_minmax(0,1fr)_minmax(8rem,170px)_minmax(8rem,170px)_minmax(0,1fr)_auto] md:items-end"
-                >
+            <details className={accentDetailsClass} open={samplePanelOpen} onToggle={handleSampleDetailsToggle}>
+              <summary className={accentSummaryClass}>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span>Sample</span>
+                  {!samplePanelOpen && sampleRowCount > 0 ? (
+                    <span className="rounded-full bg-slate-200/90 px-1.5 py-0 text-[9px] font-semibold tabular-nums leading-none text-slate-700">
+                      {sampleRowCount}
+                    </span>
+                  ) : null}
+                </span>
+                <ChevronDown className={accentChevronClass} aria-hidden />
+              </summary>
+              <div className={cn("mt-1.5 space-y-3 pt-2", accentDetailsRule)}>
+                <FormRow label="Sample required" labelClassName="normal-case tracking-normal text-[11px] font-semibold text-slate-700">
                   <select
                     className={inputClass}
-                    value={entry.type}
+                    value={pack.sampleRequired ? "yes" : "no"}
                     onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], type: e.target.value };
-                      set("sampleEntries", next);
+                      const enabled = e.target.value === "yes";
+                      setPack((prev) => {
+                        const nextEntries = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
+                        return {
+                          ...prev,
+                          sampleRequired: enabled,
+                          sampleEntries: enabled && nextEntries.length === 0 ? [createSampleEntry()] : nextEntries,
+                        };
+                      });
                     }}
                   >
-                    {SAMPLE_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
                   </select>
-                  <input
-                    className={inputClass}
-                    value={entry.sampleLocation}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], sampleLocation: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                    placeholder="Sample location"
-                  />
-                  <input
-                    className={inputClass}
-                    type="date"
-                    value={entry.sampleSentDate}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], sampleSentDate: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                  />
-                  <select
-                    className={inputClass}
-                    value={entry.status}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], status: e.target.value };
-                      set("sampleEntries", next);
-                    }}
+                </FormRow>
+                {pack.sampleRequired ? (
+                  <div className="space-y-3">
+                    {(pack.sampleEntries || []).map((entry, index) => (
+                      <div
+                        key={`sample-${index}`}
+                        className="grid gap-2 md:grid-cols-[minmax(7rem,140px)_minmax(0,1fr)_minmax(8rem,170px)_minmax(8rem,170px)_minmax(0,1fr)_auto] md:items-end"
+                      >
+                        <select
+                          className={inputClass}
+                          value={entry.type}
+                          onChange={(e) => {
+                            const next = [...(pack.sampleEntries || [])];
+                            next[index] = { ...next[index], type: e.target.value };
+                            set("sampleEntries", next);
+                          }}
+                        >
+                          {SAMPLE_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className={inputClass}
+                          value={entry.sampleLocation}
+                          onChange={(e) => {
+                            const next = [...(pack.sampleEntries || [])];
+                            next[index] = { ...next[index], sampleLocation: e.target.value };
+                            set("sampleEntries", next);
+                          }}
+                          placeholder="Sample location"
+                        />
+                        <input
+                          className={inputClass}
+                          type="date"
+                          value={entry.sampleSentDate}
+                          onChange={(e) => {
+                            const next = [...(pack.sampleEntries || [])];
+                            next[index] = { ...next[index], sampleSentDate: e.target.value };
+                            set("sampleEntries", next);
+                          }}
+                        />
+                        <select
+                          className={inputClass}
+                          value={entry.status}
+                          onChange={(e) => {
+                            const next = [...(pack.sampleEntries || [])];
+                            next[index] = { ...next[index], status: e.target.value };
+                            set("sampleEntries", next);
+                          }}
+                        >
+                          {SAMPLE_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className={inputClass}
+                          value={entry.notes || ""}
+                          onChange={(e) => {
+                            const next = [...(pack.sampleEntries || [])];
+                            next[index] = { ...next[index], notes: e.target.value };
+                            set("sampleEntries", next);
+                          }}
+                          placeholder="Notes"
+                        />
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          type="button"
+                          onClick={() => {
+                            const next = (pack.sampleEntries || []).filter((_, idx) => idx !== index);
+                            set("sampleEntries", next);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        const next = [...(pack.sampleEntries || []), createSampleEntry()];
+                        set("sampleEntries", next);
+                      }}
+                    >
+                      + Add sample
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Containers & quantity</h2>
+              <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <div className="grid gap-3 md:grid-cols-[200px_180px_minmax(0,1fr)]">
+                  <FormRow label="Containers Required">
+                    <input suppressHydrationWarning className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
+                  </FormRow>
+                  <FormRow label="Containers Left To Pack">
+                    <input suppressHydrationWarning className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
+                  </FormRow>
+                  <FormRow label="Container Code">
+                    <select suppressHydrationWarning className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
+                      <option value="">Find items</option>
+                      {DEFAULT_CONTAINER_SIZES.map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(5.75rem,7.25rem)] md:items-end">
+                  <FormRow
+                    label="Required tonnes per container"
+                    labelClassName="normal-case tracking-normal text-[11px] font-semibold leading-snug text-slate-600"
                   >
-                    {SAMPLE_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={inputClass}
-                    value={entry.notes || ""}
-                    onChange={(e) => {
-                      const next = [...(pack.sampleEntries || [])];
-                      next[index] = { ...next[index], notes: e.target.value };
-                      set("sampleEntries", next);
-                    }}
-                    placeholder="Notes"
-                  />
+                    <input
+                      className={inputClass}
+                      type="number"
+                      value={pack.quantityPerContainer}
+                      onChange={(e) => set("quantityPerContainer", e.target.value)}
+                      placeholder="0"
+                    />
+                  </FormRow>
+                  <FormRow label="Max MT per container">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      value={pack.maxQtyPerContainer}
+                      onChange={(e) => set("maxQtyPerContainer", e.target.value)}
+                      placeholder="0"
+                    />
+                  </FormRow>
+                  <FormRow label="MT total" className="md:max-w-[7.25rem]">
+                    <input
+                      className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
+                      readOnly
+                      value={computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : ""}
+                      placeholder="â€”"
+                      title="Containers required Ã— required tonnes per container"
+                    />
+                  </FormRow>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  <p className="text-[11px] text-slate-500">
+                    Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Release number <span className="font-normal normal-case text-slate-400">Â· Release lines: {releaseRows.length}</span>
+                  </p>
+                  {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
+                    <div key={`release-row-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+                      <input
+                        className={inputClass}
+                        value={entry.releaseRef || ""}
+                        onChange={(e) => {
+                          const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
+                          next[index] = { ...next[index], releaseRef: e.target.value };
+                          set("releaseDetails", next);
+                        }}
+                        placeholder="Enter Release Number"
+                      />
+                      <select
+                        className={inputClass}
+                        value={entry.emptyContainerParkId ?? ""}
+                        onChange={(e) => {
+                          const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
+                          next[index] = { ...next[index], emptyContainerParkId: e.target.value ? Number(e.target.value) : "" };
+                          set("releaseDetails", next);
+                        }}
+                      >
+                        <option value="">Empty Container Park</option>
+                        {containerParks.map((park) => (
+                          <option key={park.id} value={park.id}>
+                            {park.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className={inputClass}
+                        value={entry.transporterId ?? ""}
+                        onChange={(e) => {
+                          const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
+                          next[index] = { ...next[index], transporterId: e.target.value ? Number(e.target.value) : "" };
+                          set("releaseDetails", next);
+                        }}
+                      >
+                        <option value="">Select Transporter</option>
+                        {transporters.map((transporter) => (
+                          <option key={transporter.id} value={transporter.id}>
+                            {transporter.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="destructive"
+                        type="button"
+                        onClick={() => {
+                          const next = (releaseRows.length ? releaseRows : []).filter((_, idx) => idx !== index);
+                          set("releaseDetails", next);
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+
                   <Button
-                    variant="destructive"
+                    variant="secondary"
                     size="sm"
                     type="button"
-                    onClick={() => {
-                      const next = (pack.sampleEntries || []).filter((_, idx) => idx !== index);
-                      set("sampleEntries", next);
-                    }}
+                    onClick={() =>
+                      set("releaseDetails", [
+                        ...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]),
+                        { releaseRef: "", emptyContainerParkId: "", transporterId: "" },
+                      ])
+                    }
                   >
-                    Remove
+                    Add Release
                   </Button>
                 </div>
-              ))}
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  const next = [...(pack.sampleEntries || []), createSampleEntry()];
-                  set("sampleEntries", next);
-                }}
-              >
-                + Add sample
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </details>
+              </div>
+            </section>
 
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Containers & quantity</h2>
-        <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/40 p-4">
-          <div className="grid gap-3 md:grid-cols-[200px_180px_minmax(0,1fr)]">
-            <FormRow label="Containers Required">
-              <input suppressHydrationWarning className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
-            </FormRow>
-            <FormRow label="Containers Left To Pack">
-              <input suppressHydrationWarning className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
-            </FormRow>
-            <FormRow label="Container Code">
-              <select suppressHydrationWarning className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
-                <option value="">Find items</option>
-                {DEFAULT_CONTAINER_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Destination & shipping</h2>
+              <div className={gridClass}>
+                <FormRow label="Destination country">
+                  <select suppressHydrationWarning className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
+                    <option value="">- Select country -</option>
+                    {countryOptions.map((country) => (
+                      <option key={country} value={country}>
+                        {country}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Destination port">
+                  <input suppressHydrationWarning className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
+                </FormRow>
+                <FormRow label="Transshipment port">
+                  <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
+                </FormRow>
+                <FormRow label="Transshipment port code">
+                  <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
+                </FormRow>
+                <FormRow label="Shipping line">
+                  <select suppressHydrationWarning className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
+                    <option value="">- Select -</option>
+                    {shippingLines.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({l.code})
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Vessel departure">
+                  <select
+                    className={inputClass}
+                    value={pack.vesselDepartureId ?? ""}
+                    onChange={(e) => {
+                      const nextId = e.target.value ? Number(e.target.value) : null;
+                      const nextVessel = nextId ? vesselDepartures.find((vd) => vd.id === nextId) : null;
+                      setPack((prev) => ({
+                        ...prev,
+                        vesselDepartureId: nextId,
+                        vesselName: nextVessel?.vessel || "",
+                        voyageNumber: nextVessel?.voyageNumber || "",
+                        vesselCutoffDate: nextVessel?.vesselCutoffDate || "",
+                      }));
+                    }}
+                  >
+                    <option value="">- Select vessel -</option>
+                    {vesselDepartures.map((vd) => (
+                      <option key={vd.id} value={vd.id}>
+                        {vd.vessel} {vd.voyageNumber ? `(${vd.voyageNumber})` : ""}
+                        {vd.vesselCutoffDate ? ` - Cut-off ${vd.vesselCutoffDate}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Voyage number">
+                  <input suppressHydrationWarning className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
+                </FormRow>
+                <FormRow label="Lloyd ID">
+                  <input suppressHydrationWarning className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
+                </FormRow>
+                <FormRow label="Add from CSV schedule">
+                  <select
+                    className={inputClass}
+                    value=""
+                    onChange={(e) => {
+                      const idx = e.target.value;
+                      if (idx === "") return;
+                      const row = vesselSchedule[Number(idx)];
+                      if (!row) return;
+                      const key = `${(row.shipName || "").trim()}|${(row.voyageOut || "").trim()}`;
+                      const existing = vesselDepartures.find((v) => `${v.vessel}|${v.voyageNumber}` === key);
+                      if (existing) {
+                        set("vesselDepartureId", existing.id);
+                      } else {
+                        const id = Date.now();
+                        const newDeparture = {
+                          id,
+                          vessel: row.shipName?.trim() || "",
+                          voyageNumber: row.voyageOut || "",
+                          vesselCutoffDate: row.cargoCutoffDate || "",
+                        };
+                        setVesselDepartures((prev) => [...prev, newDeparture]);
+                        set("vesselDepartureId", id);
+                      }
+                      e.target.value = "";
+                    }}
+                  >
+                    <option value="">- Import from uploaded CSV -</option>
+                    {vesselSchedule.map((row, idx) => (
+                      <option key={idx} value={idx}>
+                        {row.shipName} {row.voyageOut ? `(${row.voyageOut})` : ""} - Cut-off {row.cargoCutoffDate || "-"}
+                      </option>
+                    ))}
+                  </select>
+                </FormRow>
+                <FormRow label="Cut-off">
+                  <input suppressHydrationWarning className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
+                </FormRow>
+                <FormRow label="ETD">
+                  <input suppressHydrationWarning className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
+                </FormRow>
+                {selectedVessel ? (
+                  <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 sm:col-span-2 md:col-span-3">
+                    <span className="font-semibold text-slate-800">Vessel schedule: </span>
+                    {selectedVessel.vessel} {selectedVessel.voyageNumber ? `(${selectedVessel.voyageNumber})` : ""}
+                    {selectedVessel.vesselCutoffDate ? ` Â· Cut-off: ${selectedVessel.vesselCutoffDate}` : ""}
+                  </div>
+                ) : null}
+              </div>
+            </section>
 
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(5.75rem,7.25rem)] md:items-end">
-            <FormRow
-              label="Required tonnes per container"
-              labelClassName="normal-case tracking-normal text-[11px] font-semibold leading-snug text-slate-600"
-            >
-              <input
-                className={inputClass}
-                type="number"
-                value={pack.quantityPerContainer}
-                onChange={(e) => set("quantityPerContainer", e.target.value)}
-                placeholder="0"
-              />
-            </FormRow>
-            <FormRow label="Max MT per container">
-              <input
-                className={inputClass}
-                type="number"
-                value={pack.maxQtyPerContainer}
-                onChange={(e) => set("maxQtyPerContainer", e.target.value)}
-                placeholder="0"
-              />
-            </FormRow>
-            <FormRow label="MT total" className="md:max-w-[7.25rem]">
-              <input
-                className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
-                readOnly
-                value={computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : ""}
-                placeholder="â€”"
-                title="Containers required Ã— required tonnes per container"
-              />
-            </FormRow>
-          </div>
-
-          <div className="space-y-3 pt-1">
-            <p className="text-[11px] text-slate-500">
-              Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
-            </p>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Release number <span className="font-normal normal-case text-slate-400">Â· Release lines: {releaseRows.length}</span>
-            </p>
-            {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
-              <div key={`release-row-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Import permit</h2>
+              <div className={gridClass}>
+                <FormRow label="Import permit required">
+                  <select
+                    className={inputClass}
+                    value={pack.importPermitRequired ? "yes" : "no"}
+                    onChange={(e) => set("importPermitRequired", e.target.value === "yes")}
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </FormRow>
+                <FormRow label="Import permit number">
+                  <input suppressHydrationWarning className={inputClass} value={pack.importPermitNumber} onChange={(e) => set("importPermitNumber", e.target.value)} placeholder="Number" />
+                </FormRow>
+                <FormRow label="Import permit date">
+                  <input suppressHydrationWarning className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
+                </FormRow>
+              </div>
+              <FormRow label="Import permit file(s)" className="mt-4">
                 <input
                   className={inputClass}
-                  value={entry.releaseRef || ""}
+                  type="file"
+                  multiple
                   onChange={(e) => {
-                    const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                    next[index] = { ...next[index], releaseRef: e.target.value };
-                    set("releaseDetails", next);
+                    addFiles("importPermitFiles", e.target.files);
+                    e.target.value = "";
                   }}
-                  placeholder="Enter Release Number"
                 />
-                <select
+                <FileList items={normalizeFileItems(pack.importPermitFiles)} onOpen={openFile} onRemove={(id) => removeFile("importPermitFiles", id)} />
+              </FormRow>
+            </section>
+
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">RFP</h2>
+              <div className={gridClass}>
+                <FormRow label="RFP">
+                  <input suppressHydrationWarning className={inputClass} value={pack.rfp} onChange={(e) => set("rfp", e.target.value)} placeholder="RFP reference" />
+                </FormRow>
+                <FormRow label="EDN">
+                  <input suppressHydrationWarning className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
+                </FormRow>
+                <FormRow label="RFP additional declaration required">
+                  <select
+                    className={inputClass}
+                    value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
+                    onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </FormRow>
+                <FormRow label="RFP comment">
+                  <input suppressHydrationWarning className={inputClass} value={pack.rfpComment} onChange={(e) => set("rfpComment", e.target.value)} placeholder="Comment" />
+                </FormRow>
+                <FormRow label="RFP expiry">
+                  <input suppressHydrationWarning className={inputClass} type="date" value={pack.rfpExpiry} onChange={(e) => set("rfpExpiry", e.target.value)} />
+                </FormRow>
+                <FormRow label="RFP commodity code">
+                  <input suppressHydrationWarning className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
+                </FormRow>
+              </div>
+              <FormRow label="RFP file(s)" className="mt-4">
+                <input
                   className={inputClass}
-                  value={entry.emptyContainerParkId ?? ""}
+                  type="file"
+                  multiple
                   onChange={(e) => {
-                    const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                    next[index] = { ...next[index], emptyContainerParkId: e.target.value ? Number(e.target.value) : "" };
-                    set("releaseDetails", next);
+                    addFiles("rfpFiles", e.target.files);
+                    e.target.value = "";
                   }}
-                >
-                  <option value="">Empty Container Park</option>
-                  {containerParks.map((park) => (
-                    <option key={park.id} value={park.id}>
-                      {park.name}
-                    </option>
-                  ))}
-                </select>
-                <select
+                />
+                <FileList items={normalizeFileItems(pack.rfpFiles)} onOpen={openFile} onRemove={(id) => removeFile("rfpFiles", id)} />
+              </FormRow>
+              <FormRow label="Additional declaration file(s)" className="mt-4">
+                <input
                   className={inputClass}
-                  value={entry.transporterId ?? ""}
+                  type="file"
+                  multiple
                   onChange={(e) => {
-                    const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                    next[index] = { ...next[index], transporterId: e.target.value ? Number(e.target.value) : "" };
-                    set("releaseDetails", next);
+                    addFiles("additionalDeclarationFiles", e.target.files);
+                    e.target.value = "";
                   }}
-                >
-                  <option value="">Select Transporter</option>
-                  {transporters.map((transporter) => (
-                    <option key={transporter.id} value={transporter.id}>
-                      {transporter.name}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  variant="destructive"
-                  type="button"
-                  onClick={() => {
-                    const next = (releaseRows.length ? releaseRows : []).filter((_, idx) => idx !== index);
-                    set("releaseDetails", next);
+                />
+                <FileList
+                  items={normalizeFileItems(pack.additionalDeclarationFiles)}
+                  onOpen={openFile}
+                  onRemove={(id) => removeFile("additionalDeclarationFiles", id)}
+                />
+              </FormRow>
+            </section>
+
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Packing & notes</h2>
+              <FormRow label="Packing instruction file(s)">
+                <input
+                  className={inputClass}
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    addFiles("packingInstructionFiles", e.target.files);
+                    e.target.value = "";
                   }}
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
+                />
+                <FileList
+                  items={normalizeFileItems(pack.packingInstructionFiles)}
+                  onOpen={openFile}
+                  onRemove={(id) => removeFile("packingInstructionFiles", id)}
+                />
+              </FormRow>
+              <FormRow label="Job notes" className="mt-4">
+                <textarea suppressHydrationWarning className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
+              </FormRow>
+            </section>
+          </>
+        ) : null}
 
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              onClick={() =>
-                set("releaseDetails", [
-                  ...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]),
-                  { releaseRef: "", emptyContainerParkId: "", transporterId: "" },
-                ])
-              }
-            >
-              Add Release
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Destination & shipping</h2>
-        <div className={gridClass}>
-          <FormRow label="Destination country">
-            <select suppressHydrationWarning className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
-              <option value="">- Select country -</option>
-              {countryOptions.map((country) => (
-                <option key={country} value={country}>
-                  {country}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Destination port">
-            <input suppressHydrationWarning className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
-          </FormRow>
-          <FormRow label="Transshipment port">
-            <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
-          </FormRow>
-          <FormRow label="Transshipment port code">
-            <input suppressHydrationWarning className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
-          </FormRow>
-          <FormRow label="Shipping line">
-            <select suppressHydrationWarning className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
-              <option value="">- Select -</option>
-              {shippingLines.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name} ({l.code})
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Vessel departure">
-            <select
-              className={inputClass}
-              value={pack.vesselDepartureId ?? ""}
-              onChange={(e) => {
-                const nextId = e.target.value ? Number(e.target.value) : null;
-                const nextVessel = nextId ? vesselDepartures.find((vd) => vd.id === nextId) : null;
-                setPack((prev) => ({
-                  ...prev,
-                  vesselDepartureId: nextId,
-                  vesselName: nextVessel?.vessel || "",
-                  voyageNumber: nextVessel?.voyageNumber || "",
-                  vesselCutoffDate: nextVessel?.vesselCutoffDate || "",
-                }));
-              }}
-            >
-              <option value="">- Select vessel -</option>
-              {vesselDepartures.map((vd) => (
-                <option key={vd.id} value={vd.id}>
-                  {vd.vessel} {vd.voyageNumber ? `(${vd.voyageNumber})` : ""}
-                  {vd.vesselCutoffDate ? ` - Cut-off ${vd.vesselCutoffDate}` : ""}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Voyage number">
-            <input suppressHydrationWarning className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
-          </FormRow>
-          <FormRow label="Lloyd ID">
-            <input suppressHydrationWarning className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
-          </FormRow>
-          <FormRow label="Add from CSV schedule">
-            <select
-              className={inputClass}
-              value=""
-              onChange={(e) => {
-                const idx = e.target.value;
-                if (idx === "") return;
-                const row = vesselSchedule[Number(idx)];
-                if (!row) return;
-                const key = `${(row.shipName || "").trim()}|${(row.voyageOut || "").trim()}`;
-                const existing = vesselDepartures.find((v) => `${v.vessel}|${v.voyageNumber}` === key);
-                if (existing) {
-                  set("vesselDepartureId", existing.id);
-                } else {
-                  const id = Date.now();
-                  const newDeparture = {
-                    id,
-                    vessel: row.shipName?.trim() || "",
-                    voyageNumber: row.voyageOut || "",
-                    vesselCutoffDate: row.cargoCutoffDate || "",
-                  };
-                  setVesselDepartures((prev) => [...prev, newDeparture]);
-                  set("vesselDepartureId", id);
-                }
-                e.target.value = "";
-              }}
-            >
-              <option value="">- Import from uploaded CSV -</option>
-              {vesselSchedule.map((row, idx) => (
-                <option key={idx} value={idx}>
-                  {row.shipName} {row.voyageOut ? `(${row.voyageOut})` : ""} - Cut-off {row.cargoCutoffDate || "-"}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="Cut-off">
-            <input suppressHydrationWarning className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
-          </FormRow>
-          <FormRow label="ETD">
-            <input suppressHydrationWarning className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
-          </FormRow>
-          {selectedVessel ? (
-            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 sm:col-span-2 md:col-span-3">
-              <span className="font-semibold text-slate-800">Vessel schedule: </span>
-              {selectedVessel.vessel} {selectedVessel.voyageNumber ? `(${selectedVessel.voyageNumber})` : ""}
-              {selectedVessel.vesselCutoffDate ? ` Â· Cut-off: ${selectedVessel.vesselCutoffDate}` : ""}
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Import permit</h2>
-        <div className={gridClass}>
-          <FormRow label="Import permit required">
-            <select
-              className={inputClass}
-              value={pack.importPermitRequired ? "yes" : "no"}
-              onChange={(e) => set("importPermitRequired", e.target.value === "yes")}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          <FormRow label="Import permit number">
-            <input suppressHydrationWarning className={inputClass} value={pack.importPermitNumber} onChange={(e) => set("importPermitNumber", e.target.value)} placeholder="Number" />
-          </FormRow>
-          <FormRow label="Import permit date">
-            <input suppressHydrationWarning className={inputClass} type="date" value={pack.importPermitDate} onChange={(e) => set("importPermitDate", e.target.value)} />
-          </FormRow>
-        </div>
-        <FormRow label="Import permit file(s)" className="mt-4">
-          <input
-            className={inputClass}
-            type="file"
-            multiple
-            onChange={(e) => {
-              addFiles("importPermitFiles", e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <FileList items={normalizeFileItems(pack.importPermitFiles)} onOpen={openFile} onRemove={(id) => removeFile("importPermitFiles", id)} />
-        </FormRow>
-      </section>
-
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">RFP</h2>
-        <div className={gridClass}>
-          <FormRow label="RFP">
-            <input suppressHydrationWarning className={inputClass} value={pack.rfp} onChange={(e) => set("rfp", e.target.value)} placeholder="RFP reference" />
-          </FormRow>
-          <FormRow label="EDN">
-            <input suppressHydrationWarning className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
-          </FormRow>
-          <FormRow label="RFP additional declaration required">
-            <select
-              className={inputClass}
-              value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
-              onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </FormRow>
-          <FormRow label="RFP comment">
-            <input suppressHydrationWarning className={inputClass} value={pack.rfpComment} onChange={(e) => set("rfpComment", e.target.value)} placeholder="Comment" />
-          </FormRow>
-          <FormRow label="RFP expiry">
-            <input suppressHydrationWarning className={inputClass} type="date" value={pack.rfpExpiry} onChange={(e) => set("rfpExpiry", e.target.value)} />
-          </FormRow>
-          <FormRow label="RFP commodity code">
-            <input suppressHydrationWarning className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
-          </FormRow>
-        </div>
-        <FormRow label="RFP file(s)" className="mt-4">
-          <input
-            className={inputClass}
-            type="file"
-            multiple
-            onChange={(e) => {
-              addFiles("rfpFiles", e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <FileList items={normalizeFileItems(pack.rfpFiles)} onOpen={openFile} onRemove={(id) => removeFile("rfpFiles", id)} />
-        </FormRow>
-        <FormRow label="Additional declaration file(s)" className="mt-4">
-          <input
-            className={inputClass}
-            type="file"
-            multiple
-            onChange={(e) => {
-              addFiles("additionalDeclarationFiles", e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <FileList
-            items={normalizeFileItems(pack.additionalDeclarationFiles)}
-            onOpen={openFile}
-            onRemove={(id) => removeFile("additionalDeclarationFiles", id)}
-          />
-        </FormRow>
-      </section>
-
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Packing & notes</h2>
-        <FormRow label="Packing instruction file(s)">
-          <input
-            className={inputClass}
-            type="file"
-            multiple
-            onChange={(e) => {
-              addFiles("packingInstructionFiles", e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <FileList
-            items={normalizeFileItems(pack.packingInstructionFiles)}
-            onOpen={openFile}
-            onRemove={(id) => removeFile("packingInstructionFiles", id)}
-          />
-        </FormRow>
-        <FormRow label="Job notes" className="mt-4">
-          <textarea suppressHydrationWarning className={`${inputClass} min-h-[92px] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
-        </FormRow>
-      </section>
-      </>
-      ) : null}
-
-      {activeTab === "pems" ? (
-      <div className="space-y-4">
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PEMs submission setup</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <FormRow label="Record type">
-              <select
-                className={inputClass}
-                value={pemsDraft.recordType}
-                onChange={(e) =>
-                  updatePemsDraft((current) => ({
-                    ...current,
-                    recordType: e.target.value,
-                    stagedContainerIds:
-                      e.target.value === GPPIR_RECORD_TYPE
-                        ? current.stagedContainerIds.filter((id) => {
-                            const target = packContainers.find((container) => container.id === id);
-                            return Boolean(target?.ecrSubmitted);
-                          })
-                        : current.stagedContainerIds,
-                  }))
-                }
-              >
-                {PEMS_RECORD_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Inspection start">
-              <input
-                className={inputClass}
-                type="datetime-local"
-                value={formatDateTimeInput(pemsDraft.inspectionStart)}
-                onChange={(e) => updatePemsDraft({ inspectionStart: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Inspection end">
-              <input
-                className={inputClass}
-                type="datetime-local"
-                value={formatDateTimeInput(pemsDraft.inspectionEnd)}
-                onChange={(e) => updatePemsDraft({ inspectionEnd: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="AO signoff">
-              <input suppressHydrationWarning className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
-            </FormRow>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2 lg:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
-              <div className="mt-1 space-y-1">
-                {[
-                  selectedPackSite?.yardNo
-                    ? { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }
-                    : { ok: false, label: "Missing yard number in selected site record." },
-                  selectedPackSite?.name
-                    ? { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }
-                    : { ok: false, label: "Missing site name for place of inspection." },
-                  pemsDraft.aoSignoff
-                    ? selectedAoNumber
-                      ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
-                      : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
-                    : { ok: false, label: "Select AO signoff to resolve AO number." },
-                ].map((check) => (
-                  <p key={check.label} className={cn("text-xs", check.ok ? "text-emerald-700" : "text-amber-700")}>
-                    {check.ok ? "OK - " : "Needs attention - "}
-                    {check.label}
-                  </p>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
-              <Button
-                type="button"
-                className="h-10 w-full"
-                onClick={submitPemsFromForm}
-                disabled={!stagedPemsContainers.length}
-              >
-                Submit {stagedPemsContainers.length}
-              </Button>
-            </div>
-          </div>
-          {pemsSubmitError ? (
-            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>
-          ) : null}
-        </section>
-
-        <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
-          <section className={sectionClass}>
-            <div className="mb-2 flex items-center gap-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Container list</h2>
-              <span className="ms-auto text-xs font-semibold text-slate-500">{stagedPemsContainers.length} staged</span>
-            </div>
-            <div className="mb-2 flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-7 px-2 text-[11px]"
-                onClick={() =>
-                  updatePemsDraft({
-                    stagedContainerIds:
-                      pemsDraft.recordType === GPPIR_RECORD_TYPE
-                        ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
-                        : packContainers.map((container) => container.id),
-                  })
-                }
-              >
-                Stage all
-              </Button>
-              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[11px]" onClick={() => updatePemsDraft({ stagedContainerIds: [] })}>
-                Clear
-              </Button>
-            </div>
-            <div className="max-h-[460px] space-y-1 overflow-auto pr-1">
-              {packContainers.map((container) => {
-                const checked = pemsDraft.stagedContainerIds.includes(container.id);
-                const canStage = pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted;
-                const statusLabel = container.gppirSubmitted ? "GPPIR Submitted" : container.ecrSubmitted ? "ECR Submitted" : "Awaiting ECR";
-                return (
-                  <div key={container.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!canStage}
-                        onChange={() => {
-                          if (!canStage) return;
-                          togglePemsContainer(container.id);
-                        }}
-                      />
-                      <span className="text-xs font-semibold text-slate-800">#{container.order} {container.containerNumber || "Draft container"}</span>
-                      <span className="ms-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">{statusLabel}</span>
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">
-                      Seal {safeValue(container.sealNumber)} Â· Release {safeValue(container.releaseNumber)}
-                    </div>
-                    <button
-                      type="button"
-                      className="mt-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700"
-                      onClick={() => setEditingContainerId(container.id)}
-                    >
-                      Edit container
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className={sectionClass}>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700">Staging preview</h2>
-            {!stagedPemsContainers.length ? (
-              <div className="rounded-md border border-dashed border-slate-300 px-3 py-8 text-center text-sm text-slate-500">
-                Stage one or more containers to preview PEM records.
-              </div>
-            ) : (
-              <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2.5">
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Yard: {safeValue(selectedPackSite?.yardNo)}</div>
-                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Place: {safeValue(selectedPackSite?.name)}</div>
-                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Start: {formatDateTimeValue(pemsDraft.inspectionStart)}</div>
-                  <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">End: {formatDateTimeValue(pemsDraft.inspectionEnd)}</div>
+        {activeTab === "pems" ? (
+          <>
+            <div className="space-y-3">
+              <section className="rounded-lg border border-slate-200/90 bg-white px-2.5 py-2.5 shadow-none">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Submitted PEM</p>
+                  {pemsSubmissions.length ? (
+                    <span className="tabular-nums text-[10px] text-slate-400">{pemsSubmissions.length}</span>
+                  ) : null}
                 </div>
-                <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                  <table className="w-full min-w-[900px] text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-700">
-                      {pemsDraft.recordType === GPPIR_RECORD_TYPE ? (
-                        <tr>
-                          <th className="px-2 py-1.5">RFP Line</th>
-                          <th className="px-2 py-1.5">Container Number</th>
-                          <th className="px-2 py-1.5">Source</th>
-                          <th className="px-2 py-1.5">Commodity</th>
-                          <th className="px-2 py-1.5">Weight</th>
-                          <th className="px-2 py-1.5">Result</th>
-                          <th className="px-2 py-1.5">AO</th>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <th className="px-2 py-1.5">Container Number</th>
-                          <th className="px-2 py-1.5">Inspection Level</th>
-                          <th className="px-2 py-1.5">RFP Number</th>
-                          <th className="px-2 py-1.5">Result</th>
-                          <th className="px-2 py-1.5">Seal Number</th>
-                          <th className="px-2 py-1.5">AO</th>
-                          <th className="px-2 py-1.5">Remarks</th>
-                        </tr>
-                      )}
-                    </thead>
-                    <tbody>
-                      {stagedPemsContainers.map((container) => (
-                        pemsDraft.recordType === GPPIR_RECORD_TYPE ? (
-                          <tr key={container.id} className="border-t border-slate-100">
-                            <td className="px-2 py-1.5">1</td>
-                            <td className="px-2 py-1.5 font-medium">{safeValue(container.containerNumber)}</td>
-                            <td className="px-2 py-1.5">{safeValue(container.grainLocation || container.stockBayId)}</td>
-                            <td className="px-2 py-1.5">{safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description)}</td>
-                            <td className="px-2 py-1.5">{toRoundedNumber(container.nettWeight).toFixed(2)} MT</td>
-                            <td className="px-2 py-1.5">{container.grainInspection}</td>
-                            <td className="px-2 py-1.5">{safeValue(pemsDraft.aoSignoff)}</td>
+                {!pemsSubmissions.length ? (
+                  <p className="mt-2 text-[11px] text-slate-500">None yet.</p>
+                ) : (
+                  <div className="mt-2 divide-y divide-slate-100 border-t border-slate-100">
+                    {pemsSubmissions.map((row) => (
+                      <div
+                        key={row.batchId}
+                        className="flex flex-col gap-2 py-2.5 text-[11px] leading-snug sm:flex-row sm:items-start sm:gap-4"
+                      >
+                        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:w-[10.5rem] sm:flex-col sm:items-start sm:gap-1">
+                          <span className="font-semibold text-slate-800">{row.batchId}</span>
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-800">
+                            {safeValue(row.status)}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1 break-words">
+                          <p className="text-[10px] text-slate-700">{safeValue(row.recordType)}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            {Array.isArray(row.containerIds) ? row.containerIds.length : 0} containers
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-[10px] whitespace-nowrap text-slate-400 sm:pt-0.5">
+                          {formatDateTimeValue(row.submittedAt)}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 sm:flex-col sm:items-end sm:gap-1.5">
+                          <button
+                            type="button"
+                            className="text-[10px] font-medium text-brand-600 hover:underline"
+                            onClick={() => setPreviewPemsSubmission(row)}
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            className="text-[10px] font-medium text-brand-600 hover:underline disabled:opacity-50"
+                            disabled={downloadingPemsBatchId === row.batchId}
+                            onClick={() => handleDownloadPemsSubmission(row)}
+                          >
+                            {downloadingPemsBatchId === row.batchId ? "Downloading…" : "Download PDF"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className={sectionClass}>
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PEMs submission setup</h2>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <FormRow label="Record type">
+                    <select
+                      className={inputClass}
+                      value={pemsDraft.recordType}
+                      onChange={(e) =>
+                        updatePemsDraft((current) => ({
+                          ...current,
+                          recordType: e.target.value,
+                          stagedContainerIds:
+                            e.target.value === GPPIR_RECORD_TYPE
+                              ? current.stagedContainerIds.filter((id) => {
+                                const target = packContainers.find((container) => container.id === id);
+                                return Boolean(target?.ecrSubmitted);
+                              })
+                              : current.stagedContainerIds,
+                        }))
+                      }
+                    >
+                      {PEMS_RECORD_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Inspection start">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={formatDateTimeInput(pemsDraft.inspectionStart)}
+                      onChange={(e) => updatePemsDraft({ inspectionStart: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Inspection end">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={formatDateTimeInput(pemsDraft.inspectionEnd)}
+                      onChange={(e) => updatePemsDraft({ inspectionEnd: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="AO signoff">
+                    <input suppressHydrationWarning className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })} placeholder="AO name" />
+                  </FormRow>
+                </div>
+                <div className="mt-2 flex flex-row flex-wrap items-start gap-2 sm:gap-3">
+                  <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
+                    <div className="mt-1 grid auto-rows-auto grid-cols-1 items-start divide-y divide-slate-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                      {[
+                        {
+                          title: "Yard number",
+                          ...(!selectedPackSite?.yardNo
+                            ? { ok: false, label: "Missing yard number in selected site record." }
+                            : { ok: true, label: `Yard number resolved (${selectedPackSite.yardNo})` }),
+                        },
+                        {
+                          title: "Place of inspection",
+                          ...(!selectedPackSite?.name
+                            ? { ok: false, label: "Missing site name for place of inspection." }
+                            : { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }),
+                        },
+                        {
+                          title: "AO signoff",
+                          ...(pemsDraft.aoSignoff
+                            ? selectedAoNumber
+                              ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
+                              : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
+                            : { ok: false, label: "Select AO signoff to resolve AO number." }),
+                        },
+                      ].map((section) => (
+                        <div key={section.title} className="py-1 first:pt-0 last:pb-0 sm:px-2 sm:py-1.5 sm:first:pl-0 sm:last:pr-0">
+                          <div className="space-y-1">
+                            <p className="text-[11px] leading-snug break-words">
+                              <span className="text-slate-400">{section.title}: </span>
+                              <span className={cn(section.ok ? "text-emerald-700" : "text-amber-700")}>
+                                {section.ok ? "OK — " : "Needs attention — "}
+                                {section.label}
+                              </span>
+                            </p>
+                            {section.lines?.length
+                              ? section.lines.map((line, i) => (
+                                <p key={i} className="text-[11px] leading-snug break-words text-slate-600">
+                                  {line}
+                                </p>
+                              ))
+                              : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    className="h-10 shrink-0 self-center sm:min-w-[160px]"
+                    onClick={submitPemsFromForm}
+                    disabled={!stagedPemsContainers.length}
+                  >
+                    Submit {stagedPemsContainers.length}
+                  </Button>
+                </div>
+                {pemsSubmitError ? (
+                  <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>
+                ) : null}
+              </section>
+
+              <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
+                <section className={sectionClass}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Container list</h2>
+                    <span className="ms-auto text-xs font-semibold text-slate-500">{stagedPemsContainers.length} staged</span>
+                  </div>
+                  <div className="mb-2 flex gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() =>
+                        updatePemsDraft({
+                          stagedContainerIds:
+                            pemsDraft.recordType === GPPIR_RECORD_TYPE
+                              ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                              : packContainers.map((container) => container.id),
+                        })
+                      }
+                    >
+                      Stage all
+                    </Button>
+                    <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[11px]" onClick={() => updatePemsDraft({ stagedContainerIds: [] })}>
+                      Clear
+                    </Button>
+                  </div>
+                  <div className="max-h-[460px] space-y-1 overflow-auto pr-1">
+                    {packContainers.map((container) => {
+                      const checked = pemsDraft.stagedContainerIds.includes(container.id);
+                      const canStage = pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted;
+                      const statusLabel = container.gppirSubmitted ? "GPPIR Submitted" : container.ecrSubmitted ? "ECR Submitted" : "Awaiting ECR";
+                      return (
+                        <div key={container.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!canStage}
+                              onChange={() => {
+                                if (!canStage) return;
+                                togglePemsContainer(container.id);
+                              }}
+                            />
+                            <span className="text-xs font-semibold text-slate-800">#{container.order} {container.containerNumber || "Draft container"}</span>
+                            <span className="ms-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">{statusLabel}</span>
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-slate-500">
+                            Seal {safeValue(container.sealNumber)} Â· Release {safeValue(container.releaseNumber)}
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700"
+                            onClick={() => setEditingContainerId(container.id)}
+                          >
+                            Edit container
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className={sectionClass}>
+                  <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700">Staging preview</h2>
+                  {!stagedPemsContainers.length ? (
+                    <div className="rounded-md border border-dashed border-slate-300 px-3 py-8 text-center text-sm text-slate-500">
+                      Stage one or more containers to preview PEM records.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Yard: {safeValue(selectedPackSite?.yardNo)}</div>
+                        <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Place: {safeValue(selectedPackSite?.name)}</div>
+                        <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">Start: {formatDateTimeValue(pemsDraft.inspectionStart)}</div>
+                        <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs">End: {formatDateTimeValue(pemsDraft.inspectionEnd)}</div>
+                      </div>
+                      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                        <table className="w-full min-w-[900px] text-left text-xs">
+                          <thead className="bg-slate-100 text-slate-700">
+                            {pemsDraft.recordType === GPPIR_RECORD_TYPE ? (
+                              <tr>
+                                <th className="px-2 py-1.5">RFP Line</th>
+                                <th className="px-2 py-1.5">Container Number</th>
+                                <th className="px-2 py-1.5">Source</th>
+                                <th className="px-2 py-1.5">Commodity</th>
+                                <th className="px-2 py-1.5">Weight</th>
+                                <th className="px-2 py-1.5">Result</th>
+                                <th className="px-2 py-1.5">AO</th>
+                              </tr>
+                      </thead>
+                          <tbody>
+                            {stagedPemsContainers.map((container) => {
+                              const containerWeight = toRoundedNumber(container.nettWeight);
+                              return (
+                                <tr key={container.id} className="border-t border-slate-100 text-slate-700">
+                                  <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
+                                  <td className="px-2 py-2 font-medium">{safeValue(container.containerNumber)}</td>
+                                  <td className="px-2 py-2">{safeValue(container.grainLocation || container.stockBayId)}</td>
+                                  <td className="px-2 py-2">{packPemsCommodityLabel}</td>
+                                  <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
+                                  <td className="px-2 py-2">CONTAINER</td>
+                                  <td className="px-2 py-2">{containerWeight.toFixed(2)}</td>
+                                  <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
+                                  <td className="px-2 py-2">{containerWeight.toFixed(4)}</td>
+                                  <td className="px-2 py-2">{GPPIR_WEIGHT_UNIT}</td>
+                                  <td className="px-2 py-2">N/A</td>
+                                  <td className="px-2 py-2">
+                                    {container.grainInspection === "Passed"
+                                      ? "Passed"
+                                      : container.grainInspection === "Failed"
+                                        ? "Failed"
+                                        : "Pending"}
+                                  </td>
+                                  <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
+                                  <td className="px-2 py-2 align-top">
+                                    <textarea
+                                      className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
+                                      value={getContainerInspectionRemark(container)}
+                                      onChange={(e) =>
+                                        updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
+                                      }
+                                      placeholder="Remarks"
+                                      rows={2}
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className={stagingGridClass}>
+                        <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
+                        <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
+                      </div>
+                      <div className={stagingGrid3Class}>
+                        <PemsStagingFormField label="Additional Declaration">
+                          <select
+                            className={stagingInputClass}
+                            value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
+                            onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
+                          >
+                            <option value="no">N/A</option>
+                            <option value="yes">Yes</option>
+                          </select>
+                        </PemsStagingFormField>
+                        <PemsStagingField label="Total Passed" value={gppirStagingPassedWeight.toFixed(4)} />
+                        <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
+                      </div>
+                      <div className={stagingGrid3Class}>
+                        <PemsStagingFormField label="Comments">
+                          <input
+                            className={stagingInputClass}
+                            value={pemsDraft.ecrComments ?? ""}
+                            onChange={(e) => updatePemsDraft({ ecrComments: e.target.value })}
+                            placeholder="N/A"
+                          />
+                        </PemsStagingFormField>
+                        <PemsStagingField label="Total Failed" value={gppirStagingFailedWeight.toFixed(4)} />
+                        <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
+                      </div>
+                    </div>
+                  ) : (
+                  <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
+                    <div className={stagingGridClass}>
+                      <PemsStagingField label="Container Yard Id" value={safeValue(selectedPackSite?.yardNo)} />
+                      <PemsStagingField label="Place of Inspection" value={safeValue(selectedPackSite?.name)} />
+                      <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
+                      <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
+                    </div>
+                    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                      <table className="w-full min-w-[880px] text-left text-xs">
+                        <thead className="bg-slate-100 text-slate-700">
+                          <tr>
+                            <th className="px-2 py-2 font-semibold">Container Number</th>
+                            <th className="px-2 py-2 font-semibold">Inspection Level</th>
+                            <th className="px-2 py-2 font-semibold">RFP Number</th>
+                            <th className="px-2 py-2 font-semibold">Result</th>
+                            <th className="px-2 py-2 font-semibold">Seal Number</th>
+                            <th className="px-2 py-2 font-semibold">Expiry Date</th>
+                            <th className="px-2 py-2 font-semibold">Inspection AO Name</th>
+                            <th className="px-2 py-2 font-semibold">Remarks</th>
                           </tr>
-                        ) : (
+                        </thead>
+                        <tbody>
+                          {stagedPemsContainers.map((container) => (
+                            <tr key={container.id} className="border-t border-slate-100 text-slate-700">
+                              <td className="px-2 py-2 font-medium">{safeValue(container.containerNumber)}</td>
+                              <td className="px-2 py-2">Consumable</td>
+                              <td className="px-2 py-2">{safeValue(packRfpText || container.releaseNumber)}</td>
+                              <td className="px-2 py-2">
+                                {container.emptyInspection === "Passed"
+                                  ? "Pass"
+                                  : container.emptyInspection === "Failed"
+                                    ? "Fail"
+                                    : "Pending"}
+                              </td>
+                              <td className="px-2 py-2">{safeValue(container.sealNumber)}</td>
+                              <td className="px-2 py-2">{stagingExpiryDate}</td>
+                              <td className="px-2 py-2">{safeValue(pemsDraft.aoSignoff)}</td>
+                              <td className="px-2 py-2 align-top">
+                                <textarea
+                                  className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
+                                  value={getContainerInspectionRemark(container)}
+                                  onChange={(e) =>
+                                    updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
+                                  }
+                                  placeholder="Remarks"
+                                  rows={2}
+                                />
+                              </td>
+                            </tr>
+                          ) : (
                           <tr key={container.id} className="border-t border-slate-100">
                             <td className="px-2 py-1.5 font-medium">{safeValue(container.containerNumber)}</td>
                             <td className="px-2 py-1.5">Consumable</td>
@@ -1843,329 +2427,983 @@ export default function NewPackFormPage() {
                             <td className="px-2 py-1.5">{safeValue(pemsDraft.aoSignoff)}</td>
                             <td className="px-2 py-1.5">{safeValue(container.aoInspectionRemark)}</td>
                           </tr>
-                        )
+                          )
                       ))}
-                    </tbody>
-                  </table>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+            )}
+                  <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
+                    {!pemsSubmissions.length ? (
+                      <p className="mt-2 text-xs text-slate-500">No submissions yet.</p>
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {pemsSubmissions.map((row) => (
+                          <div key={row.batchId} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-800">{row.batchId}</span>
+                              <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">{safeValue(row.status)}</span>
+                              <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-slate-600">
+                              {safeValue(row.recordType)} Â· Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
+            <PemsSubmissionPreviewModal submission={previewPemsSubmission} onClose={() => setPreviewPemsSubmission(null)} />
+          </>
+        ) : null}
+
+        {activeTab === "accounting" ? (
+          <div className="space-y-4">
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Revenue</h2>
+              <p className="text-sm text-slate-500">
+                Revenue calculations will appear once commodity pricing and container data are connected.
+              </p>
+            </section>
+            <section className={sectionClass}>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Expense</h2>
+              <p className="text-sm text-slate-500">Cost-side lines will be added in a future release.</p>
+            </section>
+          </div>
+        ) : null}
+
+        {activeTab === "fumigation" && pack.fumigationRequired ? (
+          <section className={sectionClass}>
+            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
+            <p className="mb-4 text-xs text-slate-500">
+              Section layout mirrors the AU Government fumigation cert/record template. Every field here pre-fills into the
+              Certificate &amp; Record editors when you click Generate.
+            </p>
+            <div className="space-y-6">
+
+              {/* ─── Section A — Fumigator in charge ─── */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Section A — Fumigator in charge
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Fumigant">
+                    <select
+                      className={inputClass}
+                      value={pack.fumigantId ?? ""}
+                      onChange={(e) => {
+                        const fumigantId = e.target.value ? Number(e.target.value) : null;
+                        setPack((prev) => {
+                          const nextMethodology =
+                            prev.methodologyId && Number(prev.methodologyId)
+                              ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
+                              : null;
+                          return {
+                            ...prev,
+                            fumigantId,
+                            methodologyId:
+                              nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
+                                ? prev.methodologyId
+                                : null,
+                          };
+                        });
+                      }}
+                    >
+                      <option value="">- Select -</option>
+                      {fumigants.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.code} - {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Methodology">
+                    <select
+                      className={inputClass}
+                      value={pack.methodologyId ?? ""}
+                      onChange={(e) => set("methodologyId", e.target.value ? Number(e.target.value) : null)}
+                      disabled={!pack.fumigantId}
+                    >
+                      <option value="">- Select -</option>
+                      {fumigationMethodologyOptions.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                          {item.version ? ` (${item.version})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Fumigation timing">
+                    <select
+                      className={inputClass}
+                      value={pack.fumigationTiming ?? ""}
+                      onChange={(e) => set("fumigationTiming", e.target.value)}
+                    >
+                      <option value="">Select timing…</option>
+                      <option value="pre-pack">Pre-Pack</option>
+                      <option value="post-pack">Post-Pack</option>
+                    </select>
+                  </FormRow>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Fumigator name">
+                    <select
+                      className={inputClass}
+                      value={fd.fumigatorName || ""}
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        const matched = fumigatorOptions.find((u) => u.name === name) || null;
+                        setPack((prev) => {
+                          const detail = (prev.fumigationDetail && typeof prev.fumigationDetail === "object")
+                            ? prev.fumigationDetail
+                            : blankFumigationDetail();
+                          // Pre-fill accreditation (fumigatorLicence) on selection; user can still override.
+                          const accreditation = matched?.fumigatorLicence ?? prev.fumigatorAccreditationNumber ?? "";
+                          return {
+                            ...prev,
+                            fumigatorAccreditationNumber: accreditation,
+                            fumigationDetail: { ...detail, fumigatorName: name },
+                          };
+                        });
+                      }}
+                    >
+                      <option value="">- Select fumigator -</option>
+                      {fumigatorOptions.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                          {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Accreditation number">
+                    <input
+                      className={inputClass}
+                      value={pack.fumigatorAccreditationNumber ?? ""}
+                      onChange={(e) => setPack((p) => ({ ...p, fumigatorAccreditationNumber: e.target.value }))}
+                      placeholder="Pre-filled from fumigator's licence"
+                    />
+                  </FormRow>
+                  <FormRow label="Treatment provider ID">
+                    <input
+                      className={inputClass}
+                      value={pack.treatmentProviderId ?? ""}
+                      onChange={(e) => setPack((p) => ({ ...p, treatmentProviderId: e.target.value }))}
+                      placeholder={
+                        selectedPackSite?.treatmentProviderId
+                          ? "Pre-filled from site — edit to override"
+                          : "Set on the Site reference data, or enter here"
+                      }
+                    />
+                  </FormRow>
                 </div>
               </div>
-            )}
-            <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
-              {!pemsSubmissions.length ? (
-                <p className="mt-2 text-xs text-slate-500">No submissions yet.</p>
-              ) : (
-                <div className="mt-2 space-y-1.5">
-                  {pemsSubmissions.map((row) => (
-                    <div key={row.batchId} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800">{row.batchId}</span>
-                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">{safeValue(row.status)}</span>
-                        <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-slate-600">
-                        {safeValue(row.recordType)} Â· Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
-                      </p>
+
+              {/* ─── Section B — Job & consignment details ─── */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Section B — Job &amp; consignment details
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <PemsStagingField label="Job identification" value={pack.jobReference || "—"} />
+                  <PemsStagingField label="Client (from pack)" value={pack.customer || "—"} />
+                  <PemsStagingField label="Destination country (from pack)" value={pack.destinationCountry || "—"} />
+                  <FormRow label="Port of loading">
+                    <input
+                      className={inputClass}
+                      value={pack.portOfLoading ?? ""}
+                      onChange={(e) => setPack((p) => ({ ...p, portOfLoading: e.target.value }))}
+                      placeholder="e.g. Port of Melbourne"
+                    />
+                  </FormRow>
+                  <FormRow label="Commodity country of origin">
+                    <input
+                      className={inputClass}
+                      value={pack.commodityCountryOfOrigin ?? ""}
+                      onChange={(e) => setPack((p) => ({ ...p, commodityCountryOfOrigin: e.target.value }))}
+                      placeholder="e.g. Australia"
+                    />
+                  </FormRow>
+                </div>
+                <FormRow className="mt-3" label="Target of fumigation (pick all that apply)">
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    {FUMIGATION_TARGETS.map((t) => (
+                      <label key={t.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(fd.targetOfFumigation ?? []).includes(t.value)}
+                          onChange={(e) => {
+                            const prev = fd.targetOfFumigation ?? [];
+                            updateFumigationDetail({
+                              targetOfFumigation: e.target.checked
+                                ? [...prev, t.value]
+                                : prev.filter((v) => v !== t.value),
+                            });
+                          }}
+                        />
+                        {t.label}
+                      </label>
+                    ))}
+                  </div>
+                </FormRow>
+              </div>
+
+              {/* ─── Section C — Fumigation details ─── */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Section C — Fumigation details (enclosure &amp; dose)
+                </p>
+
+                {/* Enclosure type */}
+                <FormRow label="Enclosure type">
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    {ENCLOSURE_TYPES.map((opt) => (
+                      <label key={opt.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="packEnclosureType"
+                          value={opt.value}
+                          checked={fd.enclosureType === opt.value}
+                          onChange={() => updateFumigationDetail({ enclosureType: opt.value })}
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </FormRow>
+                {fd.enclosureType === "other" && (
+                  <FormRow className="mt-2" label="Other enclosure description">
+                    <input
+                      className={inputClass}
+                      value={fd.enclosureOtherText || ""}
+                      onChange={(e) => updateFumigationDetail({ enclosureOtherText: e.target.value })}
+                    />
+                  </FormRow>
+                )}
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                  <FormRow label="Length (m)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="any"
+                      value={fd.enclosureLengthM ?? ""}
+                      onChange={(e) => updateFumigationDetail({ enclosureLengthM: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Width (m)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="any"
+                      value={fd.enclosureWidthM ?? ""}
+                      onChange={(e) => updateFumigationDetail({ enclosureWidthM: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Height (m)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="any"
+                      value={fd.enclosureHeightM ?? ""}
+                      onChange={(e) => updateFumigationDetail({ enclosureHeightM: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Total volume (m³)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="any"
+                      value={fd.volumeM3 ?? ""}
+                      onChange={(e) => updateFumigationDetail({ volumeM3: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+
+                <FormRow className="mt-3" label="Consignment suitable for fumigation?">
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    {[
+                      { v: true, l: "Yes — suitable" },
+                      { v: false, l: "No — remedial action taken" },
+                    ].map(({ v, l }) => (
+                      <label key={String(v)} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="packConsignmentSuitable"
+                          checked={fd.consignmentSuitable === v}
+                          onChange={() => updateFumigationDetail({ consignmentSuitable: v })}
+                        />
+                        {l}
+                      </label>
+                    ))}
+                  </div>
+                </FormRow>
+                {fd.consignmentSuitable === false && (
+                  <FormRow className="mt-2" label="Remedial action taken">
+                    <textarea
+                      className={inputClass}
+                      rows={2}
+                      value={fd.consignmentRemedialAction ?? ""}
+                      onChange={(e) => updateFumigationDetail({ consignmentRemedialAction: e.target.value })}
+                    />
+                  </FormRow>
+                )}
+
+                {/* Methodology reference panel — kept inside Section C */}
+                {selectedFumigationMethodology ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-800">
+                      {selectedFumigationMethodology.name}
+                      {selectedFumigationMethodology.version ? ` ${selectedFumigationMethodology.version}` : ""}
+                    </p>
+                    <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "â€”"}</p>
+                    <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "â€”"}</p>
+                  </div>
+                ) : null}
+
+                <FormRow className="mt-3" label="Fumigation type">
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    {[
+                      { v: "ambient", l: "Ambient temperature (forecast)" },
+                      { v: "controlled", l: "Controlled temperature (heated enclosure)" },
+                    ].map(({ v, l }) => (
+                      <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="packFumigationType"
+                          checked={fd.fumigationType === v}
+                          onChange={() => updateFumigationDetail({ fumigationType: v })}
+                        />
+                        {l}
+                      </label>
+                    ))}
+                  </div>
+                </FormRow>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <FormRow label="Min forecast temperature (°C)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.5"
+                      value={fd.minForecastedTemperature ?? ""}
+                      onChange={(e) => updateFumigationDetail({ minForecastedTemperature: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Actual start temperature (°C)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.5"
+                      value={fd.actualTemperature ?? ""}
+                      onChange={(e) => updateFumigationDetail({ actualTemperature: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+
+                <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Prescribed treatment schedule
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Dose rate (g/m³)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.01"
+                      value={fd.prescribedDoseRate ?? ""}
+                      onChange={(e) => updateFumigationDetail({ prescribedDoseRate: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Exposure (hours)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="1"
+                      value={fd.prescribedExposure ?? ""}
+                      onChange={(e) => updateFumigationDetail({ prescribedExposure: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Min temperature (°C)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.5"
+                      value={fd.prescribedTemperature ?? ""}
+                      onChange={(e) => updateFumigationDetail({ prescribedTemperature: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+
+                <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Applied dose
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Applied dose rate">
+                    <div className="flex gap-2">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        step="0.01"
+                        value={fd.dosageValue ?? ""}
+                        onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
+                      />
+                      <select
+                        className={inputClass}
+                        style={{ maxWidth: "5.5rem" }}
+                        value={fd.dosageUnit || "g/m3"}
+                        onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
+                      >
+                        {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </FormRow>
+                  <FormRow label="Applied exposure">
+                    <div className="flex gap-2">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        step="1"
+                        value={fd.exposureTimeValue ?? ""}
+                        onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
+                      />
+                      <select
+                        className={inputClass}
+                        style={{ maxWidth: "5.5rem" }}
+                        value={fd.exposureTimeUnit || "hours"}
+                        onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
+                      >
+                        {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </FormRow>
+                  <FormRow label="Application method">
+                    <select
+                      className={inputClass}
+                      value={fd.applicationMethod || "in-container"}
+                      onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
+                    >
+                      {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
+                        <option key={method} value={method}>
+                          {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Calculated dose">
+                    <div className="flex gap-2">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        step="0.1"
+                        value={fd.calculatedDosageValue ?? ""}
+                        onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
+                      />
+                      <select
+                        className={inputClass}
+                        style={{ maxWidth: "4.5rem" }}
+                        value={fd.calculatedDosageUnit || "g"}
+                        onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
+                      >
+                        {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </FormRow>
+                  <FormRow label="Amount of fumigant applied">
+                    <div className="flex gap-2">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        step="0.1"
+                        value={fd.actualDosageAppliedValue ?? ""}
+                        onChange={(e) => updateFumigationDetail({ actualDosageAppliedValue: e.target.value })}
+                      />
+                      <select
+                        className={inputClass}
+                        style={{ maxWidth: "4.5rem" }}
+                        value={fd.actualDosageAppliedUnit || "g"}
+                        onChange={(e) => updateFumigationDetail({ actualDosageAppliedUnit: e.target.value })}
+                      >
+                        {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </FormRow>
+                  <FormRow label="Actual tonnage (MT)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="any"
+                      value={fd.actualTonnage ?? ""}
+                      onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+
+                <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Methyl bromide additives
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Chloropicrin used?">
+                    <div className="flex gap-4 pt-1">
+                      {[
+                        { v: true, l: "Yes" },
+                        { v: false, l: "No" },
+                      ].map(({ v, l }) => (
+                        <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name="packChloropicrin"
+                            checked={fd.chloropicrinUsed === v}
+                            onChange={() => updateFumigationDetail({ chloropicrinUsed: v })}
+                          />
+                          {l}
+                        </label>
+                      ))}
+                    </div>
+                  </FormRow>
+                  {fd.chloropicrinUsed === true && (
+                    <FormRow label="Chloropicrin (%)">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        step="0.1"
+                        value={fd.chloropicrinPercent ?? ""}
+                        onChange={(e) => updateFumigationDetail({ chloropicrinPercent: e.target.value })}
+                      />
+                    </FormRow>
+                  )}
+                  <FormRow label="Heaters used?">
+                    <div className="flex gap-4 pt-1">
+                      {[
+                        { v: true, l: "Yes" },
+                        { v: false, l: "No" },
+                      ].map(({ v, l }) => (
+                        <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name="packHeaters"
+                            checked={fd.heatersUsed === v}
+                            onChange={() => updateFumigationDetail({ heatersUsed: v })}
+                          />
+                          {l}
+                        </label>
+                      ))}
+                    </div>
+                  </FormRow>
+                </div>
+
+                <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Sulfuryl fluoride — end-point &amp; CT
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <FormRow label="End-point concentration (g/m³)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.01"
+                      value={fd.endPointConcentration ?? ""}
+                      onChange={(e) => updateFumigationDetail({ endPointConcentration: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="CT required (g·h/m³)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={fd.ctRequired ?? ""}
+                      onChange={(e) => updateFumigationDetail({ ctRequired: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="CT achieved (g·h/m³)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={fd.ctAchieved ?? ""}
+                      onChange={(e) => updateFumigationDetail({ ctAchieved: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Approved 3rd-party CT system?">
+                    <label className="flex items-center gap-1.5 text-sm pt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(fd.thirdPartySystem)}
+                        onChange={(e) => updateFumigationDetail({ thirdPartySystem: e.target.checked })}
+                      />
+                      Used
+                    </label>
+                  </FormRow>
+                  {fd.thirdPartySystem && (
+                    <FormRow className="sm:col-span-2" label="3rd-party system name">
+                      <input
+                        className={inputClass}
+                        value={fd.thirdPartySystemName ?? ""}
+                        onChange={(e) => updateFumigationDetail({ thirdPartySystemName: e.target.value })}
+                      />
+                    </FormRow>
+                  )}
+                </div>
+
+                <FormRow className="mt-3" label="Free-text enclosure description (legacy / internal)">
+                  <input
+                    className={inputClass}
+                    value={fd.enclosureDescription || ""}
+                    onChange={(e) => updateFumigationDetail({ enclosureDescription: e.target.value })}
+                    placeholder="Container, chamber, sheeted stack..."
+                  />
+                </FormRow>
+              </div>
+
+              {/* ─── Section D — Concentration readings & ventilation ─── */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Section D — Concentration readings &amp; ventilation
+                </p>
+                <FormRow label="Monitoring device serial(s)">
+                  <input
+                    className={inputClass}
+                    value={fd.monitoringDeviceSerials ?? ""}
+                    onChange={(e) => updateFumigationDetail({ monitoringDeviceSerials: e.target.value })}
+                    placeholder="Comma-separated serial numbers"
+                  />
+                </FormRow>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <FormRow label="Fumigation commenced">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={fd.fumigationStartAt ?? ""}
+                      onChange={(e) => updateFumigationDetail({ fumigationStartAt: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Fumigant injection finished">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={fd.dosingFinishAt ?? ""}
+                      onChange={(e) => updateFumigationDetail({ dosingFinishAt: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Fumigation completed">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={fd.fumigationEndAt ?? ""}
+                      onChange={(e) => updateFumigationDetail({ fumigationEndAt: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Enclosure ventilation start">
+                    <input
+                      className={inputClass}
+                      type="datetime-local"
+                      value={fd.ventilationStartAt ?? ""}
+                      onChange={(e) => updateFumigationDetail({ ventilationStartAt: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <FormRow label="Final TLV reading 1 (ppm)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={fd.finalTlvPpm1 ?? ""}
+                      onChange={(e) => updateFumigationDetail({ finalTlvPpm1: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Final TLV reading 2 (ppm)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={fd.finalTlvPpm2 ?? ""}
+                      onChange={(e) => updateFumigationDetail({ finalTlvPpm2: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow label="Final TLV reading 3 (ppm)">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={fd.finalTlvPpm3 ?? ""}
+                      onChange={(e) => updateFumigationDetail({ finalTlvPpm3: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+
+                {/* Top-up entries */}
+                <div className="mt-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                    Top-up details (if any)
+                  </p>
+                  {(fd.topUpEntries ?? []).map((entry) => (
+                    <div key={entry.id} className="mb-2 flex items-center gap-2">
+                      <input
+                        className={`${inputClass} flex-1`}
+                        placeholder="Amount (g/m³)"
+                        value={entry.amountGm3 ?? ""}
+                        onChange={(e) =>
+                          updateFumigationDetail({
+                            topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                              row.id === entry.id ? { ...row, amountGm3: e.target.value } : row,
+                            ),
+                          })
+                        }
+                      />
+                      <input
+                        className={`${inputClass} flex-1`}
+                        placeholder="Time (hh:mm)"
+                        value={entry.time ?? ""}
+                        onChange={(e) =>
+                          updateFumigationDetail({
+                            topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                              row.id === entry.id ? { ...row, time: e.target.value } : row,
+                            ),
+                          })
+                        }
+                      />
+                      <input
+                        className={`${inputClass} flex-1`}
+                        placeholder="Concentration (g/m³)"
+                        value={entry.concentrationGm3 ?? ""}
+                        onChange={(e) =>
+                          updateFumigationDetail({
+                            topUpEntries: (fd.topUpEntries ?? []).map((row) =>
+                              row.id === entry.id ? { ...row, concentrationGm3: e.target.value } : row,
+                            ),
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateFumigationDetail({
+                            topUpEntries: (fd.topUpEntries ?? []).filter((row) => row.id !== entry.id),
+                          })
+                        }
+                        className="text-slate-400 hover:text-red-500"
+                        title="Remove top-up row"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
                     </div>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const entries = fd.topUpEntries ?? [];
+                      const newId = Math.max(0, ...entries.map((e) => Number(e.id) || 0)) + 1;
+                      updateFumigationDetail({
+                        topUpEntries: [
+                          ...entries,
+                          { id: newId, amountGm3: "", time: "", concentrationGm3: "" },
+                        ],
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:text-brand/80"
+                  >
+                    <Plus className="size-3" /> Add top-up row
+                  </button>
                 </div>
-              )}
+              </div>
+
+              {/* ─── Section E — Result & declaration ─── */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Section E — Result &amp; declaration
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormRow label="Fumigation result">
+                    <select
+                      className={inputClass}
+                      value={fd.fumigationResult ?? ""}
+                      onChange={(e) => updateFumigationDetail({ fumigationResult: e.target.value })}
+                    >
+                      <option value="">— select —</option>
+                      <option value="pass">Pass</option>
+                      <option value="fail">Fail</option>
+                    </select>
+                  </FormRow>
+                  <FormRow label="Authorised officer (if supervised)">
+                    <select
+                      className={inputClass}
+                      value={fd.governmentOfficerName ?? ""}
+                      onChange={(e) => updateFumigationDetail({ governmentOfficerName: e.target.value })}
+                    >
+                      <option value="">- Select AO -</option>
+                      {aoOptions.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                          {u.aoNumber ? ` (${u.aoNumber})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow className="sm:col-span-2" label="Additional declarations (free text)">
+                    <textarea
+                      className={inputClass}
+                      rows={3}
+                      value={fd.additionalDeclarations ?? ""}
+                      onChange={(e) => updateFumigationDetail({ additionalDeclarations: e.target.value })}
+                    />
+                  </FormRow>
+                  <FormRow className="sm:col-span-2" label="Internal notes">
+                    <textarea
+                      className={inputClass}
+                      rows={2}
+                      value={fd.fumigationNotes ?? ""}
+                      onChange={(e) => updateFumigationDetail({ fumigationNotes: e.target.value })}
+                    />
+                  </FormRow>
+                </div>
+              </div>
+
+              {/* Template selectors — hidden in a collapsed details so they don't dominate the layout */}
+              <details className="rounded-lg border border-slate-200 bg-white p-4 group">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-slate-500 group-open:mb-3">
+                  Advanced — override default certificate / record template
+                </summary>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormRow label="Certificate template">
+                    <select
+                      className={inputClass}
+                      value={pack.certificateTemplateId ?? ""}
+                      onChange={(e) =>
+                        set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
+                      }
+                    >
+                      <option value="">- Select -</option>
+                      {certificateTemplates.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                  <FormRow label="Record template">
+                    <select
+                      className={inputClass}
+                      value={pack.recordTemplateId ?? ""}
+                      onChange={(e) =>
+                        set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
+                      }
+                    >
+                      <option value="">- Select -</option>
+                      {recordTemplates.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormRow>
+                </div>
+              </details>
             </div>
+
+            {/* Generate documents — only when pack is saved and all fumigation fields are set */}
+            {editingRow?.id != null && (
+              <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  disabled={!pack.fumigationRequired || !pack.fumigantId || !pack.methodologyId}
+                  onClick={() => router.push(`/fumigation/certificates/${editingRow.id}`)}
+                  title={
+                    !pack.fumigantId || !pack.methodologyId
+                      ? "Select a fumigant and methodology first"
+                      : "Generate Certificate of Fumigation"
+                  }
+                  className={cn(
+                    "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                    pack.fumigationRequired && pack.fumigantId && pack.methodologyId
+                      ? "bg-brand text-white hover:bg-brand/90"
+                      : "cursor-not-allowed bg-slate-100 text-slate-400"
+                  )}
+                >
+                  Generate Certificate
+                </button>
+                <button
+                  type="button"
+                  disabled={!pack.fumigationRequired || !pack.fumigantId || !pack.methodologyId}
+                  onClick={() => router.push(`/fumigation/records/${editingRow.id}`)}
+                  title={
+                    !pack.fumigantId || !pack.methodologyId
+                      ? "Select a fumigant and methodology first"
+                      : "Generate Record of Fumigation"
+                  }
+                  className={cn(
+                    "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                    pack.fumigationRequired && pack.fumigantId && pack.methodologyId
+                      ? "bg-slate-700 text-white hover:bg-slate-600"
+                      : "cursor-not-allowed bg-slate-100 text-slate-400"
+                  )}
+                >
+                  Generate Record
+                </button>
+              </div>
+            )}
           </section>
-        </div>
-      </div>
-      ) : null}
+        ) : null}
 
-      {activeTab === "accounting" ? (
-      <div className="space-y-4">
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Revenue</h2>
-          <p className="text-sm text-slate-500">
-            Revenue calculations will appear once commodity pricing and container data are connected.
-          </p>
-        </section>
-        <section className={sectionClass}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Expense</h2>
-          <p className="text-sm text-slate-500">Cost-side lines will be added in a future release.</p>
-        </section>
-      </div>
-      ) : null}
+        {editingContainerId && selectedEditContainer ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              type="button"
+              aria-label="Close container editor"
+              className="absolute inset-0 bg-slate-900/45"
+              onClick={() => setEditingContainerId(null)}
+            />
+            <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+              <div className="mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-900">Container #{selectedEditContainer.order}</h3>
+                <span className="ms-auto text-xs text-slate-500">{selectedEditContainer.containerNumber || "Draft container"}</span>
+              </div>
 
-      {activeTab === "fumigation" && pack.fumigationRequired ? (
-      <section className={sectionClass}>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Fumigation</h2>
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Fumigant">
-              <select
-                className={inputClass}
-                value={pack.fumigantId ?? ""}
-                onChange={(e) => {
-                  const fumigantId = e.target.value ? Number(e.target.value) : null;
-                  setPack((prev) => {
-                    const nextMethodology =
-                      prev.methodologyId && Number(prev.methodologyId)
-                        ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
-                        : null;
-                    return {
-                      ...prev,
-                      fumigantId,
-                      methodologyId:
-                        nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
-                          ? prev.methodologyId
-                          : null,
-                    };
-                  });
+              <ContainerFormSections
+                container={selectedEditContainer}
+                onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
+                packerNames={packerNames}
+                yesNoOptions={YES_NO_OPTIONS}
+                inspectionOptions={INSPECTION_OPTIONS}
+                praTemplateOptions={PRA_TEMPLATE_OPTIONS}
+                praStatusOptions={PRA_STATUS_OPTIONS}
+                isoOptions={["22G1", "42G1", "45G1", "L5G1"]}
+                stockBayOptions={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
+                inputClass={inputClass}
+                sectionCardClass="mt-3 rounded-lg border border-slate-200/90 bg-slate-50/30"
+                sectionHeaderClass="border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800"
+                fieldNames={{
+                  containerNo: "containerNumber",
+                  sealNo: "sealNumber",
+                  isoCode: "containerIsoCode",
                 }}
-              >
-                <option value="">- Select -</option>
-                {fumigants.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.code} - {item.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Methodology">
-              <select
-                className={inputClass}
-                value={pack.methodologyId ?? ""}
-                onChange={(e) => set("methodologyId", e.target.value ? Number(e.target.value) : null)}
-                disabled={!pack.fumigantId}
-              >
-                <option value="">- Select -</option>
-                {fumigationMethodologyOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                    {item.version ? ` (${item.version})` : ""}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Certificate template">
-              <select
-                className={inputClass}
-                value={pack.certificateTemplateId ?? ""}
-                onChange={(e) =>
-                  set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
-                }
-              >
-                <option value="">- Select -</option>
-                {certificateTemplates.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Record template">
-              <select
-                className={inputClass}
-                value={pack.recordTemplateId ?? ""}
-                onChange={(e) =>
-                  set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
-                }
-              >
-                <option value="">- Select -</option>
-                {recordTemplates.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
-
-          {selectedFumigationMethodology ? (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-              <p className="font-semibold text-slate-800">
-                {selectedFumigationMethodology.name}
-                {selectedFumigationMethodology.version ? ` ${selectedFumigationMethodology.version}` : ""}
-              </p>
-              <p className="mt-1">Dosage guide: {selectedFumigationMethodology.dosageGuide || "â€”"}</p>
-              <p className="mt-1">Safety notes: {selectedFumigationMethodology.safetyNotes || "â€”"}</p>
-            </div>
-          ) : null}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormRow label="Application method">
-              <select
-                className={inputClass}
-                value={fd.applicationMethod || "in-container"}
-                onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
-              >
-                {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
-                  <option key={method} value={method}>
-                    {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Fumigator">
-              <input
-                className={inputClass}
-                value={fd.fumigatorName || ""}
-                onChange={(e) => updateFumigationDetail({ fumigatorName: e.target.value })}
-                placeholder="Fumigator name"
+                onResetContainer={selectedEditContainerActions?.onResetContainer}
+                onMarkPacked={selectedEditContainerActions?.onMarkPacked}
+                onSubmitPra={selectedEditContainerActions?.onSubmitPra}
               />
-            </FormRow>
-            <FormRow label="Volume (m3)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.volumeM3 ?? ""}
-                onChange={(e) => updateFumigationDetail({ volumeM3: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Actual tonnage (MT)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.actualTonnage ?? ""}
-                onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Dosage value">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.dosageValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Dosage unit">
-              <select
-                className={inputClass}
-                value={fd.dosageUnit || "ppm"}
-                onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
-              >
-                {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Exposure time value">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.exposureTimeValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Exposure time unit">
-              <select
-                className={inputClass}
-                value={fd.exposureTimeUnit || "hours"}
-                onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
-              >
-                {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Calculated dosage (value)">
-              <input
-                className={inputClass}
-                type="number"
-                step="any"
-                value={fd.calculatedDosageValue ?? ""}
-                onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
-              />
-            </FormRow>
-            <FormRow label="Calculated dosage (unit)">
-              <select
-                className={inputClass}
-                value={fd.calculatedDosageUnit || "g"}
-                onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
-              >
-                {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
 
-          <FormRow label="Enclosure description">
-            <input
-              className={inputClass}
-              value={fd.enclosureDescription || ""}
-              onChange={(e) => updateFumigationDetail({ enclosureDescription: e.target.value })}
-              placeholder="Container, chamber, sheeted stack..."
-            />
-          </FormRow>
-          <FormRow label="Clearance">
-            <input
-              className={inputClass}
-              value={fd.clearanceValue ?? ""}
-              onChange={(e) => updateFumigationDetail({ clearanceValue: e.target.value })}
-              placeholder="Clearance period/value"
-            />
-          </FormRow>
-        </div>
-      </section>
-      ) : null}
-
-      {editingContainerId && selectedEditContainer ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Close container editor"
-            className="absolute inset-0 bg-slate-900/45"
-            onClick={() => setEditingContainerId(null)}
-          />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-            <div className="mb-3 flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">Container #{selectedEditContainer.order}</h3>
-              <span className="ms-auto text-xs text-slate-500">{selectedEditContainer.containerNumber || "Draft container"}</span>
-            </div>
-
-            <ContainerFormSections
-              container={selectedEditContainer}
-              onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
-              packerNames={packerNames}
-              yesNoOptions={YES_NO_OPTIONS}
-              inspectionOptions={INSPECTION_OPTIONS}
-              praTemplateOptions={PRA_TEMPLATE_OPTIONS}
-              praStatusOptions={PRA_STATUS_OPTIONS}
-              isoOptions={["22G1", "42G1", "45G1", "L5G1"]}
-              stockBayOptions={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
-              inputClass={inputClass}
-              sectionCardClass="mt-3 rounded-lg border border-slate-200/90 bg-slate-50/30"
-              sectionHeaderClass="border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800"
-              fieldNames={{
-                containerNo: "containerNumber",
-                sealNo: "sealNumber",
-                isoCode: "containerIsoCode",
-              }}
-              onResetContainer={selectedEditContainerActions?.onResetContainer}
-              onMarkPacked={selectedEditContainerActions?.onMarkPacked}
-              onSubmitPra={selectedEditContainerActions?.onSubmitPra}
-            />
-
-            <div className="mt-3 flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setEditingContainerId(null)}>
-                Cancel
-              </Button>
-              <Button type="button" size="sm" onClick={() => setEditingContainerId(null)}>
-                Save
-              </Button>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditingContainerId(null)}>
+                  Cancel
+                </Button>
+                <Button type="button" size="sm" onClick={() => setEditingContainerId(null)}>
+                  Save
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
       </div>
 
       <footer

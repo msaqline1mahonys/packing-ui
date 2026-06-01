@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -350,7 +350,7 @@ export default function TestPage() {
                 }
                 return c;
               })}
-              rows={rowsWithRefs}
+              rows={rows}
               getRowId={(row) => row.id}
               theme="light"
               density="standard"
@@ -430,7 +430,7 @@ export default function TestPage() {
   );
 }
 
-function FormField({ field, value, onChange, disabled }) {
+function FormField({ field, value, onChange, disabled, memberCandidates = [] }) {
   return (
     <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
@@ -538,10 +538,11 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = (summaryColumns ?? [])
-            .map((col) => {
-              const raw = row[col.key];
-              const v = col.format ? col.format(raw, row, allRows) : raw;
+          const summary = (summaryKeys ?? [])
+            .map((key) => {
+              const col = config.columns.find((c) => c.key === key);
+              const raw = row[key];
+              const v = col?.format ? col.format(raw, row, rows) : raw;
               return Array.isArray(v) ? v.join(", ") : v;
             })
             .filter((v) => v && v !== "—")

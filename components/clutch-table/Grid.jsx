@@ -23,6 +23,7 @@ import { clampPage, coerceNumber, devWarn, isFiniteNumber, safeString } from './
 import { downloadCsv, rowsToCsv } from './utils/csv';
 import { loadPersistedState, savePersistedState, PERSIST_VERSION } from './hooks/usePersistedState';
 import { useUserGridPreference } from './hooks/useUserGridPreference';
+import { getSessionSearch, setSessionSearch } from './utils/sessionSearch';
 const DENSITIES = {
   compact: {
     rowHeight: 32,
@@ -145,7 +146,12 @@ export function Grid(props) {
     if (!appliedServerColumnStateRef.current) return;
     saveColumnStateToServer(colStates);
   }, [colStates, saveColumnStateToServer]);
-  const [globalSearch, setGlobalSearch] = useState(() => persisted?.globalSearch ?? '');
+  // Global search lives in an in-memory session store (not localStorage), so
+  // it survives client-side navigation but resets on a full page refresh.
+  const [globalSearch, setGlobalSearch] = useState(() => getSessionSearch(persistKey));
+  useEffect(() => {
+    setSessionSearch(persistKey, globalSearch);
+  }, [persistKey, globalSearch]);
   const [sortModel, setSortModel] = useState(() => persisted?.sortModel ?? []);
   const [filters, setFilters] = useState(() => persisted?.filters ?? {});
   const [page, setPage] = useState(() => persisted?.page ?? 0);

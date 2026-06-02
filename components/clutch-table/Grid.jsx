@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip } from '@mui/material';
+import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip, FormControl, Select } from '@mui/material';
 import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
 import Download from '@mui/icons-material/Download';
@@ -22,6 +22,7 @@ import { useSavedViews } from './hooks/useSavedViews';
 import { clampPage, coerceNumber, devWarn, isFiniteNumber, safeString } from './utils/safe';
 import { downloadCsv, rowsToCsv } from './utils/csv';
 import { loadPersistedState, savePersistedState, PERSIST_VERSION } from './hooks/usePersistedState';
+import { useUserGridPreference } from './hooks/useUserGridPreference';
 const DENSITIES = {
   compact: {
     rowHeight: 32,
@@ -41,7 +42,8 @@ export function Grid(props) {
     columns,
     rows,
     getRowId,
-    pageSize = 50,
+    pageSize = 200,
+    pageSizeOptions = [10, 50, 100, 200, 500, 1000],
     enablePagination = true,
     enableVirtualization = true,
     enableGlobalSearch = true,
@@ -62,9 +64,12 @@ export function Grid(props) {
     loading = false,
     onRowClick,
     onRowDoubleClick,
+    onRowContextMenu,
+    getRowHref,
     onSelectionChange,
     onSortChange,
     onFilterChange,
+    onPageSizeChange,
     onCellEdit,
     getRowClassName,
     getRowStyle,
@@ -77,6 +82,10 @@ export function Grid(props) {
     fillContainerWidth = true
   } = props;
   const persisted = useMemo(() => loadPersistedState(persistKey), [persistKey]);
+  const persistedScrollTop = typeof persisted?.scrollTop === 'number' ? persisted.scrollTop : 0;
+  const scrollTopRef = useRef(persistedScrollTop);
+  const pendingScrollRestoreRef = useRef(persistKey && persistedScrollTop > 0 ? persistedScrollTop : null);
+  const didRestoreScrollRef = useRef(false);
   const dndContextId = useMemo(() => {
     const slug = String(persistKey ?? fileName ?? 'default')
       .toLowerCase()
@@ -104,6 +113,14 @@ export function Grid(props) {
       return row.__idx ?? JSON.stringify(row);
     }
   }, [getRowId]);
+  // Column order / hidden / width / pin are persisted per-user in the DB
+  // via useUserGridPreference. Other grid state (sort, filters, page, scroll,
+  // search) continues to live in localStorage via loadPersistedState.
+  const {
+    initialColumnState: serverColumnState,
+    loaded: serverColumnStateLoaded,
+    save: saveColumnStateToServer
+  } = useUserGridPreference(persistKey);
   const {
     visibleColumns,
     columns: validCols,
@@ -114,17 +131,54 @@ export function Grid(props) {
     moveColumn,
     resetState,
     applyState: applyColumnState
-  } = useColumnState(columns, persisted?.columnState);
+  } = useColumnState(columns, null);
+  const appliedServerColumnStateRef = useRef(false);
+  useEffect(() => {
+    if (appliedServerColumnStateRef.current) return;
+    if (!serverColumnStateLoaded) return;
+    appliedServerColumnStateRef.current = true;
+    if (serverColumnState) {
+      applyColumnState(serverColumnState);
+    }
+  }, [serverColumnStateLoaded, serverColumnState, applyColumnState]);
+  useEffect(() => {
+    if (!appliedServerColumnStateRef.current) return;
+    saveColumnStateToServer(colStates);
+  }, [colStates, saveColumnStateToServer]);
   const [globalSearch, setGlobalSearch] = useState(() => persisted?.globalSearch ?? '');
   const [sortModel, setSortModel] = useState(() => persisted?.sortModel ?? []);
   const [filters, setFilters] = useState(() => persisted?.filters ?? {});
   const [page, setPage] = useState(() => persisted?.page ?? 0);
+  const [internalPageSize, setInternalPageSize] = useState(() => {
+    const persistedSize = persisted?.pageSize;
+    if (typeof persistedSize === 'number' && persistedSize > 0) return persistedSize;
+    return pageSize;
+  });
+  const effectivePageSizeOptions = useMemo(() => {
+    const options = Array.isArray(pageSizeOptions) && pageSizeOptions.length > 0
+      ? pageSizeOptions.filter(n => typeof n === 'number' && n > 0)
+      : [10, 25, 50, 100];
+    if (!options.includes(internalPageSize)) {
+      return [...options, internalPageSize].sort((a, b) => a - b);
+    }
+    return options;
+  }, [pageSizeOptions, internalPageSize]);
+  const handlePageSizeChange = useCallback(event => {
+    const nextSize = Number(event.target.value);
+    if (!Number.isFinite(nextSize) || nextSize <= 0) return;
+    setInternalPageSize(nextSize);
+    setPage(0);
+    onPageSizeChange?.(nextSize);
+  }, [onPageSizeChange]);
   const [filterAnchor, setFilterAnchor] = useState(null);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [activeColumnKey, setActiveColumnKey] = useState(null);
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState(null);
   const [lastInteractedRowId, setLastInteractedRowId] = useState(() => persisted?.lastInteractedRowId ?? null);
   const resizingRef = useRef(null);
+  // Mirrors `columnWidthByKey` so handleResizeStart (declared earlier) can read
+  // the latest displayed widths without a TDZ reference.
+  const columnWidthByKeyRef = useRef(null);
   const cellKey = (r, c) => `${r}:${c}`;
   const [selectedCells, setSelectedCells] = useState(() => new Set());
   const [drag, setDrag] = useState(null);
@@ -169,16 +223,16 @@ export function Grid(props) {
     filters,
     sortModel
   });
-  const pageCount = enablePagination ? Math.max(1, Math.ceil(processed.length / Math.max(1, pageSize))) : 1;
+  const pageCount = enablePagination ? Math.max(1, Math.ceil(processed.length / Math.max(1, internalPageSize))) : 1;
   const safePage = clampPage(page, pageCount);
   useEffect(() => {
     if (safePage !== page) setPage(safePage);
   }, [safePage, page]);
   const pagedRows = useMemo(() => {
     if (!enablePagination) return processed;
-    const start = safePage * pageSize;
-    return processed.slice(start, start + pageSize);
-  }, [processed, enablePagination, safePage, pageSize]);
+    const start = safePage * internalPageSize;
+    return processed.slice(start, start + internalPageSize);
+  }, [processed, enablePagination, safePage, internalPageSize]);
 
   // Clear cell selection when the underlying data view changes
   useEffect(() => {
@@ -339,6 +393,48 @@ export function Grid(props) {
     getRowId: safeGetRowId,
     onChange: onSelectionChange
   });
+  const syncSelectionWithRowClick = Boolean(onRowClick);
+  const handleRowActivate = useCallback((row, rowId, {
+    fromCheckbox = false,
+    forceSelect = false
+  } = {}) => {
+    setLastInteractedRowId(rowId);
+    if (syncSelectionWithRowClick && enableSelection) {
+      const wasSelected = selection.isSelected(rowId);
+      if (fromCheckbox) {
+        if (wasSelected) selection.toggleRow(rowId);
+        else {
+          selection.clear();
+          selection.toggleRow(rowId);
+        }
+        onRowClick?.(row);
+        return;
+      }
+      if (wasSelected && !forceSelect) return;
+      selection.clear();
+      selection.toggleRow(rowId);
+    }
+    onRowClick?.(row);
+  }, [syncSelectionWithRowClick, enableSelection, selection.isSelected, selection.toggleRow, selection.clear, onRowClick]);
+  const handleRowDoubleClick = useCallback((row, rowId) => {
+    handleRowActivate(row, rowId, { forceSelect: true });
+    if (onRowDoubleClick) {
+      onRowDoubleClick(row);
+      return;
+    }
+    const href = getRowHref?.(row);
+    if (href) window.location.assign(href);
+  }, [handleRowActivate, onRowDoubleClick, getRowHref]);
+  const handleRowContextMenu = useCallback((row, rowId, event) => {
+    handleRowActivate(row, rowId, { forceSelect: true });
+    const href = getRowHref?.(row);
+    if (href) {
+      event.preventDefault();
+      window.open(href, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    onRowContextMenu?.(row, event);
+  }, [handleRowActivate, getRowHref, onRowContextMenu]);
   const handleSort = useCallback((key, direction, append) => {
     setSortModel(prev => {
       if (direction == null) {
@@ -378,10 +474,15 @@ export function Grid(props) {
     event.stopPropagation();
     const colState = colStates.find(c => c.key === key);
     if (!colState) return;
+    // Start from the *displayed* width (which includes any fillContainerWidth
+    // slack), so the resize handle tracks the cursor 1:1 even on the first
+    // drag. setWidth marks the column as user-sized, which freezes it out of
+    // future slack distribution.
+    const startWidth = columnWidthByKeyRef.current?.get(key) ?? colState.width;
     resizingRef.current = {
       key,
       startX: event.clientX,
-      startWidth: colState.width
+      startWidth
     };
     const onMove = e => {
       const ctx = resizingRef.current;
@@ -411,6 +512,11 @@ export function Grid(props) {
     }
   }));
   const scrollRef = useRef(null);
+  const [scrollContainer, setScrollContainer] = useState(null);
+  const attachScrollContainer = useCallback(node => {
+    scrollRef.current = node;
+    setScrollContainer(node);
+  }, []);
   const [bodyClientWidth, setBodyClientWidth] = useState(0);
 
   useLayoutEffect(() => {
@@ -475,30 +581,48 @@ export function Grid(props) {
       return map;
     }
 
+    // Columns the user has explicitly resized are pinned to their stored width
+    // — slack is distributed only across the remaining flex columns so the
+    // resize handle tracks the cursor 1:1.
+    const flexIdx = [];
+    let fixedSum = 0;
+    visibleColumns.forEach((c, i) => {
+      if (c.state.userResized) fixedSum += bases[i];
+      else flexIdx.push(i);
+    });
+
+    if (flexIdx.length === 0) {
+      visibleColumns.forEach((c, i) => map.set(c.def.key, bases[i]));
+      return map;
+    }
+
     const availForCols = bodyClientWidth - selectionColumnWidth;
-    const sumBase = bases.reduce((a, b) => a + b, 0);
-    const extra = availForCols - sumBase;
+    const flexSum = flexIdx.reduce((a, i) => a + bases[i], 0);
+    const extra = availForCols - fixedSum - flexSum;
 
     if (extra <= 0) {
       visibleColumns.forEach((c, i) => map.set(c.def.key, bases[i]));
       return map;
     }
 
-    const addEach = Math.floor(extra / n);
-    let remainder = extra - addEach * n;
-    visibleColumns.forEach((c, i) => {
+    const addEach = Math.floor(extra / flexIdx.length);
+    let remainder = extra - addEach * flexIdx.length;
+    visibleColumns.forEach((c, i) => map.set(c.def.key, bases[i]));
+    for (const i of flexIdx) {
       const bump = addEach + (remainder > 0 ? 1 : 0);
       if (remainder > 0) remainder -= 1;
-      map.set(c.def.key, bases[i] + bump);
-    });
+      map.set(visibleColumns[i].def.key, bases[i] + bump);
+    }
     return map;
   }, [visibleColumns, fillContainerWidth, bodyClientWidth, enableSelection, selectionColumnWidth]);
+  columnWidthByKeyRef.current = columnWidthByKey;
 
   const virtualizer = useVirtualizer({
     count: pagedRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => effectiveRowHeight,
-    overscan: 8
+    overscan: 8,
+    initialOffset: persistKey && persistedScrollTop > 0 ? persistedScrollTop : 0
   });
   const virtualItems = enableVirtualization ? virtualizer.getVirtualItems() : null;
   const handleCellKeyDown = useCallback((r, c, event) => {
@@ -572,10 +696,7 @@ export function Grid(props) {
       case 'Enter':
         if (!event.shiftKey) {
           const r0 = pagedRows[r];
-          if (r0) {
-            setLastInteractedRowId(safeGetRowId(r0));
-            onRowClick?.(r0);
-          }
+          if (r0) handleRowActivate(r0, safeGetRowId(r0));
           event.preventDefault();
           return;
         }
@@ -598,7 +719,7 @@ export function Grid(props) {
       setAnchor(next);
       if (enableRangeSelection) setSelectedCells(new Set([cellKey(nextR, nextC)]));
     }
-  }, [pagedRows, visibleColumns, visibleRows, enableSelection, enableRangeSelection, selection, safeGetRowId, anchor, rectKeys, onRowClick, editingCell, isCellEditable, beginEdit]);
+  }, [pagedRows, visibleColumns, visibleRows, enableSelection, enableRangeSelection, selection, safeGetRowId, anchor, rectKeys, handleRowActivate, editingCell, isCellEditable, beginEdit]);
 
   // Programmatic focus on cell change. Scrolls the row into view if virtualized,
   // then focuses the DOM node on the next frame so the cell exists.
@@ -762,108 +883,137 @@ export function Grid(props) {
   const hasActiveFilters = Object.values(filters).some(f => f);
   const isCellInRange = useCallback((rowIdx, colIdx) => liveSelection.has(cellKey(rowIdx, colIdx)), [liveSelection]);
 
-  // Persist state to localStorage (debounced via effect batching)
-  useEffect(() => {
-    if (!persistKey) return;
-    const snapshot = {
-      version: PERSIST_VERSION,
-      globalSearch,
-      sortModel: sortModel,
-      filters,
-      page: safePage,
-      lastInteractedRowId,
-      scrollTop: scrollRef.current?.scrollTop ?? 0,
-      columnState: colStates
-    };
-    const handle = window.setTimeout(() => savePersistedState(persistKey, snapshot), 150);
-    return () => window.clearTimeout(handle);
-  }, [persistKey, globalSearch, sortModel, filters, safePage, lastInteractedRowId, colStates]);
-
-  // Also persist scroll position changes (throttled)
-  useEffect(() => {
-    if (!persistKey) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    let raf = null;
-    const onScroll = () => {
-      if (raf != null) return;
-      raf = window.requestAnimationFrame(() => {
-        raf = null;
-        const snapshot = {
-          version: PERSIST_VERSION,
-          globalSearch,
-          sortModel: sortModel,
-          filters,
-          page: safePage,
-          lastInteractedRowId,
-          scrollTop: el.scrollTop,
-          columnState: colStates
-        };
-        savePersistedState(persistKey, snapshot);
-      });
-    };
-    el.addEventListener('scroll', onScroll, {
-      passive: true
-    });
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      if (raf != null) window.cancelAnimationFrame(raf);
-    };
-  }, [persistKey, globalSearch, sortModel, filters, safePage, lastInteractedRowId, colStates]);
-
-  // Restore scroll / focus to last interacted row after rows are available
-  const didRestoreRef = useRef(false);
-  useEffect(() => {
-    if (didRestoreRef.current) return;
-    if (!persisted || pagedRows.length === 0) return;
-    const targetId = persisted.lastInteractedRowId;
-    if (targetId != null) {
-      const idx = pagedRows.findIndex(r => safeGetRowId(r) === targetId);
-      if (idx >= 0 && enableVirtualization) {
-        try {
-          virtualizer.scrollToIndex(idx, {
-            align: 'center'
-          });
-          didRestoreRef.current = true;
-          return;
-        } catch {
-          // fall through to scrollTop
-        }
-      }
-    }
-    if (typeof persisted.scrollTop === 'number' && scrollRef.current) {
-      scrollRef.current.scrollTop = persisted.scrollTop;
-    }
-    didRestoreRef.current = true;
-  }, [persisted, pagedRows, safeGetRowId, enableVirtualization, virtualizer]);
-
-  // ---- Saved Views ----
-  const showSavedViews = enableSavedViews && Boolean(persistKey);
-  const buildSnapshot = useCallback(() => ({
+  // columnState is included in the snapshot so saved views can round-trip the
+  // column layout. The DB (via useUserGridPreference) — not localStorage — is
+  // the source of truth for per-user column order/hidden/width; the load path
+  // ignores `persisted.columnState` and waits for the server response instead.
+  const buildPersistSnapshot = useCallback(() => ({
     version: PERSIST_VERSION,
     globalSearch,
     sortModel: sortModel,
     filters,
     page: safePage,
+    pageSize: internalPageSize,
     lastInteractedRowId,
-    scrollTop: scrollRef.current?.scrollTop ?? 0,
+    scrollTop: scrollTopRef.current,
     columnState: colStates
-  }), [globalSearch, sortModel, filters, safePage, lastInteractedRowId, colStates]);
+  }), [globalSearch, sortModel, filters, safePage, internalPageSize, lastInteractedRowId, colStates]);
+
+  // Persist grid state to localStorage (debounced; scroll uses scrollTopRef to avoid wiping on mount)
+  useEffect(() => {
+    if (!persistKey) return;
+    const handle = window.setTimeout(() => {
+      savePersistedState(persistKey, buildPersistSnapshot());
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [persistKey, buildPersistSnapshot]);
+
+  // Persist scroll position while scrolling
+  useEffect(() => {
+    if (!persistKey || !scrollContainer) return;
+    let raf = null;
+    const onScroll = () => {
+      if (raf != null) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = null;
+        scrollTopRef.current = scrollContainer.scrollTop;
+        savePersistedState(persistKey, buildPersistSnapshot());
+      });
+    };
+    scrollContainer.addEventListener('scroll', onScroll, {
+      passive: true
+    });
+    return () => {
+      scrollContainer.removeEventListener('scroll', onScroll);
+      if (raf != null) window.cancelAnimationFrame(raf);
+      scrollTopRef.current = scrollContainer.scrollTop;
+      savePersistedState(persistKey, buildPersistSnapshot());
+    };
+  }, [persistKey, scrollContainer, buildPersistSnapshot]);
+
+  // Flush scroll position when navigating away
+  useEffect(() => {
+    if (!persistKey) return;
+    return () => {
+      const el = scrollRef.current;
+      if (el) scrollTopRef.current = el.scrollTop;
+      savePersistedState(persistKey, buildPersistSnapshot());
+    };
+  }, [persistKey, buildPersistSnapshot]);
+
+  // Restore scroll after rows are loaded (retries until virtualizer has measured)
+  useEffect(() => {
+    if (!persistKey || didRestoreScrollRef.current) return;
+    const target = pendingScrollRestoreRef.current;
+    if (target == null || target <= 0) {
+      didRestoreScrollRef.current = true;
+      return;
+    }
+    if (loading || pagedRows.length === 0) return;
+    let attempts = 0;
+    const maxAttempts = 40;
+    let frameId = null;
+    const tryRestore = () => {
+      attempts += 1;
+      const el = scrollRef.current;
+      if (!el) {
+        if (attempts < maxAttempts) frameId = requestAnimationFrame(tryRestore);
+        return;
+      }
+      if (enableVirtualization) {
+        try {
+          virtualizer.scrollToOffset(target);
+        } catch {
+          el.scrollTop = target;
+        }
+      } else {
+        el.scrollTop = target;
+      }
+      const applied = el.scrollTop;
+      scrollTopRef.current = applied;
+      if (Math.abs(applied - target) <= 2 || attempts >= maxAttempts) {
+        didRestoreScrollRef.current = true;
+        pendingScrollRestoreRef.current = null;
+        return;
+      }
+      frameId = requestAnimationFrame(tryRestore);
+    };
+    frameId = requestAnimationFrame(tryRestore);
+    return () => {
+      if (frameId != null) window.cancelAnimationFrame(frameId);
+    };
+  }, [persistKey, loading, pagedRows.length, enableVirtualization, virtualizer]);
+
+  // ---- Saved Views ----
+  const showSavedViews = enableSavedViews && Boolean(persistKey);
+  const buildSnapshot = buildPersistSnapshot;
   const views = useSavedViews(persistKey, persisted);
   const applySnapshot = useCallback(snap => {
     setGlobalSearch(snap.globalSearch ?? '');
     setSortModel(snap.sortModel ?? []);
     setFilters(snap.filters ?? {});
     setPage(typeof snap.page === 'number' ? snap.page : 0);
+    setInternalPageSize(typeof snap.pageSize === 'number' && snap.pageSize > 0 ? snap.pageSize : pageSize);
     setLastInteractedRowId(snap.lastInteractedRowId ?? null);
     applyColumnState(snap.columnState ?? null);
-    // Defer scroll to next frame so the body has remounted with new data
+    if (typeof snap.scrollTop === 'number') {
+      scrollTopRef.current = snap.scrollTop;
+      pendingScrollRestoreRef.current = snap.scrollTop > 0 ? snap.scrollTop : null;
+      didRestoreScrollRef.current = false;
+    }
     requestAnimationFrame(() => {
       if (scrollRef.current && typeof snap.scrollTop === 'number') {
         scrollRef.current.scrollTop = snap.scrollTop;
+        if (enableVirtualization) {
+          try {
+            virtualizer.scrollToOffset(snap.scrollTop);
+          } catch {
+            // ignore
+          }
+        }
       }
     });
-  }, [applyColumnState]);
+  }, [applyColumnState, enableVirtualization, virtualizer, pageSize]);
   return <ThemeProvider theme={muiTheme}>
       <CssBaseline />
       <Paper elevation={0} variant="outlined" sx={{
@@ -973,7 +1123,7 @@ export function Grid(props) {
 
         {loading && <LinearProgress />}
 
-        <Box ref={scrollRef} sx={{
+        <Box ref={attachScrollContainer} sx={{
         position: 'relative',
         overflow: 'auto',
         maxHeight: effectiveMaxBodyHeight,
@@ -1091,13 +1241,10 @@ export function Grid(props) {
               } catch (err) {
                 devWarn('getRowStyle threw', err);
               }
-              return <Box key={rowId} role="row" className={rowClass} onClick={() => {
-                setLastInteractedRowId(rowId);
-                onRowClick?.(row);
-              }} onDoubleClick={() => {
-                setLastInteractedRowId(rowId);
-                onRowDoubleClick?.(row);
-              }} style={rowExtraStyle} sx={{
+              return <Box key={rowId} role="row" className={rowClass} onClick={() => handleRowActivate(row, rowId)} onDoubleClick={event => {
+                event.preventDefault();
+                handleRowDoubleClick(row, rowId);
+              }} onContextMenu={event => handleRowContextMenu(row, rowId, event)} style={rowExtraStyle} sx={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -1108,7 +1255,7 @@ export function Grid(props) {
                 bgcolor: isSelected ? 'action.selected' : 'transparent',
                 borderBottom: '1px solid',
                 borderColor: 'divider',
-                cursor: onRowClick || onRowDoubleClick ? 'pointer' : 'default',
+                cursor: onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
                 outline: 'none',
                 '&:hover': {
                   bgcolor: isSelected ? 'action.selected' : 'action.hover'
@@ -1132,7 +1279,7 @@ export function Grid(props) {
                   borderRight: '1px solid',
                   borderColor: 'divider'
                 }} onClick={e => e.stopPropagation()}>
-                          <Checkbox size="small" checked={isSelected} onChange={() => selection.toggleRow(rowId)} slotProps={{ input: { suppressHydrationWarning: true } }} />
+                          <Checkbox size="small" checked={isSelected} onChange={() => handleRowActivate(row, rowId, { fromCheckbox: true })} slotProps={{ input: { suppressHydrationWarning: true } }} />
                         </Box>}
 
                       {visibleColumns.map((col, colIdx) => {
@@ -1392,16 +1539,35 @@ export function Grid(props) {
               </>}
           </Box>
 
-          {enablePagination && pageCount > 1 && <Box sx={{
+          {enablePagination && <Box sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1
+          gap: 1,
+          flexWrap: 'wrap'
         }}>
-              <Button size="small" disabled={safePage === 0} onClick={() => setPage(0)}>«</Button>
-              <Button size="small" disabled={safePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Prev</Button>
-              <Typography variant="caption">Page {safePage + 1} of {pageCount}</Typography>
-              <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}>Next</Button>
-              <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(pageCount - 1)}>»</Button>
+              <Typography variant="caption" color="text.secondary">Rows per page</Typography>
+              <FormControl size="small" sx={{ minWidth: 72 }}>
+                <Select
+                  value={internalPageSize}
+                  onChange={handlePageSizeChange}
+                  inputProps={{ suppressHydrationWarning: true }}
+                  sx={{
+                    fontSize: '0.8125rem',
+                    '& .MuiSelect-select': { py: 0.5, px: 1 }
+                  }}
+                >
+                  {effectivePageSizeOptions.map(size => (
+                    <MenuItem key={size} value={size} dense>{size}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {pageCount > 1 && <>
+                  <Button size="small" disabled={safePage === 0} onClick={() => setPage(0)}>«</Button>
+                  <Button size="small" disabled={safePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Prev</Button>
+                  <Typography variant="caption">Page {safePage + 1} of {pageCount}</Typography>
+                  <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}>Next</Button>
+                  <Button size="small" disabled={safePage >= pageCount - 1} onClick={() => setPage(pageCount - 1)}>»</Button>
+                </>}
             </Box>}
         </Box>
       </Paper>

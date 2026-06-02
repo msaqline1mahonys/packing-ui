@@ -8,7 +8,9 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { notifyAuthSessionChanged } from "@/lib/auth-session";
 
+import { AccountDropdownHeader } from "./account-dropdown-header";
 import { pathnameMatchesHref } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
@@ -113,7 +115,7 @@ export function ErpHorizontalNav({ edge }) {
               sideOffset={8}
               className="z-50 w-64 rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700 shadow-lg"
             >
-              <span className="block px-2 py-2 text-xs text-slate-500">{ui.userEmail}</span>
+              <AccountDropdownHeader />
               <DropdownMenu.Item asChild>
                 <Link
                   href={ui.accountSettingsHref}
@@ -150,6 +152,7 @@ export function ErpHorizontalNav({ edge }) {
                     localStorage.removeItem("isAuthenticated");
                     localStorage.removeItem("authToken");
                     localStorage.removeItem("authPayload");
+                    notifyAuthSessionChanged();
                     router.push("/login");
                   }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left outline-none hover:bg-red-50 hover:text-red-800"

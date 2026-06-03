@@ -30,7 +30,7 @@ npm install
 Create a `.env.local` file in the project root:
 
 ```env
-NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000/api
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api
 ```
 
 The backend is a separate Laravel application (`clutch-packing/`) that runs on port 8000.
@@ -128,7 +128,7 @@ No Redux or Zustand. Module-specific state lives in `lib/*-store.js` files backe
 
 ### API Communication
 
-Plain `fetch` with `credentials: "include"`. No centralized API client. Backend URL sourced from `NEXT_PUBLIC_BACKEND_URL`.
+Plain `fetch` with `credentials: "include"`. No centralized API client. Backend URL sourced from `NEXT_PUBLIC_API_URL` (see `lib/api-config.js`).
 
 ### Clutch Table
 

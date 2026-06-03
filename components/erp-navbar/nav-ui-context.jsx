@@ -46,6 +46,8 @@ export function ErpNavUiProvider({
   const mergedModules = sections?.main ? mapSectionItems(sections.main) : modules ?? PACKING_NAV_MODULES;
   const mergedFooter = sections?.bottom ? mapFooterItems(sections.bottom) : footerNav ?? PACKING_NAV_FOOTER;
 
+  const hasAuthUserProp = user !== undefined;
+
   const value = useMemo(
     () => ({
       modules: mergedModules,
@@ -53,10 +55,20 @@ export function ErpNavUiProvider({
       brandTitle: branding?.title ?? brandTitle ?? PACKING_NAV_DEFAULT_UI.brandTitle,
       brandSubtitle: branding?.subtitle ?? brandSubtitle ?? PACKING_NAV_DEFAULT_UI.brandSubtitle,
       brandIconSrc: branding?.iconSrc ?? brandIconSrc ?? PACKING_NAV_DEFAULT_UI.brandIconSrc,
-      userName: user?.name ?? userName ?? PACKING_NAV_DEFAULT_UI.userName,
-      userEmail: user?.email ?? userEmail ?? PACKING_NAV_DEFAULT_UI.userEmail,
-      userInitials: user?.initials ?? userInitials ?? PACKING_NAV_DEFAULT_UI.userInitials,
-      avatarSrc: user?.avatarSrc ?? avatarSrc ?? PACKING_NAV_DEFAULT_UI.avatarSrc,
+      userName: hasAuthUserProp
+        ? (user?.name ?? userName ?? "User")
+        : (userName ?? PACKING_NAV_DEFAULT_UI.userName),
+      userEmail: hasAuthUserProp
+        ? (user?.email ?? userEmail ?? "")
+        : (userEmail ?? PACKING_NAV_DEFAULT_UI.userEmail),
+      userInitials: hasAuthUserProp
+        ? (user?.initials ?? userInitials ?? "?")
+        : (userInitials ?? PACKING_NAV_DEFAULT_UI.userInitials),
+      avatarSrc: hasAuthUserProp
+        ? (user?.avatarSrc ?? avatarSrc ?? "")
+        : (avatarSrc ?? PACKING_NAV_DEFAULT_UI.avatarSrc),
+      organizationName: hasAuthUserProp ? (user?.organizationName ?? "") : "",
+      siteName: hasAuthUserProp ? (user?.siteName ?? "") : "",
       accountSettingsHref:
         user?.accountPath ?? accountSettingsHref ?? PACKING_NAV_DEFAULT_UI.accountSettingsHref,
     }),
@@ -67,6 +79,7 @@ export function ErpNavUiProvider({
       brandTitle,
       brandSubtitle,
       brandIconSrc,
+      hasAuthUserProp,
       user,
       userName,
       userEmail,

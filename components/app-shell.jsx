@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
+import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
 
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ function MainPanel({ children, compactTop = false }) {
 function AppShellInner({ children }) {
   const pathname = usePathname();
   const router = useRouter();
+  const authUser = useAuthNavUser();
   const { dock, isVertical, verticalExpanded } = useNavDock();
   const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
 
@@ -56,13 +58,13 @@ function AppShellInner({ children }) {
       <div className={cn("flex min-h-dvh flex-col text-slate-900", SHELL_BG)}>
         {top ? (
           <>
-            <ErpNavbar />
+            <ErpNavbar user={authUser ?? undefined} />
             <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
           </>
         ) : (
           <>
             <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
-            <ErpNavbar />
+            <ErpNavbar user={authUser ?? undefined} />
           </>
         )}
       </div>
@@ -81,7 +83,7 @@ function AppShellInner({ children }) {
           <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
         </div>
         <div className="fixed inset-y-0 right-0 z-40">
-          <ErpNavbar />
+          <ErpNavbar user={authUser ?? undefined} />
         </div>
       </div>
     );
@@ -98,7 +100,7 @@ function AppShellInner({ children }) {
         <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
       </div>
       <div className="fixed inset-y-0 left-0 z-40">
-        <ErpNavbar />
+        <ErpNavbar user={authUser ?? undefined} />
       </div>
     </div>
   );

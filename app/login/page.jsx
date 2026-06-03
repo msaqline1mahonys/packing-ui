@@ -10,6 +10,7 @@ import {
   authInputClass,
   authLabelClass,
 } from "@/components/auth-layout";
+import { notifyAuthSessionChanged } from "@/lib/auth-session";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -69,6 +70,7 @@ export default function LoginPage() {
       localStorage.setItem("isAuthenticated", "true");
       localStorage.setItem("authToken", token);
       localStorage.setItem("authPayload", JSON.stringify(authPayload));
+      notifyAuthSessionChanged();
       router.push("/");
     } catch (err) {
       setError(

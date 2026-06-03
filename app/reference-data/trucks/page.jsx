@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
@@ -138,6 +139,9 @@ function toApiPayload(draft) {
 }
 
 export default function TrucksPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -200,17 +204,42 @@ export default function TrucksPage() {
     setModalMode("add");
   };
 
-  const openEditModal = () => {
-    if (!selected) return;
+  const openEditModalForRow = useCallback((row) => {
+    if (!row) return;
     setError("");
     setNotice("");
-    setDraft(buildDraft(selected));
+    setSelectedId(row.id);
+    setDraft(buildDraft(row));
     setModalMode("edit");
+  }, []);
+
+  const openEditModal = () => {
+    const row = selectedId != null ? rows.find((item) => item.id === selectedId) ?? null : null;
+    openEditModalForRow(row);
   };
+
+  const getRowHref = useCallback((row) => {
+    if (!row?.id) return null;
+    return `${pathname}?edit=${encodeURIComponent(String(row.id))}`;
+  }, [pathname]);
+
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId || isLoading || rows.length === 0 || modalMode != null) return;
+    const row = rows.find((item) => String(item.id) === editId);
+    if (row) openEditModalForRow(row);
+  }, [searchParams, rows, isLoading, modalMode, openEditModalForRow]);
+
+  const finishModal = useCallback(() => {
+    setModalMode(null);
+    if (searchParams.get("edit")) {
+      router.replace(pathname, { scroll: false });
+    }
+  }, [pathname, router, searchParams]);
 
   const closeModal = () => {
     if (isSaving) return;
-    setModalMode(null);
+    finishModal();
   };
 
   const saveModal = async () => {
@@ -248,7 +277,7 @@ export default function TrucksPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Truck created successfully.");
-        setModalMode(null);
+        finishModal();
         return;
       }
 
@@ -261,7 +290,7 @@ export default function TrucksPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Truck updated successfully.");
-        setModalMode(null);
+        finishModal();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save truck.");
@@ -309,7 +338,11 @@ export default function TrucksPage() {
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
       ) : null}
 
-      <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
+      <div className={cn(
+        "grid gap-6 xl:items-start",
+        !isMobile && selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1",
+        isMobile && "grid-cols-1"
+      )}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
             <>
@@ -320,14 +353,14 @@ export default function TrucksPage() {
                 <Button type="button" variant="outline" size="sm" onClick={loadTrucks} disabled={isLoading}>
                   Refresh
                 </Button>
-                <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEditModal}>
+                <Button type="button" variant="outline" size="sm" disabled={selectedId == null || isLoading} onClick={openEditModal}>
                   Edit
                 </Button>
                 <Button
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={!selected || isLoading || isDeleting}
+                  disabled={selectedId == null || isLoading || isDeleting}
                   onClick={removeSelected}
                 >
                   {isDeleting ? "Deletingâ€¦" : "Delete"}
@@ -350,13 +383,19 @@ export default function TrucksPage() {
               columns={gridColumns}
               rows={rows}
               getRowId={(row) => row.id}
+              persistKey="reference-data-trucks"
               theme="light"
               density="standard"
               fileName={config.title}
               visibleRows={12}
               loading={isLoading}
               emptyMessage={isLoading ? "Loading trucksâ€¦" : "No trucks found."}
-              onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onRowClick={(row) => setSelectedId(row.id)}
+              onRowDoubleClick={openEditModalForRow}
+              getRowHref={getRowHref}
+              onSelectionChange={(selectedRows) => {
+                if (selectedRows.length === 0) setSelectedId(null);
+              }}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={openAddModal} disabled={isLoading}>
@@ -365,14 +404,14 @@ export default function TrucksPage() {
                   <Button type="button" variant="outline" size="sm" onClick={loadTrucks} disabled={isLoading}>
                     Refresh
                   </Button>
-                  <Button type="button" variant="outline" size="sm" disabled={!selected || isLoading} onClick={openEditModal}>
+                  <Button type="button" variant="outline" size="sm" disabled={selectedId == null || isLoading} onClick={openEditModal}>
                     Edit
                   </Button>
                   <Button
                     type="button"
                     variant="destructive"
                     size="sm"
-                    disabled={!selected || isLoading || isDeleting}
+                    disabled={selectedId == null || isLoading || isDeleting}
                     onClick={removeSelected}
                   >
                     {isDeleting ? "Deletingâ€¦" : "Delete"}
@@ -383,23 +422,19 @@ export default function TrucksPage() {
           )}
         </div>
 
-        {!isMobile ? (
+        {!isMobile && selected ? (
           <aside className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">{config.title} Details</h2>
-            {!selected ? (
-              <p className="mt-4 text-sm leading-relaxed text-slate-500">Select a row to view details.</p>
-            ) : (
-              <dl className="mt-4 space-y-3 text-sm">
-                {config.columns.map((column) => (
-                  <DetailItem
-                    key={column.key}
-                    label={column.label}
-                    value={selected[column.key]}
-                    highlight={column === config.columns[0]}
-                  />
-                ))}
-              </dl>
-            )}
+            <dl className="mt-4 space-y-3 text-sm">
+              {config.columns.map((column) => (
+                <DetailItem
+                  key={column.key}
+                  label={column.label}
+                  value={selected[column.key]}
+                  highlight={column === config.columns[0]}
+                />
+              ))}
+            </dl>
           </aside>
         ) : null}
       </div>

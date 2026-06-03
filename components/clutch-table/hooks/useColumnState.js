@@ -86,7 +86,13 @@ export function useColumnState(columns, initialState) {
         const def = columnMap.get(key)
         const min = resolveMinWidth(def)
         const max = def?.maxWidth ?? 2000
-        return { ...c, width: Math.min(Math.max(width, min), max) }
+        return {
+          ...c,
+          width: Math.min(Math.max(width, min), max),
+          // Once the user explicitly resizes a column, freeze it from the
+          // fillContainerWidth slack distribution so the cursor tracks 1:1.
+          userResized: true,
+        }
       }),
     )
   }, [columnMap])
@@ -150,6 +156,7 @@ function buildInitialState(columns) {
     hidden: col.hidden ?? false,
     pin: col.pin ?? null,
     order: idx,
+    userResized: false,
   }))
 }
 
@@ -179,6 +186,7 @@ function mergeColumnStates(validated, prior) {
         hidden: Boolean(existing.hidden),
         pin: existing.pin === 'left' || existing.pin === 'right' ? existing.pin : null,
         order: typeof existing.order === 'number' ? existing.order : idx,
+        userResized: Boolean(existing.userResized),
       }
     }
     return {
@@ -187,6 +195,7 @@ function mergeColumnStates(validated, prior) {
       hidden: col.hidden ?? false,
       pin: col.pin ?? null,
       order: nextNewOrder++,
+      userResized: false,
     }
   })
 

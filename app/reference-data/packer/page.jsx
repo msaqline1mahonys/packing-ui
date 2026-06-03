@@ -101,27 +101,14 @@ function normalizeIdList(ids, validIds) {
 
 function buildCommoditySummary(mode, ids) {
   if (mode === "all") return "All";
-  const selected = normalizeCommodityTypeIds(ids);
-  if (!selected.length) return "â€”";
-  return `${selected.length} selected`;
-}
-
-function normalizeStockLocationIds(ids) {
-  if (!Array.isArray(ids)) return [];
-  const uniq = new Set();
-  for (const rawId of ids) {
-    const id = Number(rawId);
-    if (Number.isNaN(id) || !stockLocationMap.has(id)) continue;
-    uniq.add(id);
-  }
-  return Array.from(uniq);
+  if (!Array.isArray(ids) || !ids.length) return "—";
+  return `${ids.length} selected`;
 }
 
 function buildStockLocationSummary(mode, ids) {
   if (mode === "all") return "All";
-  const selected = normalizeStockLocationIds(ids);
-  if (!selected.length) return "â€”";
-  return `${selected.length} selected`;
+  if (!Array.isArray(ids) || !ids.length) return "—";
+  return `${ids.length} selected`;
 }
 
 function toDisplayRow(row, commodityTypeMap, stockLocationMap) {

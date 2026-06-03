@@ -58,13 +58,13 @@ function AppShellInner({ children }) {
       <div className={cn("flex min-h-dvh flex-col text-slate-900", SHELL_BG)}>
         {top ? (
           <>
-            <ErpNavbar user={authUser} />
+            <ErpNavbar user={authUser ?? undefined} />
             <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
           </>
         ) : (
           <>
             <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
-            <ErpNavbar user={authUser} />
+            <ErpNavbar user={authUser ?? undefined} />
           </>
         )}
       </div>

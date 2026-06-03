@@ -5,10 +5,7 @@ import { useEffect, useState } from "react";
 import { mapAuthPayloadToNavUser, readAuthPayload } from "@/lib/auth-session";
 
 export function useAuthNavUser() {
-  const [user, setUser] = useState(() => {
-    if (typeof window === "undefined") return null;
-    return mapAuthPayloadToNavUser(readAuthPayload());
-  });
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     const sync = () => {

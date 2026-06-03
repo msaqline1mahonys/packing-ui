@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,16 @@ const gridColumns = config.columns.map((col) => ({
   resizable: true,
 }));
 
+function normaliseThresholds(rows) {
+  return (Array.isArray(rows) ? rows : []).map((t) => ({
+    test: t?.test ?? "",
+    min: t?.min ?? "",
+    max: t?.max ?? "",
+    parentGroupId: t?.parentGroupId ?? t?.parent_group_id ?? null,
+    isGroupRoot: Boolean(t?.isGroupRoot ?? t?.is_group_root ?? false),
+  }));
+}
+
 function buildDraft(row) {
   return {
     commodityTypeId: row?.commodityTypeId ?? "",
@@ -50,7 +60,7 @@ function buildDraft(row) {
     pemsCode: row?.pemsCode ?? "",
     status: row?.status ?? "",
     unitType: row?.unitType ?? "",
-    testThresholds: row?.testThresholds ?? [],
+    testThresholds: normaliseThresholds(row?.testThresholds),
     shrinkAmount: row?.shrinkAmount ?? "",
   };
 }
@@ -109,7 +119,7 @@ function fromApi(row) {
     pemsCode: row.pems_code ?? "",
     status: row.status ?? "",
     unitType: row.unit_type ?? "",
-    testThresholds: Array.isArray(row.test_thresholds) ? row.test_thresholds : [],
+    testThresholds: normaliseThresholds(row.test_thresholds),
     shrinkAmount: row.shrink_amount ?? "",
   };
 }
@@ -124,7 +134,15 @@ function toApiPayload(draft) {
     pems_code: String(draft.pemsCode ?? "").trim() || null,
     status: String(draft.status ?? "").trim() || null,
     unit_type: String(draft.unitType ?? "").trim() || null,
-    test_thresholds: (draft.testThresholds || []).filter((t) => t.test),
+    test_thresholds: (draft.testThresholds || [])
+      .filter((t) => t.test)
+      .map((t) => ({
+        test: t.test,
+        min: t.min,
+        max: t.max,
+        parent_group_id: t.parentGroupId ?? null,
+        is_group_root: Boolean(t.isGroupRoot),
+      })),
     shrink_amount: String(draft.shrinkAmount ?? "").trim() || null,
   };
 }
@@ -204,6 +222,103 @@ export default function CommodityPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+
+  const testsById = useMemo(() => {
+    const map = new Map();
+    for (const t of tests) map.set(t.id, t);
+    return map;
+  }, [tests]);
+
+  const testsByName = useMemo(() => {
+    const map = new Map();
+    for (const t of tests) {
+      const name = t.test_name ?? t.testName;
+      if (name && !map.has(name)) map.set(name, t);
+    }
+    return map;
+  }, [tests]);
+
+  const groupNameFor = useCallback(
+    (groupId) => {
+      const g = testsById.get(groupId);
+      return g?.test_name ?? g?.testName ?? "(unknown group)";
+    },
+    [testsById]
+  );
+
+  const handleTestChange = useCallback(
+    (index, newName) => {
+      setDraft((prev) => {
+        const next = [...prev.testThresholds];
+        const picked = testsByName.get(newName);
+
+        if (picked?.type === "Group") {
+          next.splice(index, 1);
+
+          const groupAlreadyAdded = next.some(
+            (r) => r.parentGroupId === picked.id && r.isGroupRoot
+          );
+          if (groupAlreadyAdded) {
+            return { ...prev, testThresholds: next };
+          }
+
+          const groupName = picked.test_name ?? picked.testName ?? "";
+          next.push({
+            test: groupName,
+            min: "",
+            max: "",
+            parentGroupId: picked.id,
+            isGroupRoot: true,
+          });
+
+          const existingNames = new Set(
+            next.map((r) => String(r.test ?? "").trim()).filter(Boolean)
+          );
+          const memberIds = Array.isArray(picked.members) ? picked.members : [];
+          for (const memberId of memberIds) {
+            const member = testsById.get(memberId);
+            const memberName = member?.test_name ?? member?.testName;
+            if (!memberName || existingNames.has(memberName)) continue;
+            next.push({
+              test: memberName,
+              min: "",
+              max: "",
+              parentGroupId: picked.id,
+              isGroupRoot: false,
+            });
+            existingNames.add(memberName);
+          }
+          return { ...prev, testThresholds: next };
+        }
+
+        next[index] = { ...next[index], test: newName, parentGroupId: null, isGroupRoot: false };
+        return { ...prev, testThresholds: next };
+      });
+    },
+    [testsByName, testsById]
+  );
+
+  const removeGroup = useCallback((groupId) => {
+    setDraft((prev) => ({
+      ...prev,
+      testThresholds: prev.testThresholds.filter((r) => r.parentGroupId !== groupId),
+    }));
+  }, []);
+
+  const updateThresholdField = useCallback((index, field, value) => {
+    setDraft((prev) => {
+      const next = [...prev.testThresholds];
+      next[index] = { ...next[index], [field]: value };
+      return { ...prev, testThresholds: next };
+    });
+  }, []);
+
+  const removeThreshold = useCallback((index) => {
+    setDraft((prev) => ({
+      ...prev,
+      testThresholds: prev.testThresholds.filter((_, i) => i !== index),
+    }));
+  }, []);
 
   const openAddModal = () => {
     setError("");
@@ -533,77 +648,103 @@ export default function CommodityPage() {
                   <span className="font-bold text-amber-950">Note:</span> Each commodity IS a specific grade. Tests help identify and confirm the commodity. Example: Create separate commodities for "Wheat Grade 1", "Wheat Grade 2", etc.
                 </div>
                 <div className="space-y-2">
-                  {draft.testThresholds.map((item, index) => (
-                    <div key={index} className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/50 p-2 shadow-sm">
-                      <div className="flex-1 space-y-1">
-                        <label className="text-[10px] font-semibold uppercase text-slate-500">Test</label>
-                        <select
-                          className={inputClass}
-                          value={item.test}
-                          disabled={isSaving}
-                          onChange={(e) => {
-                            const next = [...draft.testThresholds];
-                            next[index] = { ...next[index], test: e.target.value };
-                            setDraft((prev) => ({ ...prev, testThresholds: next }));
-                          }}
+                  {(() => {
+                    const units = [];
+                    const seenGroups = new Set();
+                    draft.testThresholds.forEach((row, index) => {
+                      if (row.parentGroupId) {
+                        if (seenGroups.has(row.parentGroupId)) return;
+                        seenGroups.add(row.parentGroupId);
+                        const members = draft.testThresholds
+                          .map((r, i) => ({ row: r, index: i }))
+                          .filter(({ row: r }) => r.parentGroupId === row.parentGroupId);
+                        units.push({ kind: "group", groupId: row.parentGroupId, members });
+                      } else {
+                        units.push({ kind: "single", row, index });
+                      }
+                    });
+
+                    return units.map((unit) => {
+                      if (unit.kind === "single") {
+                        const item = unit.row;
+                        const index = unit.index;
+                        return (
+                          <ThresholdRow
+                            key={`single-${index}`}
+                            item={item}
+                            tests={tests}
+                            isSaving={isSaving}
+                            onTestChange={(value) => handleTestChange(index, value)}
+                            onFieldChange={(field, value) => updateThresholdField(index, field, value)}
+                            onRemove={() => removeThreshold(index)}
+                          />
+                        );
+                      }
+                      const rootEntry = unit.members.find(({ row }) => row.isGroupRoot);
+                      const memberEntries = unit.members.filter(({ row }) => !row.isGroupRoot);
+                      return (
+                        <div
+                          key={`group-${unit.groupId}`}
+                          className="rounded-md border-2 border-blue-300 bg-blue-50/40 p-2.5 shadow-sm"
                         >
-                          <option value="">Select test</option>
-                          {tests.map((t) => (
-                            <option key={t.id} value={t.test_name ?? t.testName}>{t.test_name ?? t.testName}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="w-20 space-y-1">
-                        <label className="text-[10px] font-semibold uppercase text-slate-500">Min</label>
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={item.min}
-                          disabled={isSaving}
-                          onChange={(e) => {
-                            const next = [...draft.testThresholds];
-                            next[index] = { ...next[index], min: e.target.value };
-                            setDraft((prev) => ({ ...prev, testThresholds: next }));
-                          }}
-                          placeholder="0"
-                        />
-                      </div>
-                      <div className="w-20 space-y-1">
-                        <label className="text-[10px] font-semibold uppercase text-slate-500">Max</label>
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={item.max}
-                          disabled={isSaving}
-                          onChange={(e) => {
-                            const next = [...draft.testThresholds];
-                            next[index] = { ...next[index], max: e.target.value };
-                            setDraft((prev) => ({ ...prev, testThresholds: next }));
-                          }}
-                          placeholder="100"
-                        />
-                      </div>
-                      <div className="pt-[22px]">
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50"
-                          onClick={() => {
-                            const next = draft.testThresholds.filter((_, i) => i !== index);
-                            setDraft((prev) => ({ ...prev, testThresholds: next }));
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                              Group: {groupNameFor(unit.groupId)}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              className="text-[11px] font-medium text-red-600 hover:text-red-700 hover:underline disabled:opacity-50"
+                              onClick={() => removeGroup(unit.groupId)}
+                            >
+                              Remove group
+                            </button>
+                          </div>
+                          {rootEntry ? (
+                            <div className="mb-2">
+                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700/80">
+                                Sum threshold
+                              </div>
+                              <ThresholdRow
+                                item={rootEntry.row}
+                                tests={tests}
+                                isSaving={isSaving}
+                                lockTestName
+                                onFieldChange={(field, value) =>
+                                  updateThresholdField(rootEntry.index, field, value)
+                                }
+                              />
+                            </div>
+                          ) : null}
+                          {memberEntries.length > 0 ? (
+                            <>
+                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700/80">
+                                Members
+                              </div>
+                              <div className="space-y-2">
+                                {memberEntries.map(({ row, index }) => (
+                                  <ThresholdRow
+                                    key={`member-${index}`}
+                                    item={row}
+                                    tests={tests}
+                                    isSaving={isSaving}
+                                    lockTestName
+                                    onFieldChange={(field, value) => updateThresholdField(index, field, value)}
+                                  />
+                                ))}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
                 <Button
                   type="button"
                   disabled={isSaving}
                   className="w-full bg-blue-500 text-white hover:bg-blue-600 shadow-sm"
-                  onClick={() => setDraft((prev) => ({ ...prev, testThresholds: [...prev.testThresholds, { test: "", min: "", max: "" }] }))}
+                  onClick={() => setDraft((prev) => ({ ...prev, testThresholds: [...prev.testThresholds, { test: "", min: "", max: "", parentGroupId: null }] }))}
                 >
                   + Add Test Threshold
                 </Button>
@@ -629,6 +770,71 @@ export default function CommodityPage() {
           ↑
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChange, onFieldChange, onRemove }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2 shadow-sm">
+      <div className="flex-1 space-y-1">
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Test</label>
+        {lockTestName ? (
+          <div className={cn(inputClass, "bg-slate-50 text-slate-700")}>{item.test}</div>
+        ) : (
+          <select
+            className={inputClass}
+            value={item.test}
+            disabled={isSaving}
+            onChange={(e) => onTestChange(e.target.value)}
+          >
+            <option value="">Select test</option>
+            {tests.map((t) => {
+              const name = t.test_name ?? t.testName;
+              const label = t.type === "Group" ? `${name} (Group)` : name;
+              return (
+                <option key={t.id} value={name}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+        )}
+      </div>
+      <div className="w-20 space-y-1">
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Min</label>
+        <input
+          type="number"
+          className={inputClass}
+          value={item.min}
+          disabled={isSaving}
+          onChange={(e) => onFieldChange("min", e.target.value)}
+          placeholder="0"
+        />
+      </div>
+      <div className="w-20 space-y-1">
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Max</label>
+        <input
+          type="number"
+          className={inputClass}
+          value={item.max}
+          disabled={isSaving}
+          onChange={(e) => onFieldChange("max", e.target.value)}
+          placeholder="100"
+        />
+      </div>
+      {lockTestName ? null : (
+        <div className="pt-[22px]">
+          <button
+            type="button"
+            disabled={isSaving}
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50"
+            onClick={onRemove}
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -50,6 +50,20 @@ const config = {
     },
     { key: "unit", label: "UNIT", required: true, placeholder: "%" },
     {
+      key: "appliesTo",
+      label: "APPLIES TO",
+      type: "checkboxes",
+      options: APPLIES_TO_OPTIONS,
+      wide: true,
+    },
+    {
+      key: "members",
+      label: "MEMBERS",
+      type: "test-members",
+      wide: true,
+      showWhen: (draft) => draft.type === "Group",
+    },
+    {
       key: "description",
       label: "DESCRIPTION",
       type: "textarea",
@@ -76,7 +90,10 @@ const gridColumns = config.columns.map((col) => ({
 
 function buildDraft(row) {
   const next = {};
-  for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
+  for (const field of config.formFields) {
+    const isArrayField = field.type === "checkboxes" || field.type === "test-members";
+    next[field.key] = row?.[field.key] ?? (isArrayField ? [] : "");
+  }
   return next;
 }
 
@@ -133,20 +150,25 @@ function fromApiTest(row) {
   if (!row) return null;
   return {
     id: row.id,
-    testName: row.test_name ?? "",
+    testName: row.test_name ?? row.testName ?? "",
     type: row.type ?? "",
     unit: row.unit ?? "",
+    appliesTo: row.applies_to ?? row.appliesTo ?? [],
+    members: row.members ?? [],
     description: row.description ?? "",
     status: row.status ?? "",
   };
 }
 
 function toApiPayload(draft) {
+  const isGroup = String(draft.type ?? "").trim() === "Group";
   return {
     ...getTenantPayload(),
     test_name: String(draft.testName ?? "").trim() || null,
     type: String(draft.type ?? "").trim() || null,
     unit: String(draft.unit ?? "").trim() || null,
+    applies_to: Array.isArray(draft.appliesTo) ? draft.appliesTo : [],
+    members: isGroup && Array.isArray(draft.members) ? draft.members : [],
     description: String(draft.description ?? "").trim() || null,
     status: String(draft.status ?? "").trim() || null,
   };
@@ -227,9 +249,13 @@ export default function TestPage() {
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some(
-      (field) => field.required && !String(draft[field.key] ?? "").trim()
-    );
+    const requiredMissing = config.formFields.some((field) => {
+      if (!field.required) return false;
+      if (field.showWhen && !field.showWhen(draft)) return false;
+      const value = draft[field.key];
+      if (Array.isArray(value)) return value.length === 0;
+      return !String(value ?? "").trim();
+    });
     if (requiredMissing) {
       setError("Please fill all required fields.");
       return;
@@ -398,15 +424,26 @@ export default function TestPage() {
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          {config.formFields.map((field) => (
-            <FormField
-              key={field.key}
-              field={field}
-              value={draft[field.key] ?? ""}
-              disabled={isSaving}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
-            />
-          ))}
+          {config.formFields
+            .filter((field) => !field.showWhen || field.showWhen(draft))
+            .map((field) => (
+              <FormField
+                key={field.key}
+                field={field}
+                value={draft[field.key] ?? (field.type === "checkboxes" || field.type === "test-members" ? [] : "")}
+                disabled={isSaving}
+                onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+                memberCandidates={
+                  field.type === "test-members"
+                    ? rows.filter((r) => {
+                        const isCount = String(r.type ?? "").trim().toLowerCase() === "count";
+                        const isSelf = modalMode === "edit" && selected && r.id === selected.id;
+                        return isCount && !isSelf;
+                      })
+                    : undefined
+                }
+              />
+            ))}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>Cancel</Button>

@@ -383,7 +383,6 @@ export default function TrucksPage() {
               columns={gridColumns}
               rows={rows}
               getRowId={(row) => row.id}
-              persistKey="reference-data-trucks"
               theme="light"
               density="standard"
               fileName={config.title}
@@ -391,10 +390,15 @@ export default function TrucksPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading trucksâ€¦" : "No trucks found."}
               onRowClick={(row) => setSelectedId(row.id)}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               onRowDoubleClick={openEditModalForRow}
               getRowHref={getRowHref}
               onSelectionChange={(selectedRows) => {
-                if (selectedRows.length === 0) setSelectedId(null);
+                if (selectedRows.length > 0) {
+                  setSelectedId(selectedRows[selectedRows.length - 1].id);
+                } else {
+                  setSelectedId(null);
+                }
               }}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
@@ -544,9 +548,9 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || ""}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || ""}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{summary || ""}</p>
             </button>
           );
         })

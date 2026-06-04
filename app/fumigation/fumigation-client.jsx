@@ -82,6 +82,7 @@ export default function FumigationClient() {
             fileName="Packs Requiring Fumigation"
             visibleRows={12}
             onRowClick={(row) => setSelectedPackId(row.id)}
+            onPersistedRowActivate={(row) => setSelectedPackId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedPackId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedPackId ? { backgroundColor: "#dbeafe" } : undefined)}
           />

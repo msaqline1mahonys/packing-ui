@@ -420,6 +420,7 @@ export default function StockLocationPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading stock locationsâ€¦" : "No stock locations found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={openAddModal} disabled={isLoading}>

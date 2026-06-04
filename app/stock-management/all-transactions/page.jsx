@@ -139,6 +139,7 @@ export default function AllTransactionsPage() {
               fileName="Transaction Ledger"
               visibleRows={14}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
             />
           )}
         </div>

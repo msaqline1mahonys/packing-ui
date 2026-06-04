@@ -307,6 +307,8 @@ export default function CommodityTypePage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading commodity types…" : "No commodity types found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={openAddModal} disabled={isLoading}>+ Add</Button>

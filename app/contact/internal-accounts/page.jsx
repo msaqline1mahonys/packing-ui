@@ -355,6 +355,7 @@ export default function InternalAccountsPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading internal accounts…" : "No internal accounts found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

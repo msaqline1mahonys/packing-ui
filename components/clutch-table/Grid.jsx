@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip, FormControl, Select } from '@mui/material';
 import Search from '@mui/icons-material/Search';
@@ -38,6 +39,11 @@ const DENSITIES = {
     headerHeight: 52
   }
 };
+
+function persistKeyFromPathname(pathname) {
+  return String(pathname ?? '').replace(/^\/|\/$/g, '').replace(/\//g, '-') || 'home';
+}
+
 export function Grid(props) {
   const {
     columns,
@@ -67,6 +73,7 @@ export function Grid(props) {
     onRowDoubleClick,
     onRowContextMenu,
     getRowHref,
+    onPersistedRowActivate,
     onSelectionChange,
     onSortChange,
     onFilterChange,
@@ -82,18 +89,33 @@ export function Grid(props) {
     /** When true, column widths grow so the grid uses the full scroll-area width (slack split evenly). */
     fillContainerWidth = true
   } = props;
-  const persisted = useMemo(() => loadPersistedState(persistKey), [persistKey]);
+  const pathname = usePathname();
+  const effectivePersistKey = useMemo(() => {
+    if (persistKey === false) return null;
+    if (persistKey) return persistKey;
+    return persistKeyFromPathname(pathname);
+  }, [persistKey, pathname]);
+  const persisted = useMemo(() => loadPersistedState(effectivePersistKey), [effectivePersistKey]);
   const persistedScrollTop = typeof persisted?.scrollTop === 'number' ? persisted.scrollTop : 0;
+  const persistedInitialSelectedIds = useMemo(() => {
+    if (Array.isArray(persisted?.selectedRowIds) && persisted.selectedRowIds.length > 0) {
+      return persisted.selectedRowIds.map(String);
+    }
+    if (persisted?.lastInteractedRowId != null) {
+      return [String(persisted.lastInteractedRowId)];
+    }
+    return [];
+  }, [persisted]);
   const scrollTopRef = useRef(persistedScrollTop);
-  const pendingScrollRestoreRef = useRef(persistKey && persistedScrollTop > 0 ? persistedScrollTop : null);
+  const pendingScrollRestoreRef = useRef(effectivePersistKey && persistedScrollTop > 0 ? persistedScrollTop : null);
   const didRestoreScrollRef = useRef(false);
   const dndContextId = useMemo(() => {
-    const slug = String(persistKey ?? fileName ?? 'default')
+    const slug = String(effectivePersistKey ?? fileName ?? 'default')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
     return `clutch-grid-${slug || 'default'}`;
-  }, [persistKey, fileName]);
+  }, [effectivePersistKey, fileName]);
   const dimensions = DENSITIES[density];
   const effectiveRowHeight = rowHeight ?? dimensions.rowHeight;
   const effectiveHeaderHeight = headerHeight ?? dimensions.headerHeight;
@@ -121,7 +143,7 @@ export function Grid(props) {
     initialColumnState: serverColumnState,
     loaded: serverColumnStateLoaded,
     save: saveColumnStateToServer
-  } = useUserGridPreference(persistKey);
+  } = useUserGridPreference(effectivePersistKey);
   const {
     visibleColumns,
     columns: validCols,
@@ -146,12 +168,12 @@ export function Grid(props) {
     if (!appliedServerColumnStateRef.current) return;
     saveColumnStateToServer(colStates);
   }, [colStates, saveColumnStateToServer]);
-  // Global search lives in an in-memory session store (not localStorage), so
-  // it survives client-side navigation but resets on a full page refresh.
-  const [globalSearch, setGlobalSearch] = useState(() => getSessionSearch(persistKey));
+  const [globalSearch, setGlobalSearch] = useState(() =>
+    getSessionSearch(effectivePersistKey) || persisted?.globalSearch || ''
+  );
   useEffect(() => {
-    setSessionSearch(persistKey, globalSearch);
-  }, [persistKey, globalSearch]);
+    setSessionSearch(effectivePersistKey, globalSearch);
+  }, [effectivePersistKey, globalSearch]);
   const [sortModel, setSortModel] = useState(() => persisted?.sortModel ?? []);
   const [filters, setFilters] = useState(() => persisted?.filters ?? {});
   const [page, setPage] = useState(() => persisted?.page ?? 0);
@@ -397,7 +419,8 @@ export function Grid(props) {
   const selection = useSelection({
     rows: safeRows,
     getRowId: safeGetRowId,
-    onChange: onSelectionChange
+    onChange: onSelectionChange,
+    initialSelectedIds: persistedInitialSelectedIds
   });
   const syncSelectionWithRowClick = Boolean(onRowClick);
   const handleRowActivate = useCallback((row, rowId, {
@@ -422,6 +445,40 @@ export function Grid(props) {
     }
     onRowClick?.(row);
   }, [syncSelectionWithRowClick, enableSelection, selection.isSelected, selection.toggleRow, selection.clear, onRowClick]);
+  const didRestoreSelectionRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!effectivePersistKey || didRestoreSelectionRef.current) return;
+    if (loading || safeRows.length === 0) return;
+    const targetId = lastInteractedRowId ?? persistedInitialSelectedIds[persistedInitialSelectedIds.length - 1] ?? null;
+    if (targetId == null) {
+      didRestoreSelectionRef.current = true;
+      return;
+    }
+    const row = safeRows.find(r => String(safeGetRowId(r)) === String(targetId));
+    if (!row) return;
+    const rowId = safeGetRowId(row);
+    if (enableSelection && !selection.isSelected(rowId)) {
+      selection.clear();
+      selection.toggleRow(rowId);
+    }
+    if (lastInteractedRowId == null) {
+      setLastInteractedRowId(rowId);
+    }
+    onPersistedRowActivate?.(row);
+    didRestoreSelectionRef.current = true;
+  }, [
+    effectivePersistKey,
+    loading,
+    safeRows,
+    lastInteractedRowId,
+    persistedInitialSelectedIds,
+    safeGetRowId,
+    enableSelection,
+    selection.isSelected,
+    selection.toggleRow,
+    selection.clear,
+    onPersistedRowActivate
+  ]);
   const handleRowDoubleClick = useCallback((row, rowId) => {
     handleRowActivate(row, rowId, { forceSelect: true });
     if (onRowDoubleClick) {
@@ -628,7 +685,7 @@ export function Grid(props) {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => effectiveRowHeight,
     overscan: 8,
-    initialOffset: persistKey && persistedScrollTop > 0 ? persistedScrollTop : 0
+    initialOffset: effectivePersistKey && persistedScrollTop > 0 ? persistedScrollTop : 0
   });
   const virtualItems = enableVirtualization ? virtualizer.getVirtualItems() : null;
   const handleCellKeyDown = useCallback((r, c, event) => {
@@ -901,29 +958,40 @@ export function Grid(props) {
     page: safePage,
     pageSize: internalPageSize,
     lastInteractedRowId,
+    selectedRowIds: Array.from(selection.selected),
     scrollTop: scrollTopRef.current,
     columnState: colStates
-  }), [globalSearch, sortModel, filters, safePage, internalPageSize, lastInteractedRowId, colStates]);
+  }), [globalSearch, sortModel, filters, safePage, internalPageSize, lastInteractedRowId, selection.selected, colStates]);
+  const buildPersistSnapshotRef = useRef(buildPersistSnapshot);
+  buildPersistSnapshotRef.current = buildPersistSnapshot;
 
   // Persist grid state to localStorage (debounced; scroll uses scrollTopRef to avoid wiping on mount)
   useEffect(() => {
-    if (!persistKey) return;
+    if (!effectivePersistKey) return;
     const handle = window.setTimeout(() => {
-      savePersistedState(persistKey, buildPersistSnapshot());
+      const snap = buildPersistSnapshotRef.current();
+      if (!didRestoreScrollRef.current && pendingScrollRestoreRef.current != null && pendingScrollRestoreRef.current > 0) {
+        snap.scrollTop = pendingScrollRestoreRef.current;
+      }
+      savePersistedState(effectivePersistKey, snap);
     }, 150);
     return () => window.clearTimeout(handle);
-  }, [persistKey, buildPersistSnapshot]);
+  }, [effectivePersistKey, buildPersistSnapshot]);
 
   // Persist scroll position while scrolling
   useEffect(() => {
-    if (!persistKey || !scrollContainer) return;
+    if (!effectivePersistKey || !scrollContainer) return;
     let raf = null;
     const onScroll = () => {
       if (raf != null) return;
       raf = window.requestAnimationFrame(() => {
         raf = null;
         scrollTopRef.current = scrollContainer.scrollTop;
-        savePersistedState(persistKey, buildPersistSnapshot());
+        if (!didRestoreScrollRef.current) return;
+        savePersistedState(effectivePersistKey, {
+          ...buildPersistSnapshotRef.current(),
+          scrollTop: scrollContainer.scrollTop
+        });
       });
     };
     scrollContainer.addEventListener('scroll', onScroll, {
@@ -932,24 +1000,24 @@ export function Grid(props) {
     return () => {
       scrollContainer.removeEventListener('scroll', onScroll);
       if (raf != null) window.cancelAnimationFrame(raf);
-      scrollTopRef.current = scrollContainer.scrollTop;
-      savePersistedState(persistKey, buildPersistSnapshot());
     };
-  }, [persistKey, scrollContainer, buildPersistSnapshot]);
+  }, [effectivePersistKey, scrollContainer]);
 
   // Flush scroll position when navigating away
   useEffect(() => {
-    if (!persistKey) return;
+    if (!effectivePersistKey) return;
     return () => {
       const el = scrollRef.current;
       if (el) scrollTopRef.current = el.scrollTop;
-      savePersistedState(persistKey, buildPersistSnapshot());
+      const snap = buildPersistSnapshotRef.current();
+      snap.scrollTop = scrollTopRef.current;
+      savePersistedState(effectivePersistKey, snap);
     };
-  }, [persistKey, buildPersistSnapshot]);
+  }, [effectivePersistKey]);
 
   // Restore scroll after rows are loaded (retries until virtualizer has measured)
   useEffect(() => {
-    if (!persistKey || didRestoreScrollRef.current) return;
+    if (!effectivePersistKey || didRestoreScrollRef.current) return;
     const target = pendingScrollRestoreRef.current;
     if (target == null || target <= 0) {
       didRestoreScrollRef.current = true;
@@ -957,7 +1025,7 @@ export function Grid(props) {
     }
     if (loading || pagedRows.length === 0) return;
     let attempts = 0;
-    const maxAttempts = 40;
+    const maxAttempts = 60;
     let frameId = null;
     const tryRestore = () => {
       attempts += 1;
@@ -968,7 +1036,7 @@ export function Grid(props) {
       }
       if (enableVirtualization) {
         try {
-          virtualizer.scrollToOffset(target);
+          virtualizer.scrollToOffset(target, { align: 'start' });
         } catch {
           el.scrollTop = target;
         }
@@ -980,6 +1048,10 @@ export function Grid(props) {
       if (Math.abs(applied - target) <= 2 || attempts >= maxAttempts) {
         didRestoreScrollRef.current = true;
         pendingScrollRestoreRef.current = null;
+        savePersistedState(effectivePersistKey, {
+          ...buildPersistSnapshotRef.current(),
+          scrollTop: applied
+        });
         return;
       }
       frameId = requestAnimationFrame(tryRestore);
@@ -988,12 +1060,12 @@ export function Grid(props) {
     return () => {
       if (frameId != null) window.cancelAnimationFrame(frameId);
     };
-  }, [persistKey, loading, pagedRows.length, enableVirtualization, virtualizer]);
+  }, [effectivePersistKey, loading, pagedRows.length, enableVirtualization, virtualizer]);
 
   // ---- Saved Views ----
-  const showSavedViews = enableSavedViews && Boolean(persistKey);
+  const showSavedViews = enableSavedViews && Boolean(effectivePersistKey);
   const buildSnapshot = buildPersistSnapshot;
-  const views = useSavedViews(persistKey, persisted);
+  const views = useSavedViews(effectivePersistKey, persisted);
   const applySnapshot = useCallback(snap => {
     setGlobalSearch(snap.globalSearch ?? '');
     setSortModel(snap.sortModel ?? []);

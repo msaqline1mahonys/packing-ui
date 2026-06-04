@@ -199,6 +199,7 @@ export default function IncomingTicketPage() {
             visibleRows={14}
             enableSelection={false}
             onRowClick={(row) => setSelectedId(row.id)}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
             emptyMessage={loading ? "Loading tickets…" : "No tickets match the current filters."}

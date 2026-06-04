@@ -223,6 +223,7 @@ export default function PackingTablePage() {
               fileName="Packing Table"
               visibleRows={12}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={openCreateForm}>+ New Pack</Button>

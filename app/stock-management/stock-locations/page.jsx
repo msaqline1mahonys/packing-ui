@@ -100,6 +100,7 @@ export default function StockLocationsPage() {
             fileName="Stock Locations"
             visibleRows={10}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             toolbarActions={
               <div className="flex gap-2">
                 <Button size="sm" onClick={openNew}>+ Add</Button>

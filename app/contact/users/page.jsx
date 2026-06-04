@@ -252,6 +252,7 @@ export default function ContactUsersPage() {
               fileName="Users"
               visibleRows={12}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">
                   <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>

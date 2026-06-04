@@ -198,6 +198,7 @@ export default function PackersScheduleClient() {
             fileName="Packers Schedule"
             visibleRows={14}
             onRowClick={(row) => setSelectedId(row.id)}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
             toolbarActions={

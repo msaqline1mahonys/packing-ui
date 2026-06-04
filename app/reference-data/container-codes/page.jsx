@@ -374,6 +374,7 @@ export default function ContainerCodesPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading container codes…" : "No container codes found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

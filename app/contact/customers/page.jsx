@@ -463,6 +463,7 @@ export default function ContactCustomersPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading customers…" : "No customers found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

@@ -9,12 +9,11 @@ export const metadata = {
 
 export default async function InTicketPrintPage({ params }) {
   const { id } = await params;
-  const ticketId = Number(id);
-  if (!Number.isFinite(ticketId) || ticketId <= 0) notFound();
+  if (!id) notFound();
 
   return (
     <Suspense fallback={<div className="px-6 py-12 text-center text-sm text-slate-500">Loading print preview…</div>}>
-      <InTicketPrintClient ticketId={ticketId} />
+      <InTicketPrintClient ticketId={id} />
     </Suspense>
   );
 }

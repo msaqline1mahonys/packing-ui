@@ -750,7 +750,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 {users
                   .filter((u) => u.active)
                   .map((u) => (
-                    <option key={u.id} value={u.name}>
+                    <option key={u.id} value={u.id}>
                       {u.name}
                     </option>
                   ))}

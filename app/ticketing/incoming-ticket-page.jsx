@@ -96,10 +96,19 @@ export default function IncomingTicketPage() {
 
   const gridColumns = useMemo(
     () => [
-      { key: "id", header: "ID", type: "text", align: "left", sortable: true, filterable: true, resizable: true },
+      {
+        key: "id",
+        header: "ID",
+        type: "text",
+        align: "left",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+        renderCell: ({ value }) => <span title={value}>{String(value).slice(0, 8)}</span>,
+      },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityGrade", header: "Commodity & grade", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "truck", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "truckDisplay", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "status",
         header: "Status",
@@ -186,7 +195,7 @@ export default function IncomingTicketPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start">
+      <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
             columns={gridColumns}
@@ -220,25 +229,23 @@ export default function IncomingTicketPage() {
           />
         </div>
 
-        <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-3 py-3">
-            <h3 className="text-sm font-semibold text-slate-900">Ticket details</h3>
-          </div>
-          {!selected ? (
-            <div className="p-6 text-center text-xs text-slate-400">Select a ticket to view details</div>
-          ) : (
+        {selected ? (
+          <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-3 py-3">
+              <h3 className="text-sm font-semibold text-slate-900">Ticket details</h3>
+            </div>
             <div className="space-y-3 p-3 text-xs">
               <Field label="ID" value={String(selected.id).slice(0, 8)} />
               <Field label="Customer / CMO" value={selected.customerCmo} />
               <Field label="Commodity & grade" value={selected.commodityGrade} />
-              <Field label="Truck" value={<span className="font-mono">{selected.truck}</span>} />
+              <Field label="Truck" value={<span className="font-mono">{selected.truckDisplay || "—"}</span>} />
               <Field label="Status" value={<span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize", statusBadgeClass(selected.status))}>{selected.status}</span>} />
               <Field label="Net (T)" value={formatNet(selected.netT)} />
               <Field label="Date" value={selected.date} />
               <Field label="Notes" value={selected.notes || "—"} />
             </div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -96,10 +96,19 @@ export default function OutgoingTicketPage() {
 
   const gridColumns = useMemo(
     () => [
-      { key: "id", header: "ID", type: "text", align: "left", sortable: true, filterable: true, resizable: true },
+      {
+        key: "id",
+        header: "ID",
+        type: "text",
+        align: "left",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+        renderCell: ({ value }) => <span title={value}>{String(value).slice(0, 8)}</span>,
+      },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityGrade", header: "Commodity & grade", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "truck", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "truckDisplay", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "status",
         header: "Status",
@@ -231,7 +240,7 @@ export default function OutgoingTicketPage() {
               <Field label="ID" value={String(selected.id).slice(0, 8)} />
               <Field label="Customer / CMO" value={selected.customerCmo} />
               <Field label="Commodity & grade" value={selected.commodityGrade} />
-              <Field label="Truck" value={<span className="font-mono">{selected.truck}</span>} />
+              <Field label="Truck" value={<span className="font-mono">{selected.truckDisplay || "—"}</span>} />
               <Field label="Status" value={<span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize", statusBadgeClass(selected.status))}>{selected.status}</span>} />
               <Field label="Net (T)" value={formatNet(selected.netT)} />
               <Field label="Date" value={selected.date} />

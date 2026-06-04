@@ -14,7 +14,10 @@ const SHELL_BG =
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 function isPrintRoute(pathname) {
-  return /\/ticketing\/(?:in|outgoing)\/\d+\/print\/?$/.test(pathname);
+  return (
+    /\/ticketing\/(?:in|outgoing)\/\d+\/print\/?$/.test(pathname) ||
+    /^\/reports\/preview\/[^/]+\/?$/.test(pathname)
+  );
 }
 
 function MainPanel({ children, compactTop = false }) {

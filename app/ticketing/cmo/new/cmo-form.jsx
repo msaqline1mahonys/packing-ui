@@ -330,11 +330,11 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Customer / Account" required>
-              <select suppressHydrationWarning className={inputClass} value={form.customer} onChange={(e) => setField("customer", e.target.value)}>
+              <select suppressHydrationWarning className={inputClass} value={form.customerId} onChange={(e) => setField("customerId", e.target.value)}>
                 <option value="">â€” Select Customer / Account â€”</option>
-                {CUSTOMER_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
                   </option>
                 ))}
               </select>
@@ -361,20 +361,20 @@ export default function CmoForm() {
                 }}
               >
                 <option value="">â€” Select Commodity Type â€”</option>
-                {COMMODITY_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {commodityTypes.map((ct) => (
+                  <option key={ct.id} value={ct.id}>
+                    {ct.name}
                   </option>
                 ))}
               </select>
             </Field>
 
             <Field label="Commodity" required>
-              <select suppressHydrationWarning className={inputClass} value={form.commodity} onChange={(e) => setField("commodity", e.target.value)} disabled={!form.commodityType}>
+              <select suppressHydrationWarning className={inputClass} value={form.commodityId} onChange={(e) => setField("commodityId", e.target.value)} disabled={!form.commodityTypeId}>
                 <option value="">â€” Select Commodity â€”</option>
-                {commodityChoices.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {commodityChoices.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.description || c.commodity_code || c.name}
                   </option>
                 ))}
               </select>

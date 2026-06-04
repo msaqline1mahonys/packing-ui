@@ -107,6 +107,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const ticketNumericId = ticket.id ?? routeTicketId ?? null;
   const isCompleted = ticket.status === "completed";
+  const printHref = ticketNumericId ? `${detailPathBase}/${ticketNumericId}/print?print=1` : null;
 
   const cmo = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
   const commodity = ticket.commodityId ? commodities.find((c) => c.id === ticket.commodityId) : null;
@@ -362,7 +363,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               <Link
                 href={printHref}
                 className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
-                onClick={() => persistTicketSnapshot(ticket)}
+                onClick={() => saveInTicketSnapshot(ticket)}
               >
                 Print overview
               </Link>

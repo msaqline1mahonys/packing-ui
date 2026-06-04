@@ -548,9 +548,9 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || ""}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || ""}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{summary || ""}</p>
             </button>
           );
         })

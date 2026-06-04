@@ -341,6 +341,7 @@ export default function FumigantsPage() {
             loading={isLoading}
             emptyMessage={isLoading ? "Loading fumigants…" : "No fumigants found."}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
           />

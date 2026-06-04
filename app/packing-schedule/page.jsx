@@ -275,6 +275,7 @@ export default function PackingSchedulePage() {
             fileName="Packing Schedule"
             visibleRows={14}
             onRowClick={(row) => setSelectedId(row.id)}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {
               const rowClasses = [];
               if (row.importExport === "Import") rowClasses.push("clutch-row-import");

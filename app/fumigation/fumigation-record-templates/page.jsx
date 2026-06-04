@@ -483,6 +483,7 @@ export default function FumigationRecordTemplatesPage() {
             loading={isLoading}
             emptyMessage={isLoading ? "Loading record templates…" : "No record templates found."}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+            onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => (row.id === selectedId ? "clutch-row-selected" : undefined)}
             getRowStyle={({ row }) => (row.id === selectedId ? { backgroundColor: "#dbeafe" } : undefined)}
           />

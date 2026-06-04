@@ -477,6 +477,7 @@ export default function PackerPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading packers…" : "No packers found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

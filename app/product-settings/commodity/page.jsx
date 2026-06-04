@@ -464,6 +464,7 @@ export default function CommodityPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading commodities…" : "No commodities found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               getRowClassName={({ row }) => row.id === selectedId ? "clutch-row-selected" : undefined}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">

@@ -383,7 +383,6 @@ export default function TrucksPage() {
               columns={gridColumns}
               rows={rows}
               getRowId={(row) => row.id}
-              persistKey="reference-data-trucks"
               theme="light"
               density="standard"
               fileName={config.title}
@@ -391,10 +390,15 @@ export default function TrucksPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading trucksâ€¦" : "No trucks found."}
               onRowClick={(row) => setSelectedId(row.id)}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               onRowDoubleClick={openEditModalForRow}
               getRowHref={getRowHref}
               onSelectionChange={(selectedRows) => {
-                if (selectedRows.length === 0) setSelectedId(null);
+                if (selectedRows.length > 0) {
+                  setSelectedId(selectedRows[selectedRows.length - 1].id);
+                } else {
+                  setSelectedId(null);
+                }
               }}
               toolbarActions={
                 <div className="flex flex-wrap gap-2">

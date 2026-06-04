@@ -419,6 +419,7 @@ export default function TerminalPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading terminals…" : "No terminals found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

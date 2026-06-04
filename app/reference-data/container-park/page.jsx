@@ -419,6 +419,7 @@ export default function ContainerParkPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading container parks…" : "No container parks found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

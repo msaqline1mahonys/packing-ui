@@ -124,6 +124,7 @@ export default function TransactionsClient() {
               fileName="Transactions"
               visibleRows={14}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
             />
           )}
         </div>

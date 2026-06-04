@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-export function useSelection({ rows, getRowId, onChange }) {
-  const [selected, setSelected] = useState(new Set())
+export function useSelection({ rows, getRowId, onChange, initialSelectedIds = [] }) {
+  const [selected, setSelected] = useState(() => {
+    if (!initialSelectedIds?.length) return new Set()
+    return new Set(initialSelectedIds.map((id) => String(id)))
+  })
 
   const rowIdMap = useMemo(() => {
     const map = new Map()
@@ -9,7 +12,7 @@ export function useSelection({ rows, getRowId, onChange }) {
       try {
         const id = getRowId(row)
         if (id == null) continue
-        map.set(id, row)
+        map.set(String(id), row)
       } catch {
         // skip invalid rows
       }
@@ -22,7 +25,7 @@ export function useSelection({ rows, getRowId, onChange }) {
       if (prev.size === 0) return prev
       const next = new Set()
       for (const id of prev) {
-        if (rowIdMap.has(id)) next.add(id)
+        if (rowIdMap.has(String(id))) next.add(String(id))
       }
       if (next.size === prev.size) return prev
       return next
@@ -43,10 +46,11 @@ export function useSelection({ rows, getRowId, onChange }) {
   }, [selectedRows, onChange])
 
   const toggleRow = useCallback((id) => {
+    const key = String(id)
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }, [])
@@ -55,15 +59,16 @@ export function useSelection({ rows, getRowId, onChange }) {
     setSelected((prev) => {
       const next = new Set(prev)
       for (const id of ids) {
-        if (shouldSelect) next.add(id)
-        else next.delete(id)
+        const key = String(id)
+        if (shouldSelect) next.add(key)
+        else next.delete(key)
       }
       return next
     })
   }, [])
 
   const clear = useCallback(() => setSelected(new Set()), [])
-  const isSelected = useCallback((id) => selected.has(id), [selected])
+  const isSelected = useCallback((id) => selected.has(String(id)), [selected])
 
   return {
     selected, selectedRows, toggleRow, toggleMany, clear, isSelected,

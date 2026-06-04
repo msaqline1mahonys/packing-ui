@@ -350,6 +350,7 @@ export default function PortPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading ports…" : "No ports found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

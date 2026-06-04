@@ -373,6 +373,7 @@ export default function TransporterPage() {
               loading={isLoading}
               emptyMessage={isLoading ? "Loading transporters…" : "No transporters found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
             />
           )}

@@ -19,6 +19,12 @@ import {
 } from "@/lib/ticketing-api";
 import { DEMO_TESTS } from "@/lib/demo-in-ticket-data";
 import { fetchTransactions } from "@/lib/transactions-api";
+import {
+  displayFromStorageKg,
+  formatWeightFromStorageKg,
+  storageKgFromDisplay,
+  weightUnitLabel,
+} from "@/lib/weight-units";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500";
@@ -112,6 +118,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const cmo = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
   const commodity = ticket.commodityId ? commodities.find((c) => c.id === ticket.commodityId) : null;
   const cmoCommodity = cmo ? commodities.find((c) => c.id === cmo.commodityId) : null;
+  const weightUnit = commodity?.unitType ?? cmoCommodity?.unitType;
   const customer = ticket.accountType === "internal" && ticket.internalAccountId
     ? internalAccounts.find((acc) => acc.id === ticket.internalAccountId)
     : ticket.customerId
@@ -182,6 +189,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     if (!cmoId) return null;
     const selectedCmo = cmos.find((c) => c.id === cmoId);
     if (!selectedCmo) return null;
+    const commodityForCmo = commodities.find((c) => c.id === selectedCmo.commodityId);
+    const unit = commodityForCmo?.unitType;
     const totalReceived = completedTickets
       .filter((t) => t.type === ticketType && t.status === "completed" && t.cmoId === cmoId)
       .reduce((sum, t) => {
@@ -189,8 +198,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           (t.grossWeights || []).reduce((a, b) => a + b, 0) - (t.tareWeights || []).reduce((a, b) => a + b, 0);
         return sum + netWeight;
       }, 0);
-    const remaining = selectedCmo.estimatedAmount - totalReceived;
-    return { total: selectedCmo.estimatedAmount, received: totalReceived, remaining };
+    const receivedDisplay = displayFromStorageKg(totalReceived, unit);
+    const remaining = selectedCmo.estimatedAmount - receivedDisplay;
+    return {
+      total: selectedCmo.estimatedAmount,
+      received: receivedDisplay,
+      remaining,
+      unitLabel: weightUnitLabel(unit),
+    };
   };
 
   useEffect(() => {
@@ -238,7 +253,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const updateWeight = (type, idx, val) => {
     const arr = [...ticket[type]];
     const prevValue = arr[idx];
-    const newValue = Number(val) || 0;
+    const newValue = val == null || val === "" ? 0 : Number(val) || 0;
     arr[idx] = newValue;
     set(type, arr);
     const dateTimeType = type === "grossWeights" ? "grossWeightDateTimes" : "tareWeightDateTimes";
@@ -460,16 +475,25 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 {getRemainingTonnage(ticket.cmoId) ? (
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-[11px] text-slate-600">
                     <span>
-                      <strong className="text-slate-800">Estimated:</strong> {getRemainingTonnage(ticket.cmoId).total.toLocaleString()}{" "}
-                      {cmoCommodity?.unitType || "kg"}
+                      <strong className="text-slate-800">Estimated:</strong>{" "}
+                      {getRemainingTonnage(ticket.cmoId).total.toLocaleString()}{" "}
+                      {getRemainingTonnage(ticket.cmoId).unitLabel}
                     </span>
                     <span>
-                      <strong className="text-slate-800">Received:</strong> {getRemainingTonnage(ticket.cmoId).received.toLocaleString()}{" "}
-                      {cmoCommodity?.unitType || "kg"}
+                      <strong className="text-slate-800">Received:</strong>{" "}
+                      {getRemainingTonnage(ticket.cmoId).received.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      {getRemainingTonnage(ticket.cmoId).unitLabel}
                     </span>
                     <span>
-                      <strong className="text-[#0f1e3d]">Remaining:</strong> {getRemainingTonnage(ticket.cmoId).remaining.toLocaleString()}{" "}
-                      {cmoCommodity?.unitType || "kg"}
+                      <strong className="text-[#0f1e3d]">Remaining:</strong>{" "}
+                      {getRemainingTonnage(ticket.cmoId).remaining.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      {getRemainingTonnage(ticket.cmoId).unitLabel}
                     </span>
                   </div>
                 ) : null}
@@ -636,11 +660,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 weights={ticket.grossWeights}
                 dateTimes={ticket.grossWeightDateTimes}
                 total={grossTotal}
-                unitType={commodity?.unitType || "t"}
+                unitType={weightUnit}
                 splitLoad={ticket.splitLoad}
                 disabled={isCompleted}
                 onAdd={() => addWeight("grossWeights")}
-                onUpdate={(i, v) => updateWeight("grossWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
+                onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
                 onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
                 onRemove={(i) => removeWeight("grossWeights", i)}
               />
@@ -649,11 +673,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 weights={ticket.tareWeights}
                 dateTimes={ticket.tareWeightDateTimes}
                 total={tareTotal}
-                unitType={commodity?.unitType || "t"}
+                unitType={weightUnit}
                 splitLoad={ticket.splitLoad}
                 disabled={isCompleted}
                 onAdd={() => addWeight("tareWeights")}
-                onUpdate={(i, v) => updateWeight("tareWeights", i, v === "" ? null : Math.round(Number(v) * 1000))}
+                onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
                 onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
                 onRemove={(i) => removeWeight("tareWeights", i)}
               />
@@ -676,11 +700,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 Net Weight
               </span>
               <span className={cn("text-sm font-bold", netTotal > 0 ? "text-emerald-700" : "text-slate-500")}>
-                {netTotal > 0 ? (commodity?.unitType === "MT" ? netTotal / 1000 : netTotal).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 3,
-                }) : "-"}{" "}
-                <span className="text-[10px]">{commodity?.unitType === "MT" ? "t" : "kg"}</span>
+                {netTotal > 0
+                  ? formatWeightFromStorageKg(netTotal, weightUnit).formatted
+                  : "-"}
+                {netTotal > 0 ? (
+                  <span className="text-[10px]"> {formatWeightFromStorageKg(netTotal, weightUnit).unit}</span>
+                ) : null}
               </span>
             </div>
           </Card>
@@ -910,8 +935,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </FormRow>
         <FormRow
           label={`Estimated Amount${newCmo.commodityId
-              ? ` (${commodities.find((c) => c.id === newCmo.commodityId)?.unitType || "kg"})`
-              : " (kg)"
+              ? ` (${weightUnitLabel(commodities.find((c) => c.id === newCmo.commodityId)?.unitType)})`
+              : ""
             }`}
         >
           <input
@@ -1312,8 +1337,8 @@ function WeightSection({
 }) {
   const displayWeights = weights.length === 0 ? [0] : weights;
   const displayDateTimes = dateTimes || [];
-  const isTonnes = unitType === "MT" || unitType === "t";
-  const totalDisplay = isTonnes ? total / 1000 : total;
+  const unitLabel = weightUnitLabel(unitType);
+  const totalFormatted = formatWeightFromStorageKg(total, unitType);
 
   return (
     <div className="mt-3">
@@ -1322,8 +1347,7 @@ function WeightSection({
         <span className="text-[11px] text-slate-500">
           Total:{" "}
           <strong>
-            {totalDisplay.toLocaleString(undefined, isTonnes ? { minimumFractionDigits: 2, maximumFractionDigits: 3 } : undefined)}{" "}
-            {isTonnes ? "t" : "kg"}
+            {totalFormatted.formatted} {totalFormatted.unit}
           </strong>
         </span>
       </div>
@@ -1332,14 +1356,20 @@ function WeightSection({
           <div key={i} className="rounded-lg border border-slate-200 bg-slate-50/90 p-2">
             <div className="grid gap-2 md:grid-cols-[110px_180px_auto] md:items-end">
               <div>
-                <label className="mb-1 block text-[10px] font-semibold text-slate-500">Weight ({isTonnes ? "t" : "kg"})</label>
+                <label className="mb-1 block text-[10px] font-semibold text-slate-500">Weight ({unitLabel})</label>
                 <input
                   className={cn(inputClass, "w-[110px] text-sm")}
                   type="number"
                   disabled={disabled}
                   placeholder="0"
-                  value={isTonnes ? (w != null && w !== "" ? String(Number(w) / 1000) : "") : w || ""}
-                  onChange={(e) => onUpdate(i, e.target.value)}
+                  value={
+                    w != null && w !== "" && Number(w) !== 0
+                      ? String(displayFromStorageKg(w, unitType))
+                      : ""
+                  }
+                  onChange={(e) =>
+                    onUpdate(i, e.target.value === "" ? null : storageKgFromDisplay(e.target.value, unitType))
+                  }
                 />
               </div>
               <div>

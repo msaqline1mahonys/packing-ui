@@ -110,15 +110,18 @@ async function stockLocationRequest(path = "", options = {}) {
 }
 
 async function fetchSitesList() {
-  const response = await fetch(`${API_BASE_URL}/sites?per_page=100`, {
+  const tenant = getTenantPayload();
+  const params = new URLSearchParams({ per_page: "100", ...tenant });
+  const response = await fetch(`${API_BASE_URL}/sites?${params.toString()}`, {
     headers: getAuthHeaders(),
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(extractApiError(result, "Unable to load sites."));
   }
-  const pager = result?.sites;
-  return Array.isArray(pager?.data) ? pager.data : [];
+  const pager = result?.sites ?? result?.data ?? result;
+  const rows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
+  return rows;
 }
 
 function fromApiStockLocation(row) {
@@ -210,7 +213,11 @@ export default function StockLocationPage() {
     setIsLoading(true);
     setError("");
     try {
-      const payload = await stockLocationRequest("?per_page=100");
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams({ per_page: "100" });
+      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+      if (tenant.site_id) params.set("site_id", tenant.site_id);
+      const payload = await stockLocationRequest(`?${params.toString()}`);
       const apiRows = Array.isArray(payload?.data)
         ? payload.data
         : Array.isArray(payload)
@@ -393,7 +400,7 @@ export default function StockLocationPage() {
                   disabled={!selected || isLoading || isDeleting}
                   onClick={removeSelected}
                 >
-                  {isDeleting ? "Deletingâ€¦" : "Delete"}
+                  {isDeleting ? "Deleting…" : "Delete"}
                 </Button>
               </div>
               <MobileList
@@ -418,7 +425,7 @@ export default function StockLocationPage() {
               fileName={config.title}
               visibleRows={12}
               loading={isLoading}
-              emptyMessage={isLoading ? "Loading stock locationsâ€¦" : "No stock locations found."}
+              emptyMessage={isLoading ? "Loading stock locations…" : "No stock locations found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={
@@ -439,7 +446,7 @@ export default function StockLocationPage() {
                     disabled={!selected || isLoading || isDeleting}
                     onClick={removeSelected}
                   >
-                    {isDeleting ? "Deletingâ€¦" : "Delete"}
+                    {isDeleting ? "Deleting…" : "Delete"}
                   </Button>
                 </div>
               }
@@ -489,7 +496,7 @@ export default function StockLocationPage() {
             Cancel
           </Button>
           <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
-            {isSaving ? "Savingâ€¦" : modalMode === "edit" ? "Save changes" : "Create"}
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
       </Modal>
@@ -501,7 +508,7 @@ export default function StockLocationPage() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="fixed bottom-5 right-5 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-brand to-blue-500 text-xl text-white shadow-lg shadow-blue-500/30"
         >
-          â†‘
+          ↑
         </button>
       ) : null}
     </div>
@@ -522,7 +529,7 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         >
-          <option value="">Select siteâ€¦</option>
+          <option value="">Select site…</option>
           {siteOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
@@ -541,7 +548,7 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
       </label>
       {field.type === "select" ? (
         <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Selectâ€¦</option>
+          <option value="">Select…</option>
           {(field.options ?? []).map((option) =>
             typeof option === "object" && option !== null && "value" in option ? (
               <option key={option.value} value={option.value}>
@@ -579,7 +586,7 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
 
 function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
   const emptyMessage = isLoading
-    ? `Loading ${title.toLowerCase()}â€¦`
+    ? `Loading ${title.toLowerCase()}…`
     : search
       ? `No ${title.toLowerCase()} match your search.`
       : `No ${title.toLowerCase()} found. Add your first one!`;
@@ -593,7 +600,7 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" Â· ");
+          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
           return (
             <button
               key={row.id}
@@ -604,9 +611,9 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "—"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "—"}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{summary || "—"}</p>
             </button>
           );
         })
@@ -619,7 +626,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
 }

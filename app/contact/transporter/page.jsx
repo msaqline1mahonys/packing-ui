@@ -131,7 +131,7 @@ function toApiPayload(formData) {
     name: formData.name.trim(),
     email: formData.email.trim() || null,
     contacts,
-    contactsCount: contacts.length ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "â€”",
+    contactsCount: contacts.length ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "—",
   };
 }
 
@@ -386,15 +386,15 @@ export default function TransporterPage() {
               <p className="mt-4 text-sm leading-relaxed text-slate-500">Select a transporter to view details.</p>
             ) : (
               <div className="mt-4 space-y-3 text-sm">
-                <DetailItem label="Code" value={selected.code || "â€”"} />
+                <DetailItem label="Code" value={selected.code || "—"} />
                 <DetailItem label="Name" value={selected.name} highlight />
-                <DetailItem label="Email" value={selected.email || "â€”"} />
+                <DetailItem label="Email" value={selected.email || "—"} />
                 <DetailItem
                   label="Contact(s)"
                   value={
                     selected.contacts?.length
-                      ? selected.contacts.map((contact) => [contact.name, contact.email, contact.phone].filter(Boolean).join(" Â· ")).join(" | ")
-                      : "â€”"
+                      ? selected.contacts.map((contact) => [contact.name, contact.email, contact.phone].filter(Boolean).join(" · ")).join(" | ")
+                      : "—"
                   }
                 />
               </div>
@@ -414,11 +414,11 @@ export default function TransporterPage() {
         ) : null}
         <div className="space-y-3">
           <FormRow label="Code (optional)">
-            <input suppressHydrationWarning value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
+            <Input value={formData.code} disabled={isSaving} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
           </FormRow>
 
           <FormRow label="Name" required>
-            <input suppressHydrationWarning value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Company name" />
+            <Input value={formData.name} disabled={isSaving} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Company name" />
           </FormRow>
 
           <FormRow label="Email">
@@ -456,9 +456,9 @@ export default function TransporterPage() {
                     Remove
                   </button>
                 </div>
-                <input suppressHydrationWarning value={contact.name} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
-                <input suppressHydrationWarning type="email" value={contact.email} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
-                <input suppressHydrationWarning type="tel" value={contact.phone} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
+                <Input value={contact.name} disabled={isSaving} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
+                <Input type="email" value={contact.email} disabled={isSaving} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
+                <Input type="tel" value={contact.phone} disabled={isSaving} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
               </div>
             ))}
           </div>
@@ -512,9 +512,9 @@ function MobileList({ rows, selectedId, onSelect, search, isLoading }) {
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row.code || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
-              <p className="mt-1 text-xs text-slate-600">{row.email || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row.code || "—"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "—"}</p>
+              <p className="mt-1 text-xs text-slate-600">{row.email || "—"}</p>
               <p className="mt-1 text-[11px] text-slate-500">{row.contactsCount}</p>
             </button>
           );
@@ -528,7 +528,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
 }

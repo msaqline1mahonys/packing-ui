@@ -47,10 +47,10 @@ function toDisplayRow(row) {
     weighbridgeAccessLabel: row.weighbridgeAccess ? "Yes" : "No",
     packersAccountAccessLabel: row.packersAccountAccess ? "Yes" : "No",
     aoActiveLabel: row.aoActive ? "Yes" : "No",
-    aoExpiryLabel: row.aoExpiry || "â€”",
-    aoNumberLabel: row.aoNumber || "â€”",
-    aoLicenseNumberLabel: row.aoLicenseNumber || "â€”",
-    aoPemsPasswordLabel: row.aoPemsPassword ? "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" : "â€”",
+    aoExpiryLabel: row.aoExpiry || "—",
+    aoNumberLabel: row.aoNumber || "—",
+    aoLicenseNumberLabel: row.aoLicenseNumber || "—",
+    aoPemsPasswordLabel: row.aoPemsPassword ? "········" : "—",
   };
 }
 
@@ -273,27 +273,27 @@ export default function ContactUsersPage() {
               <div className="mt-4 space-y-3 text-sm">
                 <DetailItem label="Name" value={selected.name} highlight />
                 <DetailItem label="Email" value={selected.email} />
-                <DetailItem label="Role" value={selected.role || "â€”"} />
+                <DetailItem label="Role" value={selected.role || "—"} />
                 <DetailItem label="Status" value={selected.status} />
                 <DetailItem label="Classifications" value={(classificationsFromLegacyUser(selected).map((c) => CLASSIFICATION_LABELS[c]).join(", ")) || "—"} />
                 <DetailItem label="Weighbridge Access" value={selected.weighbridgeAccess ? "Yes" : "No"} />
                 <DetailItem label="Packers Account Access" value={selected.packersAccountAccess ? "Yes" : "No"} />
                 <DetailItem label="AO Active" value={selected.aoActive ? "Yes" : "No"} />
-                <DetailItem label="Signature" value={selected.signature || "â€”"} />
+                <DetailItem label="Signature" value={selected.signature || "—"} />
                 {selected.aoActive ? (
                   <>
-                    <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "â€”"} />
+                    <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "—"} />
                     <DetailItem label="AO Token" value={selected.aoToken ? "Configured" : "Not set"} />
-                    <DetailItem label="AO Expiry" value={selected.aoExpiry || "â€”"} />
-                    <DetailItem label="AO Number" value={selected.aoNumber || "â€”"} />
-                    <DetailItem label="AO License Number" value={selected.aoLicenseNumber || "â€”"} />
+                    <DetailItem label="AO Expiry" value={selected.aoExpiry || "—"} />
+                    <DetailItem label="AO Number" value={selected.aoNumber || "—"} />
+                    <DetailItem label="AO License Number" value={selected.aoLicenseNumber || "—"} />
                   </>
                 ) : null}
                 <DetailItem label="Fumigator" value={selected.isFumigator ? "Yes" : "No"} />
                 {selected.isFumigator ? (
                   <>
-                    <DetailItem label="Fumigator Licence" value={selected.fumigatorLicence || "â€”"} />
-                    <DetailItem label="Fumigation Expiry" value={selected.fumigationExpiry || "â€”"} />
+                    <DetailItem label="Fumigator Licence" value={selected.fumigatorLicence || "—"} />
+                    <DetailItem label="Fumigation Expiry" value={selected.fumigationExpiry || "—"} />
                   </>
                 ) : null}
                 <DetailItem
@@ -319,7 +319,7 @@ export default function ContactUsersPage() {
           <SectionTitle title="Basic Details" />
           <div className="grid gap-4">
             <FormRow label="Name" required>
-              <input suppressHydrationWarning value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., J. Mitchell" />
+              <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., J. Mitchell" />
             </FormRow>
 
             <FormRow label="Email" required>
@@ -390,10 +390,10 @@ export default function ContactUsersPage() {
                   />
                 </FormRow>
                 <FormRow label="AO Token" required>
-                  <input suppressHydrationWarning value={formData.aoToken} onChange={(event) => setFormData({ ...formData, aoToken: event.target.value })} placeholder="AO Token" />
+                  <Input value={formData.aoToken} onChange={(event) => setFormData({ ...formData, aoToken: event.target.value })} placeholder="AO Token" />
                 </FormRow>
                 <FormRow label="AO Expiry">
-                  <input suppressHydrationWarning type="date" value={formData.aoExpiry} onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })} />
+                  <Input type="date" value={formData.aoExpiry} onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })} />
                 </FormRow>
                 <FormRow label="AO Number">
                   <Input
@@ -506,7 +506,7 @@ function MobileList({ rows, selectedId, onSelect, search }) {
               className={cn("w-full rounded-xl border-2 px-3 py-3 text-left transition-colors", isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white")}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
+                <p className="text-sm font-semibold text-slate-800">{row.name || "—"}</p>
                 <span
                   className={cn(
                     "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1",
@@ -516,8 +516,8 @@ function MobileList({ rows, selectedId, onSelect, search }) {
                   {row.status}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-slate-600">{row.email || "â€”"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{row.role || "â€”"}</p>
+              <p className="mt-1 text-xs text-slate-600">{row.email || "—"}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{row.role || "—"}</p>
               <p className="mt-1 text-[11px] text-slate-500">
                 AO: {row.aoActive ? "Yes" : "No"} | Fumigator: {row.isFumigator ? "Yes" : "No"}
               </p>
@@ -533,7 +533,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
 }

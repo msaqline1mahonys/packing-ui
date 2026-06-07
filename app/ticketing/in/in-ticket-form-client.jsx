@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import {
   completeTicket,
+  deleteTicket,
   fetchTicket,
   fetchTicketFormData,
   overrideTicket,
@@ -406,55 +407,153 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
         <div className="min-w-0 flex-1 space-y-4">
           <Card title="CMO & Booking">
-            <FormRow label="CMO" required>
-              <div className="flex gap-2">
+            <div className="grid gap-x-4 gap-y-3 md:grid-cols-2">
+              <FormRow label="CMO" required>
+                <div className="flex gap-2">
+                  <select
+                    className={inputClass}
+                    value={ticket.cmoId ?? ""}
+                    disabled={isCompleted}
+                    onChange={(e) => {
+                      const cmoId = e.target.value || null;
+                      const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
+                      setTicket((prev) => ({
+                        ...prev,
+                        cmoId,
+                        customerId: selectedCmo ? selectedCmo.customerId ?? prev.customerId : prev.customerId,
+                        accountType: "customer",
+                        internalAccountId: null,
+                        commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
+                        commodityId: selectedCmo ? selectedCmo.commodityId ?? null : null,
+                      }));
+                    }}
+                  >
+                    <option value="">Select CMO</option>
+                    {cmos
+                      .filter((c) => c.direction === cmoDirection)
+                      .map((c) => {
+                        const cCommodity = commodities.find((com) => com.id === c.commodityId);
+                        return (
+                          <option key={c.id} value={c.id}>
+                            {c.cmoReference} - {cCommodity?.description || "Unknown"}
+                          </option>
+                        );
+                      })}
+                  </select>
+                  {!isCompleted ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowCmoModal(true)}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand text-lg font-medium leading-none text-white hover:bg-brand/90"
+                      aria-label="Add CMO"
+                    >
+                      +
+                    </button>
+                  ) : null}
+                </div>
+              </FormRow>
+
+              <FormRow label="Customer / Account">
                 <select
                   className={inputClass}
-                  value={ticket.cmoId ?? ""}
+                  value={accountSelectValue}
                   disabled={isCompleted}
                   onChange={(e) => {
-                    const cmoId = e.target.value || null;
-                    const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
-                    setTicket((prev) => ({
-                      ...prev,
-                      cmoId,
-                      customerId: selectedCmo ? selectedCmo.customerId ?? prev.customerId : prev.customerId,
-                      accountType: "customer",
-                      internalAccountId: null,
-                      commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
-                      commodityId: selectedCmo ? selectedCmo.commodityId ?? null : null,
-                    }));
+                    const v = e.target.value;
+                    if (!v) {
+                      setTicket((prev) => ({
+                        ...prev,
+                        customerId: null,
+                        internalAccountId: null,
+                        accountType: "customer",
+                      }));
+                      return;
+                    }
+                    const [type, id] = v.split(":");
+                    if (type === "internal") {
+                      setTicket((prev) => ({
+                        ...prev,
+                        accountType: "internal",
+                        internalAccountId: id,
+                        customerId: null,
+                      }));
+                    } else {
+                      setTicket((prev) => ({
+                        ...prev,
+                        accountType: "customer",
+                        customerId: id,
+                        internalAccountId: null,
+                      }));
+                    }
                   }}
                 >
-                  <option value="">Select CMO</option>
-                  {cmos
-                    .filter((c) => c.direction === cmoDirection)
-                    .map((c) => {
-                      const cCommodity = commodities.find((com) => com.id === c.commodityId);
-                      return (
-                        <option key={c.id} value={c.id}>
-                          {c.cmoReference} - {cCommodity?.description || "Unknown"}
-                        </option>
-                      );
-                    })}
+                  <option value="">Select customer or account</option>
+                  <optgroup label="Customers">
+                    {customers.map((c) => (
+                      <option key={`cust-${c.id}`} value={`customer:${c.id}`}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Internal Accounts">
+                    {internalAccounts.map((a) => (
+                      <option key={`int-${a.id}`} value={`internal:${a.id}`}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
-                {!isCompleted ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowCmoModal(true)}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand text-lg font-medium leading-none text-white hover:bg-brand/90"
-                    aria-label="Add CMO"
-                  >
-                    +
-                  </button>
-                ) : null}
-              </div>
-            </FormRow>
+              </FormRow>
+
+              <FormRow label="Commodity Type">
+                <select
+                  className={inputClass}
+                  value={ticket.commodityTypeId != null && ticket.commodityTypeId !== "" ? String(ticket.commodityTypeId) : ""}
+                  disabled={isCompleted}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    set("commodityTypeId", v || null);
+                    set("commodityId", null);
+                  }}
+                >
+                  <option value="">Select commodity type</option>
+                  {commodityTypes.map((ct) => (
+                    <option key={ct.id} value={ct.id}>
+                      {ct.name}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+
+              <FormRow label="Identified Commodity">
+                <select
+                  className={inputClass}
+                  value={ticket.commodityId != null && ticket.commodityId !== "" ? String(ticket.commodityId) : ""}
+                  disabled={isCompleted || !ticket.commodityTypeId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    set("commodityId", v || null);
+                  }}
+                >
+                  <option value="">Select commodity</option>
+                  {commodities
+                    .filter(
+                      (c) =>
+                        c.status === "active" && (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId)
+                    )
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.commodityCode}
+                      </option>
+                    ))}
+                </select>
+              </FormRow>
+            </div>
 
             {ticket.cmoId && cmo ? (
-              <div className="mb-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">CMO details</div>
-                <div className="mt-2 grid gap-2 text-xs text-slate-800 sm:grid-cols-2">
+                <div className="mt-2 grid gap-2 text-xs text-slate-800 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Reference</div>
                     <div className="font-semibold text-[#0f1e3d]">{cmo.cmoReference || "-"}</div>
@@ -499,102 +598,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 ) : null}
               </div>
             ) : null}
-
-            <FormRow label="Customer / Account">
-              <select
-                className={inputClass}
-                value={accountSelectValue}
-                disabled={isCompleted}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (!v) {
-                    setTicket((prev) => ({
-                      ...prev,
-                      customerId: null,
-                      internalAccountId: null,
-                      accountType: "customer",
-                    }));
-                    return;
-                  }
-                  const [type, id] = v.split(":");
-                  if (type === "internal") {
-                    setTicket((prev) => ({
-                      ...prev,
-                      accountType: "internal",
-                      internalAccountId: id,
-                      customerId: null,
-                    }));
-                  } else {
-                    setTicket((prev) => ({
-                      ...prev,
-                      accountType: "customer",
-                      customerId: id,
-                      internalAccountId: null,
-                    }));
-                  }
-                }}
-              >
-                <option value="">Select customer or account</option>
-                <optgroup label="Customers">
-                  {customers.map((c) => (
-                    <option key={`cust-${c.id}`} value={`customer:${c.id}`}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Internal Accounts">
-                  {internalAccounts.map((a) => (
-                    <option key={`int-${a.id}`} value={`internal:${a.id}`}>
-                      {a.name}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-            </FormRow>
-
-            <FormRow label="Commodity Type">
-              <select
-                className={inputClass}
-                value={ticket.commodityTypeId != null && ticket.commodityTypeId !== "" ? String(ticket.commodityTypeId) : ""}
-                disabled={isCompleted}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  set("commodityTypeId", v || null);
-                  set("commodityId", null);
-                }}
-              >
-                <option value="">Select commodity type</option>
-                {commodityTypes.map((ct) => (
-                  <option key={ct.id} value={ct.id}>
-                    {ct.name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-
-            <FormRow label="Identified commodity">
-              <select
-                className={inputClass}
-                value={ticket.commodityId != null && ticket.commodityId !== "" ? String(ticket.commodityId) : ""}
-                disabled={isCompleted || !ticket.commodityTypeId}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  set("commodityId", v || null);
-                }}
-              >
-                <option value="">Select commodity</option>
-                {commodities
-                  .filter(
-                    (c) =>
-                      c.status === "active" && (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId)
-                  )
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.commodityCode}
-                    </option>
-                  ))}
-              </select>
-            </FormRow>
           </Card>
 
           <Card title="Truck & Weights">
@@ -737,6 +740,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
         <div className="w-full shrink-0 space-y-4 lg:w-[280px]">
           <Card title="Details">
+            <FormRow label="Ticket Date" required>
+              <input
+                className={inputClass}
+                type="date"
+                value={ticket.date || ""}
+                disabled={isCompleted}
+                onChange={(e) => set("date", e.target.value)}
+              />
+            </FormRow>
             <FormRow label="Ticket Reference">
               <input
                 className={inputClass}
@@ -794,7 +806,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               >
                 <option value="">Select location</option>
                 {stockLocations
-                  .filter((loc) => loc.status === "active")
+                  .filter((loc) => (loc.status || "").toLowerCase() === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
                     const stockItems = getLocationStock(loc.id);
@@ -842,8 +854,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   type="button"
                   variant="destructive"
                   className="w-full justify-center"
-                  onClick={() => {
-                    if (typeof window !== "undefined" && window.confirm("Remove this ticket?")) router.push(listPath);
+                  onClick={async () => {
+                    if (typeof window !== "undefined" && window.confirm("Remove this ticket?")) {
+                      try {
+                        await deleteTicket(ticketNumericId);
+                        router.push(listPath);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Delete failed.");
+                      }
+                    }
                   }}
                 >
                   Remove Ticket
@@ -967,6 +986,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               try {
                 setError("");
                 const created = await saveCmo({
+                  cmoReference: newCmo.cmoReference,
                   direction: cmoDirection,
                   customerId: newCmo.customerId,
                   commodityTypeId: newCmo.commodityTypeId,
@@ -1233,7 +1253,7 @@ function CommodityIdentificationBody({
                       <span>
                         Value:{" "}
                         <strong className={test.pass ? "text-emerald-700" : "text-red-700"}>{test.hasValue ? test.value : "-"}</strong>
-                        {" Â· "}
+                        {" · "}
                         Range:{" "}
                         <strong>
                           {test.min}-{test.max}

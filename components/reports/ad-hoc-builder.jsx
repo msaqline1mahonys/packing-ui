@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ALL_SECTIONS, SECTION_LABELS, getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
+import { ALL_SECTIONS, SECTION_LABELS, collectReportData, getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
 import { Button } from "@/components/ui/button";
 import { CommodityMultiSelect } from "@/components/reports/commodity-multi-select";
 import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
+import { ReportPreview } from "@/components/reports/report-preview";
 import { SendOrDownloadDialog } from "@/components/reports/send-or-download-dialog";
 import { adHocPreset } from "@/lib/reports-windows";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,10 @@ export function AdHocBuilder({ onRanComplete }) {
   const [customerIds, setCustomerIds] = useState([]);
   const [sections, setSections] = useState(ALL_SECTIONS);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [previewReports, setPreviewReports] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [previewSections, setPreviewSections] = useState([]);
 
   useEffect(() => {
     if (!activePreset) return;
@@ -46,6 +51,25 @@ export function AdHocBuilder({ onRanComplete }) {
   }
 
   const canRun = customerIds.length > 0 && sections.length > 0 && dateRange?.from && dateRange?.to;
+
+  async function handlePreview() {
+    setPreviewLoading(true);
+    setPreviewError("");
+    setPreviewSections(sections);
+    try {
+      const reports = [];
+      for (const cid of customerIds) {
+        const r = await collectReportData({ dateRange, customerId: cid, commodityIds, sections });
+        reports.push(r);
+      }
+      setPreviewReports(reports);
+    } catch (e) {
+      setPreviewReports([]);
+      setPreviewError(e?.message || "Failed to generate preview.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -145,10 +169,27 @@ export function AdHocBuilder({ onRanComplete }) {
       </section>
 
       <div className="flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!canRun || previewLoading}
+          onClick={handlePreview}
+          className="h-8 px-3 text-[11px]"
+        >
+          {previewLoading ? "Generating…" : "Preview"}
+        </Button>
         <Button type="button" size="sm" disabled={!canRun} onClick={() => setDialogOpen(true)} className="h-8 px-3 text-[11px]">
           Continue → Download or Send
         </Button>
       </div>
+
+      <ReportPreview
+        reportsByCustomer={previewReports}
+        sections={previewSections}
+        loading={previewLoading}
+        error={previewError}
+      />
 
       <SendOrDownloadDialog
         open={dialogOpen}

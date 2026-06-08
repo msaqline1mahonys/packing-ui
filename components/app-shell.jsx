@@ -15,7 +15,7 @@ const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password
 
 function isPrintRoute(pathname) {
   return (
-    /\/ticketing\/(?:in|outgoing)\/\d+\/print\/?$/.test(pathname) ||
+    /\/ticketing\/(?:in|outgoing)\/[^/]+\/print\/?$/.test(pathname) ||
     /^\/reports\/preview\/[^/]+\/?$/.test(pathname)
   );
 }

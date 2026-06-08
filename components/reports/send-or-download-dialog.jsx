@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/api-config";
 import { Button } from "@/components/ui/button";
 import { RecipientPicker } from "@/components/reports/recipient-picker";
 import { appendHistory, getCurrentUserEmail } from "@/lib/reports-store";
-import { downloadAllCsvs, downloadAllCsvsMulti } from "@/lib/reports-csv";
+import { buildCustomerBundle, buildMultiBundle, downloadBlob } from "@/lib/reports-csv";
 import { collectReportData, getCustomerDirectory } from "@/lib/reports-data";
 
 function getAuthToken() {
@@ -60,9 +60,11 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
       const ranBy = replyTo || "";
       const opts = { source: request.source || "ad-hoc", cadenceLabel: request.cadenceLabel || "", ranBy, sections: request.sections };
       if (reports.length === 1) {
-        await downloadAllCsvs(reports[0], opts);
+        const { blob, fileName } = await buildCustomerBundle(reports[0], opts);
+        downloadBlob(blob, fileName);
       } else {
-        await downloadAllCsvsMulti(reports, opts);
+        const { blob, fileName } = await buildMultiBundle(reports, opts);
+        downloadBlob(blob, fileName);
       }
       appendHistory({
         source: request.source || "ad-hoc",
@@ -74,11 +76,11 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
         })),
         artifacts: reports.map((r) => ({
           customerId: r.customer?.id ?? null,
-          fileName: `${r.customer?.code || r.customer?.name || "all"}_csvs`,
+          fileName: `${r.customer?.code || r.customer?.name || "all"}.zip`,
           blobUrl: null,
         })),
         status: "ok",
-        notes: "Downloaded as individual CSV files.",
+        notes: "Downloaded locally.",
       });
       onComplete?.();
       onClose();
@@ -200,7 +202,7 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
             Cancel
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={handleDownload} disabled={busy} className="h-7 px-2.5 text-[11px]">
-            {busy ? "Working…" : "Download CSVs"}
+            {busy ? "Working…" : "Download bundle"}
           </Button>
           <Button type="button" size="sm" onClick={handleSend} disabled={busy || !canSend} className="h-7 px-2.5 text-[11px]">
             {busy ? "Sending…" : "Send email"}

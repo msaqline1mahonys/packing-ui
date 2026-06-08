@@ -129,6 +129,33 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const setTest = (name, val) => setTicket((prev) => ({ ...prev, tests: { ...prev.tests, [name]: val } }));
   const locationValue = ticket[locationField] ?? "";
 
+  const buildPrintSnapshot = () => {
+    const cmoObj = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
+    const commodityObj = ticket.commodityId ? commodities.find((c) => c.id === ticket.commodityId) : null;
+    const commodityTypeObj = ticket.commodityTypeId
+      ? commodityTypes.find((ct) => ct.id === ticket.commodityTypeId)
+      : null;
+    const locationObj = locationValue ? stockLocations.find((l) => l.id === locationValue) : null;
+    return {
+      ...ticket,
+      type: ticketType,
+      cmo: cmoObj ? { id: cmoObj.id, cmoReference: cmoObj.cmoReference } : null,
+      commodity: commodityObj
+        ? {
+            id: commodityObj.id,
+            commodityCode: commodityObj.commodityCode ?? commodityObj.commodity_code ?? "",
+            description: commodityObj.description ?? "",
+            unitType: commodityObj.unitType ?? commodityObj.unit_type ?? "MT",
+          }
+        : null,
+      commodityType: commodityTypeObj ? { id: commodityTypeObj.id, name: commodityTypeObj.name } : null,
+      customer: customer ? { id: customer.id, name: customer.name, code: customer.code } : null,
+      location: locationObj
+        ? { id: locationObj.id, name: locationObj.name, locationType: locationObj.locationType }
+        : null,
+    };
+  };
+
   const accountSelectValue =
     ticket.accountType === "internal" && ticket.internalAccountId
       ? `internal:${ticket.internalAccountId}`
@@ -378,7 +405,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               <Link
                 href={printHref}
                 className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
-                onClick={() => saveInTicketSnapshot(ticket)}
+                onClick={() => saveInTicketSnapshot(ticketNumericId, buildPrintSnapshot(), ticketType)}
               >
                 Print overview
               </Link>
@@ -794,7 +821,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               >
                 <option value="">Select location</option>
                 {stockLocations
-                  .filter((loc) => loc.status === "active")
+                  .filter((loc) => (loc.status ?? "active").toLowerCase() === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
                     const stockItems = getLocationStock(loc.id);
@@ -1082,7 +1109,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <Link
             href={ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath}
             className={cn(buttonVariants({ size: "sm" }), "inline-flex items-center justify-center")}
-            onClick={() => setShowPrintConfirm(false)}
+            onClick={() => {
+              if (ticket.id) saveInTicketSnapshot(ticket.id, buildPrintSnapshot(), ticketType);
+              setShowPrintConfirm(false);
+            }}
           >
             Print Ticket
           </Link>

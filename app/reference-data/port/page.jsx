@@ -152,9 +152,21 @@ export default function PortPage() {
     setIsLoading(true);
     setError("");
     try {
-      const payload = await portRequest("?per_page=500");
-      const apiRows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-      setRows(apiRows.map(fromApiPort).filter(Boolean));
+      const all = [];
+      let page = 1;
+      let lastPage = 1;
+      do {
+        const payload = await portRequest(`?per_page=500&page=${page}`);
+        const apiRows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        all.push(...apiRows);
+        lastPage = Number(payload?.last_page ?? 1) || 1;
+        page += 1;
+      } while (page <= lastPage);
+      const seen = new Set();
+      const unique = all
+        .map(fromApiPort)
+        .filter((row) => row && row.id && !seen.has(row.id) && seen.add(row.id));
+      setRows(unique);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load ports.");
     } finally {

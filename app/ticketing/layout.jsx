@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { TicketingBubbleNav } from "@/components/ticketing-bubble-nav";
 
 function isPrintRoute(pathname) {
-  return /\/ticketing\/(?:in|outgoing)\/\d+\/print\/?$/.test(pathname ?? "");
+  return /\/ticketing\/(?:in|outgoing)\/[^/]+\/print\/?$/.test(pathname ?? "");
 }
 
 export default function TicketingLayout({ children }) {

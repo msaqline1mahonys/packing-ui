@@ -66,7 +66,7 @@ function normalizeContacts(contacts) {
 }
 
 function pluralize(count, noun) {
-  if (count === 0) return "â€”";
+  if (count === 0) return "—";
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
@@ -478,11 +478,11 @@ export default function ContactCustomersPage() {
               <div className="mt-4 space-y-3 text-sm">
                 <DetailItem label="Customer Code" value={selected.code} highlight />
                 <DetailItem label="Customer Name" value={selected.name} highlight />
-                <DetailItem label="Email(s)" value={selected.emails.length ? selected.emails.join(", ") : "â€”"} />
-                <DetailItem label="Address(es)" value={selected.addresses?.length ? selected.addresses.join(", ") : "â€”"} />
-                <DetailItem label="Website" value={selected.website || "â€”"} />
-                <DetailItem label="Invoicing Contact" value={selected.invoicingContact || "â€”"} />
-                <DetailItem label="Notes" value={selected.notes || "â€”"} />
+                <DetailItem label="Email(s)" value={selected.emails.length ? selected.emails.join(", ") : "—"} />
+                <DetailItem label="Address(es)" value={selected.addresses?.length ? selected.addresses.join(", ") : "—"} />
+                <DetailItem label="Website" value={selected.website || "—"} />
+                <DetailItem label="Invoicing Contact" value={selected.invoicingContact || "—"} />
+                <DetailItem label="Notes" value={selected.notes || "—"} />
                 <DetailItem
                   label="Customer Warning(s)"
                   value={
@@ -493,7 +493,7 @@ export default function ContactCustomersPage() {
                             `${warning.warningDescription} (Show on Packs: ${warning.showOnPacks ? "Yes" : "No"})`
                         )
                         .join(" | ")
-                      : "â€”"
+                      : "—"
                   }
                 />
               </div>
@@ -513,11 +513,11 @@ export default function ContactCustomersPage() {
         ) : null}
         <div className="space-y-3 pe-2">
           <FormRow label="Customer Code" required>
-            <input suppressHydrationWarning value={formData.code} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="e.g., AC001" />
+            <Input value={formData.code} disabled={isSaving} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="e.g., AC001" />
           </FormRow>
 
           <FormRow label="Customer Name" required>
-            <input suppressHydrationWarning value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., Agri-Corp Pty Ltd" />
+            <Input value={formData.name} disabled={isSaving} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., Agri-Corp Pty Ltd" />
           </FormRow>
 
           <FormRow label="Customer Email(s)">
@@ -556,9 +556,9 @@ export default function ContactCustomersPage() {
                     Remove
                   </button>
                 </div>
-                <input suppressHydrationWarning value={contact.name} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
-                <input suppressHydrationWarning type="email" value={contact.email} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
-                <input suppressHydrationWarning type="tel" value={contact.phone} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
+                <Input value={contact.name} disabled={isSaving} onChange={(event) => setContact(index, "name", event.target.value)} placeholder="Contact Name" />
+                <Input type="email" value={contact.email} disabled={isSaving} onChange={(event) => setContact(index, "email", event.target.value)} placeholder="Contact Email" />
+                <Input type="tel" value={contact.phone} disabled={isSaving} onChange={(event) => setContact(index, "phone", event.target.value)} placeholder="Contact Phone" />
               </div>
             ))}
           </div>
@@ -575,7 +575,7 @@ export default function ContactCustomersPage() {
           </FormRow>
 
           <FormRow label="Customer Website">
-            <input suppressHydrationWarning value={formData.website} onChange={(event) => setFormData({ ...formData, website: event.target.value })} placeholder="e.g., www.company.com.au" />
+            <Input value={formData.website} disabled={isSaving} onChange={(event) => setFormData({ ...formData, website: event.target.value })} placeholder="e.g., www.company.com.au" />
           </FormRow>
 
           <FormRow label="Customer Invoicing Contact">
@@ -682,10 +682,10 @@ function MobileList({ rows, selectedId, onSelect, search, isLoading }) {
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row.code || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row.code || "—"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row.name || "—"}</p>
               <p className="mt-1 text-[11px] text-slate-500">
-                {[row.emailsCount, row.contactsCount, row.warningsCount].filter((value) => value !== "â€”").join(" | ") || "â€”"}
+                {[row.emailsCount, row.contactsCount, row.warningsCount].filter((value) => value !== "—").join(" | ") || "—"}
               </p>
             </button>
           );
@@ -699,7 +699,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 break-words text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
 }

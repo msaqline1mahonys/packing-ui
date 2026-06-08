@@ -6,103 +6,13 @@ import { useRouter } from "next/navigation";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
-const CMOS_ENDPOINT = `${API_BASE_URL}/ticketing/cmos`;
+import { fetchCmos, deleteCmo } from "@/lib/ticketing-api";
 
 const DIRECTION_OPTIONS = [
   { key: "all", label: "All CMOs" },
   { key: "incoming", label: "Incoming" },
   { key: "outgoing", label: "Outgoing" },
 ];
-
-function readAuthPayload() {
-  try {
-    return JSON.parse(localStorage.getItem("authPayload") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("authToken");
-  return {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-function getTenantPayload() {
-  const authPayload = readAuthPayload();
-  return {
-    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
-    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
-  };
-}
-
-function extractApiError(result, fallback) {
-  if (result?.errors) {
-    return Object.values(result.errors).flat().join(", ");
-  }
-  return result?.message || fallback;
-}
-
-async function cmoRequest(path = "", options = {}) {
-  const response = await fetch(`${CMOS_ENDPOINT}${path}`, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...(options.headers || {}),
-    },
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok || result?.success === false) {
-    throw new Error(extractApiError(result, "CMO request failed."));
-  }
-  return result;
-}
-
-function parseList(result) {
-  const pager = result?.data;
-  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
-}
-
-function fromApiCmo(row) {
-  if (!row) return null;
-  const customer = row.customer ?? null;
-  const commodityType = row.commodity_type ?? row.commodityType ?? null;
-  const commodity = row.commodity ?? null;
-
-  return {
-    id: row.id,
-    cmoReference: row.cmo_reference ?? row.cmoReference ?? "",
-    direction: row.direction ?? "incoming",
-    customerId: row.customer_id ?? row.customerId ?? customer?.id ?? "",
-    customer: customer?.name ?? "",
-    commodityTypeId: row.commodity_type_id ?? row.commodityTypeId ?? commodityType?.id ?? "",
-    commodityType: commodityType?.name ?? "",
-    commodityId: row.commodity_id ?? row.commodityId ?? commodity?.id ?? "",
-    commodity: commodity?.description ?? commodity?.commodity_code ?? "",
-    status: row.status ?? "Open",
-    bookings: row.bookings ?? 0,
-    estimatedAmount:
-      row.estimated_amount != null ? String(row.estimated_amount) : row.estimatedAmount ?? "0",
-    actualAmountDelivered:
-      row.actual_amount_delivered != null
-        ? String(row.actual_amount_delivered)
-        : row.actualAmountDelivered ?? "0",
-    additionalReferences: Array.isArray(row.additional_references)
-      ? row.additional_references
-      : Array.isArray(row.additionalReferences)
-        ? row.additionalReferences
-        : [],
-    attachments: Array.isArray(row.attachments) ? row.attachments : [],
-    note: row.note ?? "",
-  };
-}
 
 function statusBadgeClass(status) {
   switch ((status || "").toLowerCase()) {
@@ -130,11 +40,8 @@ export default function CmoPage() {
     setIsLoading(true);
     setError("");
     try {
-      const tenant = getTenantPayload();
-      const params = new URLSearchParams({ per_page: "100", ...tenant });
-      if (activeDirection !== "all") params.set("direction", activeDirection);
-      const result = await cmoRequest(`?${params.toString()}`);
-      setRows(parseList(result).map(fromApiCmo));
+      const data = await fetchCmos(activeDirection);
+      setRows(data);
     } catch (err) {
       setError(err.message || "Failed to load CMOs.");
       setRows([]);
@@ -147,13 +54,11 @@ export default function CmoPage() {
     loadRows();
   }, [loadRows]);
 
-  const filtered = useMemo(() => rows, [rows]);
-
   useEffect(() => {
-    if (selectedId != null && !filtered.some((row) => row.id === selectedId)) setSelectedId(null);
-  }, [filtered, selectedId]);
+    if (selectedId != null && !rows.some((row) => row.id === selectedId)) setSelectedId(null);
+  }, [rows, selectedId]);
 
-  const selected = useMemo(() => filtered.find((row) => row.id === selectedId) || null, [filtered, selectedId]);
+  const selected = useMemo(() => rows.find((row) => row.id === selectedId) || null, [rows, selectedId]);
 
   const deleteSelected = async () => {
     if (!selected || isDeleting) return;
@@ -162,7 +67,7 @@ export default function CmoPage() {
     setIsDeleting(true);
     setError("");
     try {
-      await cmoRequest(`/${selected.id}`, { method: "DELETE" });
+      await deleteCmo(selected.id);
       setSelectedId(null);
       await loadRows();
     } catch (err) {
@@ -235,7 +140,7 @@ export default function CmoPage() {
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
             columns={columns}
-            rows={filtered}
+            rows={rows}
             getRowId={(row) => row.id}
             theme="light"
             density="standard"

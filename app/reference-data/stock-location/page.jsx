@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ const config = {
     { key: "locationType", label: "Type" },
     { key: "status", label: "Status" },
     { key: "capacity", label: "Capacity (T)", numeric: true },
+    { key: "commodityTypesAllowed", label: "Commodity Types" },
   ],
   formFields: [
     { key: "name", label: "Location Name", required: true, placeholder: "e.g. Bay 12" },
@@ -124,11 +125,33 @@ async function fetchSitesList() {
   return rows;
 }
 
+function normalizeIdList(ids, validIds) {
+  if (!Array.isArray(ids)) return [];
+  const uniq = new Set();
+  for (const rawId of ids) {
+    const id = String(rawId ?? "").trim();
+    if (!id || !validIds.has(id)) continue;
+    uniq.add(id);
+  }
+  return Array.from(uniq);
+}
+
+function buildCommoditySummary(mode, ids) {
+  if (mode === "all") return "All";
+  if (!Array.isArray(ids) || !ids.length) return "—";
+  return `${ids.length} selected`;
+}
+
 function fromApiStockLocation(row) {
   if (!row) return null;
   const cap = row.capacity;
   const capacityStr =
     cap === null || cap === undefined || cap === "" ? "" : String(cap);
+  const commodityModeRaw = row.commodity_mode ?? row.commodityMode;
+  const commodityMode = commodityModeRaw === "selected" ? "selected" : "all";
+  const commodityTypeIds = Array.isArray(row.commodity_type_ids ?? row.commodityTypeIds)
+    ? (row.commodity_type_ids ?? row.commodityTypeIds).map((id) => String(id))
+    : [];
   return {
     id: row.id,
     name: row.name ?? "",
@@ -138,10 +161,12 @@ function fromApiStockLocation(row) {
     status: row.status ?? "",
     capacity: capacityStr,
     organizationName: row.organization?.name ?? "",
+    commodityMode,
+    commodityTypeIds,
   };
 }
 
-function toApiPayload(normalized) {
+function toApiPayload(normalized, validCommodityIds) {
   const tenant = getTenantPayload();
   const cap = normalized.capacity;
   let capacity = null;
@@ -150,6 +175,11 @@ function toApiPayload(normalized) {
     capacity = Number.isNaN(n) ? null : n;
   }
   const siteId = String(normalized.siteId ?? "").trim() || tenant.site_id;
+  const commodityMode = normalized.commodityMode === "selected" ? "selected" : "all";
+  const commodityTypeIds =
+    commodityMode === "selected"
+      ? normalizeIdList(normalized.commodityTypeIds, validCommodityIds)
+      : [];
   return {
     organization_id: tenant.organization_id,
     site_id: siteId || undefined,
@@ -157,6 +187,8 @@ function toApiPayload(normalized) {
     location_type: String(normalized.locationType ?? "").trim() || null,
     status: String(normalized.status ?? "").trim() || null,
     capacity,
+    commodity_mode: commodityMode,
+    commodity_type_ids: commodityTypeIds,
   };
 }
 
@@ -171,6 +203,8 @@ function buildDraft(row) {
     }
     next[field.key] = row?.[field.key] ?? "";
   }
+  next.commodityMode = row?.commodityMode === "selected" ? "selected" : "all";
+  next.commodityTypeIds = Array.isArray(row?.commodityTypeIds) ? [...row.commodityTypeIds] : [];
   return next;
 }
 
@@ -182,8 +216,9 @@ function parseFieldValue(field, value) {
 }
 
 export default function StockLocationPage() {
-  const [rows, setRows] = useState([]);
+  const [apiRows, setApiRows] = useState([]);
   const [siteOptions, setSiteOptions] = useState([]);
+  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => buildDraft());
@@ -194,6 +229,23 @@ export default function StockLocationPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const commodityTypeMap = useMemo(
+    () => new Map(commodityTypeOptions.map((item) => [item.id, item.name])),
+    [commodityTypeOptions]
+  );
+
+  const rows = useMemo(
+    () =>
+      apiRows.map((row) => ({
+        ...row,
+        commodityTypesAllowed: buildCommoditySummary(
+          row.commodityMode,
+          normalizeIdList(row.commodityTypeIds, commodityTypeMap)
+        ),
+      })),
+    [apiRows, commodityTypeMap]
+  );
 
   const loadSites = useCallback(async () => {
     try {
@@ -218,12 +270,12 @@ export default function StockLocationPage() {
       if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
       if (tenant.site_id) params.set("site_id", tenant.site_id);
       const payload = await stockLocationRequest(`?${params.toString()}`);
-      const apiRows = Array.isArray(payload?.data)
+      const rawRows = Array.isArray(payload?.data)
         ? payload.data
         : Array.isArray(payload)
           ? payload
           : [];
-      setRows(apiRows.map(fromApiStockLocation).filter(Boolean));
+      setApiRows(rawRows.map(fromApiStockLocation).filter(Boolean));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load stock locations.");
     } finally {
@@ -231,13 +283,31 @@ export default function StockLocationPage() {
     }
   }, []);
 
+  const loadFormData = useCallback(async () => {
+    try {
+      const tenant = getTenantPayload();
+      const params = new URLSearchParams();
+      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
+      if (tenant.site_id) params.set("site_id", tenant.site_id);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const payload = await stockLocationRequest(`/form-data${qs}`);
+      const commodityTypes = Array.isArray(payload?.commodityTypes) ? payload.commodityTypes : [];
+      setCommodityTypeOptions(
+        commodityTypes.map((item) => ({ id: String(item.id), name: String(item.name ?? "") }))
+      );
+    } catch {
+      setCommodityTypeOptions([]);
+    }
+  }, []);
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       loadStockLocations();
       loadSites();
+      loadFormData();
     });
     return () => cancelAnimationFrame(frame);
-  }, [loadStockLocations, loadSites]);
+  }, [loadStockLocations, loadSites, loadFormData]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -302,6 +372,8 @@ export default function StockLocationPage() {
     for (const field of config.formFields) {
       normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
     }
+    normalized.commodityMode = draft.commodityMode === "selected" ? "selected" : "all";
+    normalized.commodityTypeIds = normalizeIdList(draft.commodityTypeIds, commodityTypeMap);
 
     setIsSaving(true);
     setError("");
@@ -311,11 +383,11 @@ export default function StockLocationPage() {
       if (modalMode === "add") {
         const payload = await stockLocationRequest("", {
           method: "POST",
-          body: JSON.stringify(toApiPayload(normalized)),
+          body: JSON.stringify(toApiPayload(normalized, commodityTypeMap)),
         });
         const nextRow = fromApiStockLocation(payload);
         if (!nextRow) throw new Error("Invalid response from server.");
-        setRows((prev) => [nextRow, ...prev]);
+        setApiRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Stock location created successfully.");
         setModalMode(null);
@@ -325,11 +397,11 @@ export default function StockLocationPage() {
       if (modalMode === "edit" && selected) {
         const payload = await stockLocationRequest(`/${selected.id}`, {
           method: "PUT",
-          body: JSON.stringify(toApiPayload(normalized)),
+          body: JSON.stringify(toApiPayload(normalized, commodityTypeMap)),
         });
         const nextRow = fromApiStockLocation(payload);
         if (!nextRow) throw new Error("Invalid response from server.");
-        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        setApiRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Stock location updated successfully.");
         setModalMode(null);
       }
@@ -338,6 +410,26 @@ export default function StockLocationPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const setCommodityMode = (mode) => {
+    setDraft((prev) => ({
+      ...prev,
+      commodityMode: mode,
+      commodityTypeIds: mode === "all" ? [] : prev.commodityTypeIds,
+    }));
+  };
+
+  const toggleCommodityType = (id) => {
+    setDraft((prev) => {
+      const current = normalizeIdList(prev.commodityTypeIds, commodityTypeMap);
+      const exists = current.includes(id);
+      return {
+        ...prev,
+        commodityMode: "selected",
+        commodityTypeIds: exists ? current.filter((item) => item !== id) : [...current, id],
+      };
+    });
   };
 
   const removeSelected = async () => {
@@ -351,7 +443,7 @@ export default function StockLocationPage() {
 
     try {
       await stockLocationRequest(`/${selected.id}`, { method: "DELETE" });
-      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setApiRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Stock location deleted successfully.");
     } catch (err) {
@@ -490,6 +582,56 @@ export default function StockLocationPage() {
               onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
             />
           ))}
+        </div>
+        <div className="mt-4 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Commodity Types Allowed</p>
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                suppressHydrationWarning
+                type="radio"
+                name="commodity-mode"
+                checked={draft.commodityMode === "all"}
+                disabled={isSaving}
+                onChange={() => setCommodityMode("all")}
+              />
+              All
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                suppressHydrationWarning
+                type="radio"
+                name="commodity-mode"
+                checked={draft.commodityMode === "selected"}
+                disabled={isSaving}
+                onChange={() => setCommodityMode("selected")}
+              />
+              Select commodity types
+            </label>
+            {draft.commodityMode === "selected" ? (
+              commodityTypeOptions.length ? (
+                <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                  {commodityTypeOptions.map((option) => {
+                    const checked = normalizeIdList(draft.commodityTypeIds, commodityTypeMap).includes(option.id);
+                    return (
+                      <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          suppressHydrationWarning
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isSaving}
+                          onChange={() => toggleCommodityType(option.id)}
+                        />
+                        {option.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No commodity types found.</p>
+              )
+            ) : null}
+          </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>

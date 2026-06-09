@@ -7,7 +7,7 @@ import { Grid } from "@/components/clutch-table";
 import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
 import { Button } from "@/components/ui/button";
 import { PACK_FORM_LOOKUPS, PACK_STATUSES } from "@/lib/Data";
-import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { loadPackScheduleRows, removePackScheduleRow } from "@/lib/pack-schedule-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -89,7 +89,9 @@ function getDateOnlyValue(rawValue) {
 
 export default function PackingSchedulePage() {
   const router = useRouter();
-  const [rows, setRows] = useState(() => loadPackScheduleRows());
+  const [rows, setRows] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [importExportFilter, setImportExportFilter] = useState("all");
   const [dateFilterField, setDateFilterField] = useState("vesselCutoffDate");
   const [dateFilterMode, setDateFilterMode] = useState("all");
@@ -98,13 +100,25 @@ export default function PackingSchedulePage() {
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
-  useEffect(() => {
-    setRows(loadPackScheduleRows());
-  }, []);
 
   useEffect(() => {
-    savePackScheduleRows(rows);
-  }, [rows]);
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError("");
+    loadPackScheduleRows()
+      .then((data) => {
+        if (!cancelled) setRows(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load packs.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.length > 0 && selectedStatuses.includes(p.status))
@@ -174,6 +188,18 @@ export default function PackingSchedulePage() {
     router.push(`/packing-schedule/new-pack-form?mode=edit&id=${selected.id}`);
   }
 
+  async function handleDelete() {
+    if (!selected) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete pack ${selected.id}?`)) return;
+    try {
+      await removePackScheduleRow(selected.id);
+      setRows((prev) => prev.filter((row) => row.id !== selected.id));
+      setSelectedId(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to delete pack.");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -181,6 +207,10 @@ export default function PackingSchedulePage() {
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
         <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p>
       </div>
+
+      {loadError ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{loadError}</div>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -274,6 +304,7 @@ export default function PackingSchedulePage() {
             density="standard"
             fileName="Packing Schedule"
             visibleRows={14}
+            loading={isLoading}
             onRowClick={(row) => setSelectedId(row.id)}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {
@@ -298,7 +329,7 @@ export default function PackingSchedulePage() {
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={openEditPage}>
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="destructive" disabled={!selected} className="h-7 px-2.5 text-[11px]">
+                <Button type="button" size="sm" variant="destructive" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={handleDelete}>
                   Delete
                 </Button>
                 <span className="ms-auto text-[11px] text-slate-500">View: All Orders</span>

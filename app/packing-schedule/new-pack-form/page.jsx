@@ -38,7 +38,8 @@ import {
 } from "@/lib/pems";
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
-import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { fetchPackFormData, isUuid } from "@/lib/pack-schedule-api";
+import { loadPackScheduleRow, persistPackScheduleRow } from "@/lib/pack-schedule-store";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -67,8 +68,8 @@ const {
   transporters,
   vesselScheduleCsvRows: vesselSchedule,
 } = PACK_FORM_LOOKUPS;
-const customerOptions = CUSTOMER_CONTACT_ROWS;
-const commodityOptions = COMMODITY_MASTER_ROWS.filter((row) => row.status !== "Inactive");
+const DEFAULT_CUSTOMER_OPTIONS = CUSTOMER_CONTACT_ROWS;
+const DEFAULT_COMMODITY_OPTIONS = COMMODITY_MASTER_ROWS.filter((row) => row.status !== "Inactive");
 const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
@@ -354,7 +355,9 @@ function toFileEntries(fileList) {
   }));
 }
 
-function rowToPack(row, siteId) {
+function rowToPack(row, siteId, lookups = {}) {
+  const customerOptions = lookups.customers ?? DEFAULT_CUSTOMER_OPTIONS;
+  const commodityOptions = lookups.commodities ?? DEFAULT_COMMODITY_OPTIONS;
   const matchedCommodity = commodityOptions.find((c) => c.description === row.commodity);
   const legacyReleaseNumbers = Array.isArray(row.releaseNumbers) ? row.releaseNumbers : [];
   const legacyCollectFrom = Array.isArray(row.collectFromIds) ? row.collectFromIds : [];
@@ -374,12 +377,13 @@ function rowToPack(row, siteId) {
       : blankFumigationDetail();
   return {
     ...blankPack(siteId),
+    id: row.id ?? "",
     importExport: row.importExport || "Export",
     status: row.status || "Pending",
-    customerId: customerOptions.find((c) => c.name === row.customer)?.id ?? "",
-    exporter: customerOptions.find((c) => c.name === row.exporter)?.id ?? "",
-    commodityId: matchedCommodity?.id ?? "",
-    commodityTypeId: matchedCommodity?.commodityTypeId ?? "",
+    customerId: row.customerId ?? row.customer_id ?? customerOptions.find((c) => c.name === row.customer)?.id ?? "",
+    exporter: row.exporterId ?? row.exporter_id ?? customerOptions.find((c) => c.name === row.exporter)?.id ?? "",
+    commodityId: row.commodityId ?? row.commodity_id ?? matchedCommodity?.id ?? "",
+    commodityTypeId: row.commodityTypeId ?? row.commodity_type_id ?? matchedCommodity?.commodityTypeId ?? "",
     jobReference: row.jobReference || "",
     containersRequired: row.containersRequired ?? "",
     mtTotal: row.mtTotal ?? "",
@@ -437,10 +441,12 @@ function rowToPack(row, siteId) {
   };
 }
 
-function packToScheduleRow(pack, existingRow) {
-  const customerName = customerOptions.find((c) => c.id === Number(pack.customerId))?.name || existingRow?.customer || "Unknown Customer";
-  const commodityName = commodityOptions.find((c) => c.id === Number(pack.commodityId))?.description || existingRow?.commodity || "Unknown Commodity";
-  const exporterName = customerOptions.find((c) => c.id === Number(pack.exporter))?.name || existingRow?.exporter || "-";
+function packToScheduleRow(pack, existingRow, lookups = {}) {
+  const customerOptions = lookups.customers ?? DEFAULT_CUSTOMER_OPTIONS;
+  const commodityOptions = lookups.commodities ?? DEFAULT_COMMODITY_OPTIONS;
+  const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name || existingRow?.customer || "Unknown Customer";
+  const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description || existingRow?.commodity || "Unknown Commodity";
+  const exporterName = customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || existingRow?.exporter || "-";
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const containers = buildPackContainers(pack, existingRow);
@@ -453,7 +459,10 @@ function packToScheduleRow(pack, existingRow) {
     id: existingRow?.id ?? 0,
     importExport: pack.importExport,
     customer: customerName,
+    customerId: pack.customerId ?? existingRow?.customerId ?? null,
     commodity: commodityName,
+    commodityId: pack.commodityId ?? existingRow?.commodityId ?? null,
+    commodityTypeId: pack.commodityTypeId ?? existingRow?.commodityTypeId ?? null,
     status: pack.status,
     jobReference: pack.jobReference || "",
     containersRequired: pack.containersRequired === "" ? 0 : Number(pack.containersRequired),
@@ -465,6 +474,7 @@ function packToScheduleRow(pack, existingRow) {
     collectFromIds: releaseDetails.map((row) => row.emptyContainerParkId).filter(Boolean),
     transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
     exporter: exporterName,
+    exporterId: pack.exporter ?? existingRow?.exporterId ?? null,
     destinationCountry: pack.destinationCountry || "",
     terminalId: pack.terminalId ?? "",
     portOfLoading: pack.portOfLoading || "",
@@ -576,7 +586,7 @@ function NewPackFormPageInner() {
   const { siteId: activeSiteId, site } = useSite();
   const { dock, verticalExpanded } = useNavDock();
   const mode = searchParams.get("mode") === "edit" ? "edit" : "add";
-  const editId = Number(searchParams.get("id"));
+  const editId = searchParams.get("id") || "";
   const requestedTab = searchParams.get("tab");
   const currentSite = Number(activeSiteId) || 1;
   const [vesselDepartures, setVesselDepartures] = useState([]);
@@ -588,6 +598,8 @@ function NewPackFormPageInner() {
     () => (PACK_FORM_LOOKUPS.packers || []).filter((row) => String(row.status).toLowerCase() === "active").map((row) => row.name),
     []
   );
+  const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
@@ -612,6 +624,33 @@ function NewPackFormPageInner() {
     containerCodes: [],
     loading: true,
   });
+  const [formLookups, setFormLookups] = useState({
+    customers: DEFAULT_CUSTOMER_OPTIONS,
+    commodities: DEFAULT_COMMODITY_OPTIONS,
+    loaded: false,
+  });
+  const customerOptions = formLookups.customers;
+  const commodityOptions = formLookups.commodities;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPackFormData()
+      .then((data) => {
+        if (cancelled || !data) return;
+        setFormLookups({
+          customers: Array.isArray(data.customers) && data.customers.length ? data.customers : DEFAULT_CUSTOMER_OPTIONS,
+          commodities:
+            Array.isArray(data.commodities) && data.commodities.length ? data.commodities : DEFAULT_COMMODITY_OPTIONS,
+          loaded: true,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setFormLookups((prev) => ({ ...prev, loaded: true }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1040,8 +1079,8 @@ function NewPackFormPageInner() {
       const packForPayload = {
         ...pack,
         id: pack.id || editingRow?.id || "draft",
-        commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
-        exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
+        commodity: commodityOptions.find((row) => String(row.id) === String(pack.commodityId))?.description || "",
+        exporter: customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || "",
       };
       const payload = buildPemsInspectionPayload({
         pack: packForPayload,
@@ -1113,11 +1152,11 @@ function NewPackFormPageInner() {
         };
         const packId = nextPack.id || editingRow?.id;
         if (packId) {
-          const rows = loadPackScheduleRows();
-          const existingRow = rows.find((row) => Number(row.id) === Number(packId)) || editingRow;
-          if (existingRow) {
-            savePackScheduleRows(rows.map((row) => (Number(row.id) === Number(packId) ? packToScheduleRow(nextPack, existingRow) : row)));
-          }
+          persistPackScheduleRow({
+            ...nextPack,
+            id: packId,
+            exporterId: isUuid(nextPack.exporter) ? nextPack.exporter : isUuid(nextPack.exporterId) ? nextPack.exporterId : null,
+          }).catch(() => {});
         }
         return nextPack;
       });
@@ -1245,8 +1284,8 @@ function NewPackFormPageInner() {
       : "Pending";
   const packRfpText = String(pack.rfp || "").trim();
   const packPemsCommodityLabel = useMemo(
-    () => safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description),
-    [pack.commodityId]
+    () => safeValue(commodityOptions.find((row) => String(row.id) === String(pack.commodityId))?.description),
+    [pack.commodityId, commodityOptions]
   );
   const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
   const containersLeftToPack = packContainers.filter((container) => {
@@ -1265,8 +1304,8 @@ function NewPackFormPageInner() {
   }, [pack.containersRequired, pack.quantityPerContainer]);
 
   const stickySummary = useMemo(() => {
-    const customerName = customerOptions.find((c) => c.id === Number(pack.customerId))?.name;
-    const commodityName = commodityOptions.find((c) => c.id === Number(pack.commodityId))?.description;
+    const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name;
+    const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description;
     const releaseLines = releaseRows
       .filter((row) => row.releaseRef || row.emptyContainerParkId || row.transporterId)
       .map((row) => {
@@ -1318,16 +1357,22 @@ function NewPackFormPageInner() {
     pack.releaseDetails,
     pack.vesselDepartureId,
     selectedVessel,
+    customerOptions,
+    commodityOptions,
   ]);
 
   useEffect(() => {
-    if (mode !== "edit" || Number.isNaN(editId)) return;
-    const rows = loadPackScheduleRows();
-    const row = rows.find((r) => Number(r.id) === editId);
-    if (!row) return;
-    setEditingRow(row);
-    setPack(rowToPack(row, currentSite));
-  }, [mode, editId, currentSite]);
+    if (mode !== "edit" || !editId) return;
+    let cancelled = false;
+    loadPackScheduleRow(editId).then((row) => {
+      if (cancelled || !row) return;
+      setEditingRow(row);
+      setPack(rowToPack(row, currentSite, formLookups));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, editId, currentSite, formLookups.loaded]);
 
   useEffect(() => {
     if (mode !== "add") return;
@@ -1366,42 +1411,47 @@ function NewPackFormPageInner() {
     prevSampleCountRef.current = count;
   }, [sampleEntries.length]);
 
-  const save = () => {
+  const save = async () => {
+    const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name || "";
+    const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description || "";
+    const exporterName = customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || "";
     const normalized = {
       ...pack,
-      customerId: pack.customerId ? Number(pack.customerId) : null,
-      commodityId: pack.commodityId ? Number(pack.commodityId) : null,
-      commodityTypeId: pack.commodityId
-        ? commodityOptions.find((c) => c.id === Number(pack.commodityId))?.commodityTypeId ?? null
-        : null,
-      siteId: Number(pack.siteId || currentSite),
+      customerId: isUuid(pack.customerId) ? pack.customerId : null,
+      commodityId: isUuid(pack.commodityId) ? pack.commodityId : null,
+      commodityTypeId: (() => {
+        const fromCommodity = isUuid(pack.commodityId)
+          ? commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.commodityTypeId ?? pack.commodityTypeId ?? null
+          : pack.commodityTypeId ?? null;
+        return isUuid(fromCommodity) ? fromCommodity : null;
+      })(),
+      siteId: pack.siteId || currentSite,
       containersRequired: pack.containersRequired === "" ? null : Number(pack.containersRequired),
       quantityPerContainer: pack.quantityPerContainer === "" ? null : Number(pack.quantityPerContainer),
       maxQtyPerContainer: pack.maxQtyPerContainer === "" ? null : Number(pack.maxQtyPerContainer),
       mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? Number(computedMtTotal) : null,
-      shippingLineId: pack.shippingLineId ? Number(pack.shippingLineId) : null,
-      vesselDepartureId: pack.vesselDepartureId ? Number(pack.vesselDepartureId) : null,
-      exporter: pack.exporter ? Number(pack.exporter) : null,
+      shippingLineId: pack.shippingLineId || null,
+      vesselDepartureId: pack.vesselDepartureId || null,
       fumigationRequired: Boolean(pack.fumigationRequired),
       fumigantId:
         pack.fumigantId !== null && pack.fumigantId !== undefined && pack.fumigantId !== ""
-          ? Number(pack.fumigantId)
+          ? pack.fumigantId
           : null,
       methodologyId:
         pack.methodologyId !== null && pack.methodologyId !== undefined && pack.methodologyId !== ""
-          ? Number(pack.methodologyId)
+          ? pack.methodologyId
           : null,
       certificateTemplateId:
         pack.certificateTemplateId !== null &&
           pack.certificateTemplateId !== undefined &&
           pack.certificateTemplateId !== ""
-          ? Number(pack.certificateTemplateId)
+          ? pack.certificateTemplateId
           : null,
       recordTemplateId:
         pack.recordTemplateId !== null &&
           pack.recordTemplateId !== undefined &&
           pack.recordTemplateId !== ""
-          ? Number(pack.recordTemplateId)
+          ? pack.recordTemplateId
           : null,
       fumigationDetail:
         pack.fumigationDetail && typeof pack.fumigationDetail === "object"
@@ -1421,18 +1471,28 @@ function NewPackFormPageInner() {
       additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
       rfpFiles: normalizeFileItems(pack.rfpFiles),
       packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+      containers: buildPackContainers(pack, editingRow),
     };
-    const rows = loadPackScheduleRows();
-    if (mode === "edit" && editingRow) {
-      const updated = packToScheduleRow(normalized, editingRow);
-      savePackScheduleRows(rows.map((row) => (row.id === editingRow.id ? updated : row)));
-    } else {
-      const created = packToScheduleRow(normalized, null);
-      created.id = nextPackId(rows);
-      created.containers = buildPackContainers({ ...normalized, id: created.id }, created);
-      savePackScheduleRows([created, ...rows]);
+    setSaveError("");
+    setIsSaving(true);
+    try {
+      const packId = [editingRow?.id, editId, pack.id].find((value) => isUuid(value)) ?? null;
+      const payload = {
+        ...normalized,
+        customer: customerName,
+        commodity: commodityName,
+        exporter: exporterName,
+        exporterName,
+        exporterId: isUuid(pack.exporter) ? pack.exporter : null,
+        ...(packId ? { id: packId } : {}),
+      };
+      await persistPackScheduleRow(payload);
+      router.push("/packing-schedule");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save pack.");
+    } finally {
+      setIsSaving(false);
     }
-    router.push("/packing-schedule");
   };
 
   const summaryFields = [
@@ -1465,6 +1525,9 @@ function NewPackFormPageInner() {
         <div className="flex flex-wrap items-center justify-between gap-1">
           <h1 className="text-base font-semibold leading-tight text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
         </div>
+        {saveError ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{saveError}</div>
+        ) : null}
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
@@ -3914,8 +3977,8 @@ function NewPackFormPageInner() {
               <Button variant="outline" size="sm" type="button" onClick={() => router.push("/packing-schedule")}>
                 Cancel
               </Button>
-              <Button size="sm" type="button" onClick={save}>
-                {mode === "edit" ? "Save changes" : "Create pack"}
+              <Button size="sm" type="button" onClick={save} disabled={isSaving}>
+                {isSaving ? "Saving..." : mode === "edit" ? "Save changes" : "Create pack"}
               </Button>
             </div>
           </div>

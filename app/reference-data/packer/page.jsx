@@ -22,7 +22,6 @@ const config = {
     { key: "name", label: "Name" },
     { key: "description", label: "Description" },
     { key: "status", label: "Status" },
-    { key: "commodityTypesAllowed", label: "Commodity Types" },
     { key: "stockLocationsAllowed", label: "Stock Locations" },
   ],
   formFields: [
@@ -99,22 +98,13 @@ function normalizeIdList(ids, validIds) {
   return Array.from(uniq);
 }
 
-function buildCommoditySummary(mode, ids) {
-  if (mode === "all") return "All";
-  if (!Array.isArray(ids) || !ids.length) return "—";
-  return `${ids.length} selected`;
-}
-
 function buildStockLocationSummary(mode, ids) {
   if (mode === "all") return "All";
   if (!Array.isArray(ids) || !ids.length) return "—";
   return `${ids.length} selected`;
 }
 
-function toDisplayRow(row, commodityTypeMap, stockLocationMap) {
-  const commodityModeRaw = row?.commodity_mode ?? row?.commodityMode;
-  const commodityMode = commodityModeRaw === "selected" ? "selected" : "all";
-  const commodityTypeIds = normalizeIdList(row?.commodity_type_ids ?? row?.commodityTypeIds, commodityTypeMap);
+function toDisplayRow(row, stockLocationMap) {
   const stockLocationModeRaw = row?.stock_location_mode ?? row?.stockLocationMode;
   const stockLocationMode = stockLocationModeRaw === "selected" ? "selected" : "all";
   const stockLocationIds = normalizeIdList(row?.stock_location_ids ?? row?.stockLocationIds, stockLocationMap);
@@ -124,11 +114,8 @@ function toDisplayRow(row, commodityTypeMap, stockLocationMap) {
     name: row.name ?? "",
     description: row.description ?? "",
     status: row.status ?? "Active",
-    commodityMode,
-    commodityTypeIds,
     stockLocationMode,
     stockLocationIds,
-    commodityTypesAllowed: buildCommoditySummary(commodityMode, commodityTypeIds),
     stockLocationsAllowed: buildStockLocationSummary(stockLocationMode, stockLocationIds),
   };
 }
@@ -136,8 +123,6 @@ function toDisplayRow(row, commodityTypeMap, stockLocationMap) {
 function buildDraft(row) {
   const next = {};
   for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
-  next.commodityMode = row?.commodityMode === "selected" ? "selected" : "all";
-  next.commodityTypeIds = Array.isArray(row?.commodityTypeIds) ? [...row.commodityTypeIds] : [];
   next.stockLocationMode = row?.stockLocationMode === "selected" ? "selected" : "all";
   next.stockLocationIds = Array.isArray(row?.stockLocationIds) ? [...row.stockLocationIds] : [];
   if (!next.status) next.status = "Active";
@@ -145,7 +130,6 @@ function buildDraft(row) {
 }
 
 function toApiPayload(draft) {
-  const commodityMode = draft.commodityMode === "selected" ? "selected" : "all";
   const stockLocationMode = draft.stockLocationMode === "selected" ? "selected" : "all";
 
   return {
@@ -153,8 +137,6 @@ function toApiPayload(draft) {
     name: String(draft.name ?? "").trim(),
     description: String(draft.description ?? "").trim() || null,
     status: String(draft.status ?? "").trim() || "Active",
-    commodity_mode: commodityMode,
-    commodity_type_ids: commodityMode === "selected" ? draft.commodityTypeIds : [],
     stock_location_mode: stockLocationMode,
     stock_location_ids: stockLocationMode === "selected" ? draft.stockLocationIds : [],
   };
@@ -162,7 +144,6 @@ function toApiPayload(draft) {
 
 export default function PackerPage() {
   const [packerRecords, setPackerRecords] = useState([]);
-  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
   const [stockLocationOptions, setStockLocationOptions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -175,10 +156,6 @@ export default function PackerPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const commodityTypeMap = useMemo(
-    () => new Map(commodityTypeOptions.map((item) => [item.id, item.name])),
-    [commodityTypeOptions]
-  );
   const stockLocationMap = useMemo(
     () => new Map(stockLocationOptions.map((item) => [item.id, item.name])),
     [stockLocationOptions]
@@ -187,9 +164,9 @@ export default function PackerPage() {
   const rows = useMemo(
     () =>
       packerRecords
-        .map((row) => toDisplayRow(row, commodityTypeMap, stockLocationMap))
+        .map((row) => toDisplayRow(row, stockLocationMap))
         .filter(Boolean),
-    [packerRecords, commodityTypeMap, stockLocationMap]
+    [packerRecords, stockLocationMap]
   );
 
   const formDataQuery = useMemo(() => {
@@ -201,11 +178,7 @@ export default function PackerPage() {
   }, []);
 
   const applyFormData = useCallback((payload) => {
-    const commodityTypes = Array.isArray(payload?.commodityTypes) ? payload.commodityTypes : [];
     const stockLocations = Array.isArray(payload?.stockLocations) ? payload.stockLocations : [];
-    setCommodityTypeOptions(
-      commodityTypes.map((item) => ({ id: String(item.id), name: String(item.name ?? "") }))
-    );
     setStockLocationOptions(
       stockLocations.map((item) => ({ id: String(item.id), name: String(item.name ?? "") }))
     );
@@ -242,7 +215,6 @@ export default function PackerPage() {
       setPackerRecords(apiRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load packer data.");
-      setCommodityTypeOptions([]);
       setStockLocationOptions([]);
       setPackerRecords([]);
     } finally {
@@ -311,7 +283,6 @@ export default function PackerPage() {
 
     const body = toApiPayload({
       ...draft,
-      commodityTypeIds: normalizeIdList(draft.commodityTypeIds, commodityTypeMap),
       stockLocationIds: normalizeIdList(draft.stockLocationIds, stockLocationMap),
     });
 
@@ -348,26 +319,6 @@ export default function PackerPage() {
     } finally {
       setIsSaving(false);
     }
-  }
-
-  function setCommodityMode(mode) {
-    setDraft((prev) => ({
-      ...prev,
-      commodityMode: mode,
-      commodityTypeIds: mode === "all" ? [] : prev.commodityTypeIds,
-    }));
-  }
-
-  function toggleCommodityType(id) {
-    setDraft((prev) => {
-      const current = normalizeIdList(prev.commodityTypeIds, commodityTypeMap);
-      const exists = current.includes(id);
-      return {
-        ...prev,
-        commodityMode: "selected",
-        commodityTypeIds: exists ? current.filter((item) => item !== id) : [...current, id],
-      };
-    });
   }
 
   function setStockLocationMode(mode) {
@@ -518,42 +469,6 @@ export default function PackerPage() {
               onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
             />
           ))}
-        </div>
-        <div className="mt-4 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Commodity Types Allowed</p>
-          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input suppressHydrationWarning type="radio" name="commodity-mode" checked={draft.commodityMode === "all"} onChange={() => setCommodityMode("all")} />
-              All
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="radio"
-                name="commodity-mode"
-                checked={draft.commodityMode === "selected"}
-                disabled={isSaving}
-                onChange={() => setCommodityMode("selected")}
-              />
-              Select commodity types
-            </label>
-            {draft.commodityMode === "selected" ? (
-              commodityTypeOptions.length ? (
-                <div className="grid gap-2 pt-1 sm:grid-cols-2">
-                  {commodityTypeOptions.map((option) => {
-                    const checked = normalizeIdList(draft.commodityTypeIds, commodityTypeMap).includes(option.id);
-                    return (
-                      <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
-                        <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => toggleCommodityType(option.id)} />
-                        {option.name}
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500">No commodity types found.</p>
-              )
-            ) : null}
-          </div>
         </div>
         <div className="mt-4 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Stock Locations Allowed</p>

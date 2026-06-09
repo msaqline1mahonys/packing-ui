@@ -365,8 +365,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const handleComplete = async () => {
     try {
       setError("");
-      let saved = ticket.id ? ticket : await saveTicket({ ...ticket, type: ticketType });
-      if (!ticket.id) setTicket(saved);
+      let saved = await saveTicket({ ...ticket, type: ticketType });
+      setTicket(saved);
       saved = await completeTicket(saved.id);
       setTicket(saved);
       setCompletedTickets((prev) => [...prev.filter((t) => t.id !== saved.id), saved]);

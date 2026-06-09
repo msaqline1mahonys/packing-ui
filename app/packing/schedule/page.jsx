@@ -63,8 +63,8 @@ function StatusBadge({ status }) {
 }
 
 /* â”€â”€â”€ Lookup helpers â”€â”€â”€ */
-const lookupCustomer = (id) => MOCK_CUSTOMERS.find((c) => c.id === id)?.name ?? "â€”";
-const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "â€”";
+const lookupCustomer = (id) => MOCK_CUSTOMERS.find((c) => c.id === id)?.name ?? "";
+const lookupCommodity = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "";
 
 /* â”€â”€â”€ Main â”€â”€â”€ */
 export default function SchedulePage() {
@@ -193,8 +193,8 @@ export default function SchedulePage() {
                   className={cn("w-full rounded-lg border px-3 py-2.5 text-left text-xs transition-colors", selectedUnassigned === p.id ? "border-brand bg-brand/5 ring-1 ring-brand/30" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50")}>
                   <div className="font-bold text-brand">#{p.id}</div>
                   <div className="mt-1 text-slate-700">{lookupCustomer(p.customerId)}</div>
-                  <div className="text-slate-400">{lookupCommodity(p.commodityId)} Â· {p.jobReference || "â€”"}</div>
-                  <div className="mt-1 text-slate-400">{p.containersRequired || 0} ctrs Â· {p.mtTotal || 0} MT</div>
+                  <div className="text-slate-400">{lookupCommodity(p.commodityId)} · {p.jobReference || ""}</div>
+                  <div className="mt-1 text-slate-400">{p.containersRequired || 0} ctrs · {p.mtTotal || 0} MT</div>
                   <div className="mt-1"><StatusBadge status={p.status} /></div>
                 </button>
               ))}
@@ -225,7 +225,7 @@ export default function SchedulePage() {
                     const t = dayTotals[d] || { cnt: 0, mt: 0 };
                     return (
                       <td key={d} className="border-l border-slate-200/60 px-1.5 py-1.5 text-center text-[10px] font-semibold text-slate-500">
-                        {t.cnt > 0 || t.mt > 0 ? <>{t.cnt} cnt<br />{t.mt} MT</> : "â€”"}
+                        {t.cnt > 0 || t.mt > 0 ? <>{t.cnt} cnt<br />{t.mt} MT</> : ""}
                       </td>
                     );
                   })}
@@ -238,7 +238,7 @@ export default function SchedulePage() {
                     <tr key={packer.id} className="border-t border-slate-100">
                       <td className="sticky left-0 z-10 bg-white px-3 py-2.5 border-r border-slate-200">
                         <div className="text-sm font-medium text-slate-800">{packer.name}</div>
-                        {(pt.cnt > 0 || pt.mt > 0) && <div className="mt-0.5 text-[9px] text-slate-400">{pt.cnt} cnt Â· {pt.mt} MT</div>}
+                        {(pt.cnt > 0 || pt.mt > 0) && <div className="mt-0.5 text-[9px] text-slate-400">{pt.cnt} cnt · {pt.mt} MT</div>}
                       </td>
                       {dates.map((d) => {
                         const ds = fmtDate(d);
@@ -251,7 +251,7 @@ export default function SchedulePage() {
                             <div className="space-y-1">
                               {cellPacks.map((p) => (
                                 <div key={p.id} className={cn("relative rounded-md border px-2 py-1.5 text-[11px] leading-tight transition-shadow hover:shadow-md", STATUS_CLS[p.status] || STATUS_CLS.Pending)}
-                                  title={`${p.jobReference} Â· ${lookupCustomer(p.customerId)} Â· ${lookupCommodity(p.commodityId)} Â· ${p.containersRequired} ctrs Â· ${p.mtTotal} MT`}>
+                                  title={`${p.jobReference} · ${lookupCustomer(p.customerId)} · ${lookupCommodity(p.commodityId)} · ${p.containersRequired} ctrs · ${p.mtTotal} MT`}>
                                   {/* Unassign button */}
                                   <button type="button" onClick={(e) => { e.stopPropagation(); unassignPack(p.id, packer.id); }}
                                     title="Remove from packer"
@@ -260,12 +260,12 @@ export default function SchedulePage() {
                                   </button>
                                   <div className="pr-5 font-bold">#{p.id}</div>
                                   <div className="mt-0.5 truncate opacity-80">{lookupCustomer(p.customerId)}</div>
-                                  <div className="mt-0.5 truncate text-[9px] opacity-60">{lookupCommodity(p.commodityId)} Â· {p.jobReference}</div>
+                                  <div className="mt-0.5 truncate text-[9px] opacity-60">{lookupCommodity(p.commodityId)} · {p.jobReference}</div>
                                   <div className="mt-1"><StatusBadge status={p.status} /></div>
                                 </div>
                               ))}
                               {cellPacks.length === 0 && (
-                                <span className="text-[10px] text-slate-300">{canAssign ? "Click to assign" : "â€”"}</span>
+                                <span className="text-[10px] text-slate-300">{canAssign ? "Click to assign" : ""}</span>
                               )}
                             </div>
                           </td>

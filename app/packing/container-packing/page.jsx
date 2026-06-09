@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -280,8 +280,8 @@ export default function ContainerPackingPage() {
                     <span className="font-bold text-brand">#{p.id}</span>
                     <StatusBadge status={p.status} />
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{p.jobReference || "â€”"}</p>
-                  <p className="text-xs text-slate-700">{cust?.name || "â€”"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{p.jobReference || ""}</p>
+                  <p className="text-xs text-slate-700">{cust?.name || ""}</p>
                   <p className="mt-1 text-[10px] text-slate-400">Containers: {cnt} / {p.containersRequired ?? 0}</p>
                 </button>
               );
@@ -299,8 +299,8 @@ export default function ContainerPackingPage() {
               <div className="border-b border-slate-200 px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-bold text-slate-900">Pack #{selectedPack.id} Â· {selectedPack.jobReference || "â€”"}</h2>
-                    <p className="mt-1 text-sm text-slate-500">{customer?.name} Â· {commodity?.description} Â· {selectedPack.importExport}</p>
+                    <h2 className="text-lg font-bold text-slate-900">Pack #{selectedPack.id} · {selectedPack.jobReference || ""}</h2>
+                    <p className="mt-1 text-sm text-slate-500">{customer?.name} · {commodity?.description} · {selectedPack.importExport}</p>
                   </div>
                   {selectedPack.status === "Pending" && <Button size="sm" onClick={startJob}>Start job</Button>}
                 </div>
@@ -405,32 +405,32 @@ export default function ContainerPackingPage() {
       <Field label="Seal number"><input suppressHydrationWarning className={inputClass} value={containerForm.sealNumber || ""} onChange={(e) => set("sealNumber", e.target.value)} placeholder="Seal" /></Field>
       <Field label="Container ISO code">
         <select suppressHydrationWarning className={inputClass} value={containerForm.containerIsoCode || ""} onChange={(e) => set("containerIsoCode", e.target.value)}>
-          <option value="">â€” Select â€”</option>
+          <option value=""> Select </option>
           {MOCK_CONTAINER_CODES.map((c) => <option key={c.id} value={c.isoCode}>{c.isoCode} ({c.containerSize})</option>)}
         </select>
       </Field>
       <Field label="Start date & time"><input suppressHydrationWarning type="datetime-local" className={inputClass} value={containerForm.startDateTime || ""} onChange={(e) => set("startDateTime", e.target.value)} /></Field>
       <Field label="Stock location">
         <select suppressHydrationWarning className={inputClass} value={containerForm.stockLocationId ?? ""} onChange={(e) => set("stockLocationId", e.target.value)}>
-          <option value="">â€” Select â€”</option>
+          <option value=""> Select </option>
           {MOCK_STOCK_LOCATIONS.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
       </Field>
       <Field label="Packer">
         <select suppressHydrationWarning className={inputClass} value={containerForm.packerId ?? ""} onChange={(e) => set("packerId", e.target.value)}>
-          <option value="">â€” Select â€”</option>
+          <option value=""> Select </option>
           {MOCK_PACKERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
       <Field label="Container park">
         <select suppressHydrationWarning className={inputClass} value={containerForm.emptyContainerParkId ?? ""} onChange={(e) => set("emptyContainerParkId", e.target.value)}>
-          <option value="">â€” Select â€”</option>
+          <option value=""> Select </option>
           {MOCK_CONTAINER_PARKS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
       <Field label="Transporter">
         <select suppressHydrationWarning className={inputClass} value={containerForm.transporterId ?? ""} onChange={(e) => set("transporterId", e.target.value)}>
-          <option value="">â€” Select â€”</option>
+          <option value=""> Select </option>
           {MOCK_TRANSPORTERS.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </Field>
@@ -458,7 +458,7 @@ export default function ContainerPackingPage() {
     <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: "140px 1fr" }}>
       <Field label="Result">
         <select suppressHydrationWarning className={inputClass} value={containerForm.emptyContainerInspectionResult || ""} onChange={(e) => set("emptyContainerInspectionResult", e.target.value)}>
-          <option value="">â€”</option>
+          <option value=""></option>
           {INSPECTION_RESULTS.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </Field>
@@ -469,7 +469,7 @@ export default function ContainerPackingPage() {
     <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: "140px 1fr" }}>
       <Field label="Result">
         <select suppressHydrationWarning className={inputClass} value={containerForm.grainInspectionResult || ""} onChange={(e) => set("grainInspectionResult", e.target.value)}>
-          <option value="">â€”</option>
+          <option value=""></option>
           {INSPECTION_RESULTS.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </Field>

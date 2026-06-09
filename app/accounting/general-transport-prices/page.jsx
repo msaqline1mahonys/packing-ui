@@ -278,10 +278,10 @@ export default function GeneralTransportPricesPage() {
                           isSelected ? "bg-brand/[0.07]" : "hover:bg-slate-50/90"
                         )}
                       >
-                        <td className="px-3 py-2.5 text-slate-700">{transporter?.label || "â€”"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.containerSize || "â€”"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.lineItemDescription || "â€”"}</td>
-                        <td className="px-3 py-2.5 text-slate-700">{row.price != null ? Number(row.price) : "â€”"}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{transporter?.label || ""}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.containerSize || ""}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.lineItemDescription || ""}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{row.price != null ? Number(row.price) : ""}</td>
                       </tr>
                     );
                   })

@@ -381,7 +381,7 @@ export default function AccountBalancePage() {
                       <td className="p-3 font-semibold">{pivotData.accNames[a]} <Badge type={pivotData.accTypes[a]} /></td>
                       {pivotData.locs.map(l => {
                         const v = pivotData.cells[`${a}|${l}`] || 0;
-                        return <td key={l} className={cn("p-3 text-right font-medium", qtyColor(v))}>{v ? v.toFixed(2) : "â€”"}</td>;
+                        return <td key={l} className={cn("p-3 text-right font-medium", qtyColor(v))}>{v ? v.toFixed(2) : ""}</td>;
                       })}
                       <td className={cn("bg-slate-50 p-3 text-right font-bold", qtyColor(pivotData.rowT[a]))}>{pivotData.rowT[a].toFixed(2)}</td>
                     </tr>

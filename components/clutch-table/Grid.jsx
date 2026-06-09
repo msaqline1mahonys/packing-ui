@@ -7,6 +7,7 @@ import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
 import Download from '@mui/icons-material/Download';
 import ViewColumn from '@mui/icons-material/ViewColumn';
+import SortIcon from '@mui/icons-material/Sort';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -19,6 +20,7 @@ import { HeaderCell } from './components/HeaderCell';
 import { CellErrorBoundary } from './components/CellErrorBoundary';
 import { CellEditor } from './components/CellEditor';
 import { ViewMenu } from './components/ViewMenu';
+import { SortDialog } from './components/SortDialog';
 import { useSavedViews } from './hooks/useSavedViews';
 import { clampPage, coerceNumber, devWarn, isFiniteNumber, safeString } from './utils/safe';
 import { downloadCsv, rowsToCsv } from './utils/csv';
@@ -136,13 +138,16 @@ export function Grid(props) {
       return row.__idx ?? JSON.stringify(row);
     }
   }, [getRowId]);
-  // Column order / hidden / width / pin are persisted per-user in the DB
-  // via useUserGridPreference. Other grid state (sort, filters, page, scroll,
-  // search) continues to live in localStorage via loadPersistedState.
+  // Column order / hidden / width / pin and ambient sort/filter/pageSize are
+  // persisted per-user in the DB via useUserGridPreference. localStorage
+  // (via loadPersistedState) is retained for fast first paint and for state
+  // we don't lift to the DB (scroll position, last interacted row, selection).
   const {
     initialColumnState: serverColumnState,
-    loaded: serverColumnStateLoaded,
-    save: saveColumnStateToServer
+    initialGridState: serverGridState,
+    loaded: serverPrefsLoaded,
+    save: saveColumnStateToServer,
+    saveGridState: saveGridStateToServer
   } = useUserGridPreference(effectivePersistKey);
   const {
     visibleColumns,
@@ -158,12 +163,12 @@ export function Grid(props) {
   const appliedServerColumnStateRef = useRef(false);
   useEffect(() => {
     if (appliedServerColumnStateRef.current) return;
-    if (!serverColumnStateLoaded) return;
+    if (!serverPrefsLoaded) return;
     appliedServerColumnStateRef.current = true;
     if (serverColumnState) {
       applyColumnState(serverColumnState);
     }
-  }, [serverColumnStateLoaded, serverColumnState, applyColumnState]);
+  }, [serverPrefsLoaded, serverColumnState, applyColumnState]);
   useEffect(() => {
     if (!appliedServerColumnStateRef.current) return;
     saveColumnStateToServer(colStates);
@@ -182,6 +187,32 @@ export function Grid(props) {
     if (typeof persistedSize === 'number' && persistedSize > 0) return persistedSize;
     return pageSize;
   });
+  // Apply server-backed grid_state once the prefs load resolves. Server wins
+  // over localStorage when present so a user logging in elsewhere sees the same
+  // sort / filters / page size.
+  const appliedServerGridStateRef = useRef(false);
+  useEffect(() => {
+    if (appliedServerGridStateRef.current) return;
+    if (!serverPrefsLoaded) return;
+    appliedServerGridStateRef.current = true;
+    if (!serverGridState) return;
+    if (Array.isArray(serverGridState.sortModel)) setSortModel(serverGridState.sortModel);
+    if (serverGridState.filters && typeof serverGridState.filters === 'object') {
+      setFilters(serverGridState.filters);
+    }
+    if (typeof serverGridState.pageSize === 'number' && serverGridState.pageSize > 0) {
+      setInternalPageSize(serverGridState.pageSize);
+    }
+  }, [serverPrefsLoaded, serverGridState]);
+  // Persist ambient sort/filter/pageSize to server (debounced inside the hook).
+  useEffect(() => {
+    if (!appliedServerGridStateRef.current) return;
+    saveGridStateToServer({
+      sortModel,
+      filters,
+      pageSize: internalPageSize,
+    });
+  }, [sortModel, filters, internalPageSize, saveGridStateToServer]);
   const effectivePageSizeOptions = useMemo(() => {
     const options = Array.isArray(pageSizeOptions) && pageSizeOptions.length > 0
       ? pageSizeOptions.filter(n => typeof n === 'number' && n > 0)
@@ -202,6 +233,7 @@ export function Grid(props) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [activeColumnKey, setActiveColumnKey] = useState(null);
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState(null);
+  const [sortDialogOpen, setSortDialogOpen] = useState(false);
   const [lastInteractedRowId, setLastInteractedRowId] = useState(() => persisted?.lastInteractedRowId ?? null);
   const resizingRef = useRef(null);
   // Mirrors `columnWidthByKey` so handleResizeStart (declared earlier) can read
@@ -974,6 +1006,10 @@ export function Grid(props) {
         snap.scrollTop = pendingScrollRestoreRef.current;
       }
       savePersistedState(effectivePersistKey, snap);
+      // Auto-save the snapshot into the currently selected view, if any.
+      if (viewsRef.current?.currentId) {
+        viewsRef.current.saveCurrent(snap);
+      }
     }, 150);
     return () => window.clearTimeout(handle);
   }, [effectivePersistKey, buildPersistSnapshot]);
@@ -1066,6 +1102,8 @@ export function Grid(props) {
   const showSavedViews = enableSavedViews && Boolean(effectivePersistKey);
   const buildSnapshot = buildPersistSnapshot;
   const views = useSavedViews(effectivePersistKey, persisted);
+  const viewsRef = useRef(views);
+  useEffect(() => { viewsRef.current = views; }, [views]);
   const applySnapshot = useCallback(snap => {
     setGlobalSearch(snap.globalSearch ?? '');
     setSortModel(snap.sortModel ?? []);
@@ -1147,6 +1185,14 @@ export function Grid(props) {
             </Box>}
 
           {hasActiveFilters && <Chip size="small" label={`${Object.keys(filters).filter(k => filters[k]).length} filter(s)`} onDelete={() => setFilters({})} color="primary" variant="outlined" />}
+
+          {enableMultiSort && <Tooltip title="Sort">
+              <Button size="small" startIcon={<SortIcon fontSize="small" />} onClick={() => setSortDialogOpen(true)} sx={{ textTransform: 'none' }}>
+                Sort{sortModel.length > 0 ? ` (${sortModel.length})` : ''}
+              </Button>
+            </Tooltip>}
+
+          {enableMultiSort && <SortDialog open={sortDialogOpen} onClose={() => setSortDialogOpen(false)} columns={validCols.map(c => ({ key: c.key, header: c.header }))} sortModel={sortModel} onApply={next => { setSortModel(next); setPage(0); }} />}
 
           {showSavedViews && <ViewMenu views={views.viewsList.map(v => ({
           id: v.id,

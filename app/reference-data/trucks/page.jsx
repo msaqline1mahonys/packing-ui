@@ -363,7 +363,7 @@ export default function TrucksPage() {
                   disabled={selectedId == null || isLoading || isDeleting}
                   onClick={removeSelected}
                 >
-                  {isDeleting ? "Deletingâ€¦" : "Delete"}
+                  {isDeleting ? "Deleting..." : "Delete"}
                 </Button>
               </div>
               <MobileList
@@ -388,7 +388,7 @@ export default function TrucksPage() {
               fileName={config.title}
               visibleRows={12}
               loading={isLoading}
-              emptyMessage={isLoading ? "Loading trucksâ€¦" : "No trucks found."}
+              emptyMessage={isLoading ? "Loading trucks..." : "No trucks found."}
               onRowClick={(row) => setSelectedId(row.id)}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
               onRowDoubleClick={openEditModalForRow}
@@ -418,7 +418,7 @@ export default function TrucksPage() {
                     disabled={selectedId == null || isLoading || isDeleting}
                     onClick={removeSelected}
                   >
-                    {isDeleting ? "Deletingâ€¦" : "Delete"}
+                    {isDeleting ? "Deleting..." : "Delete"}
                   </Button>
                 </div>
               }
@@ -463,7 +463,7 @@ export default function TrucksPage() {
             Cancel
           </Button>
           <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
-            {isSaving ? "Savingâ€¦" : modalMode === "edit" ? "Save changes" : "Create"}
+            {isSaving ? "Saving..." : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
       </Modal>
@@ -523,7 +523,7 @@ function FormField({ field, value, onChange, disabled }) {
 
 function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
   const emptyMessage = isLoading
-    ? `Loading ${title.toLowerCase()}â€¦`
+    ? `Loading ${title.toLowerCase()}...`
     : search
       ? `No ${title.toLowerCase()} match your search.`
       : `No ${title.toLowerCase()} found. Add your first one!`;
@@ -537,7 +537,7 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" Â· ");
+          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
           return (
             <button
               key={row.id}
@@ -563,7 +563,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || ""}</dd>
     </div>
   );
 }

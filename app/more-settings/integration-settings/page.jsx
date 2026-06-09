@@ -106,7 +106,7 @@ export default function IntegrationSettingsPage() {
   );
 
   const siteLabel = useMemo(
-    () => siteOptions.find((option) => option.id === selectedSiteId)?.label || "â€”",
+    () => siteOptions.find((option) => option.id === selectedSiteId)?.label || "",
     [siteOptions, selectedSiteId]
   );
 

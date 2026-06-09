@@ -83,8 +83,8 @@ export default function StockTransferPage() {
   const fromLoc = MOCK_LOCATIONS.find((l) => l.id === Number(form.fromLocationId));
   const toLoc = MOCK_LOCATIONS.find((l) => l.id === Number(form.toLocationId));
   const selectedComm = MOCK_COMMODITIES.find((c) => c.id === Number(form.commodityId));
-  const lookupLoc = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "â€”";
-  const lookupComm = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "â€”";
+  const lookupLoc = (id) => MOCK_LOCATIONS.find((l) => l.id === id)?.name ?? "";
+  const lookupComm = (id) => MOCK_COMMODITIES.find((c) => c.id === id)?.name ?? "";
 
   function executeTransfer() {
     if (!canTransfer) return;
@@ -141,19 +141,19 @@ export default function StockTransferPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Commodity Type" required>
             <select suppressHydrationWarning className={inputClass} value={form.commodityTypeId} onChange={(e) => { set("commodityTypeId", e.target.value); set("commodityId", ""); }}>
-              <option value="">â€” Select Commodity Type â€”</option>
+              <option value=""> Select Commodity Type </option>
               {MOCK_COMMODITY_TYPES.map((ct) => <option key={ct.id} value={ct.id}>{ct.name}</option>)}
             </select>
           </Field>
           <Field label="Commodity" required>
             <select suppressHydrationWarning className={inputClass} value={form.commodityId} onChange={(e) => set("commodityId", e.target.value)} disabled={!form.commodityTypeId}>
-              <option value="">â€” Select Commodity â€”</option>
+              <option value=""> Select Commodity </option>
               {availableCommodities.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
             </select>
           </Field>
           <Field label="From Location" required>
             <select suppressHydrationWarning className={inputClass} value={form.fromLocationId} onChange={(e) => set("fromLocationId", e.target.value)}>
-              <option value="">â€” Select Source Location â€”</option>
+              <option value=""> Select Source Location </option>
               {MOCK_LOCATIONS.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
             </select>
             {form.fromLocationId && form.commodityId && (
@@ -162,7 +162,7 @@ export default function StockTransferPage() {
           </Field>
           <Field label="To Location" required>
             <select suppressHydrationWarning className={inputClass} value={form.toLocationId} onChange={(e) => set("toLocationId", e.target.value)}>
-              <option value="">â€” Select Destination Location â€”</option>
+              <option value=""> Select Destination Location </option>
               {toLocations.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
             </select>
           </Field>
@@ -176,7 +176,7 @@ export default function StockTransferPage() {
             <input suppressHydrationWarning className={inputClass} value={form.reference} onChange={(e) => set("reference", e.target.value)} placeholder="Optional reference number" />
           </Field>
           <Field label="Reason" wide>
-            <textarea suppressHydrationWarning className={cn(inputClass, "min-h-16 resize-y")} value={form.reason} onChange={(e) => set("reason", e.target.value)} placeholder="Reason for transferâ€¦" rows={2} />
+            <textarea suppressHydrationWarning className={cn(inputClass, "min-h-16 resize-y")} value={form.reason} onChange={(e) => set("reason", e.target.value)} placeholder="Reason for transfer..." rows={2} />
           </Field>
         </div>
       </div>

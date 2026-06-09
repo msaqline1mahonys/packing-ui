@@ -30,7 +30,7 @@ const TABLE_COLUMNS = [
 ];
 
 function formatCutoffOrEtdDisplay(value) {
-  if (value == null || String(value).trim() === "") return "â€”";
+  if (value == null || String(value).trim() === "") return "";
   const str = String(value).trim();
   if (str.includes("T")) {
     const [d, t] = str.split("T");
@@ -58,7 +58,7 @@ function emptyParkRaw(row, parkIdToName) {
 
 function emptyParkDisplay(row, parkIdToName) {
   const s = emptyParkRaw(row, parkIdToName);
-  return s || "â€”";
+  return s || "";
 }
 
 export default function PackersScheduleClient() {
@@ -119,7 +119,7 @@ export default function PackersScheduleClient() {
         return {
           ...base,
           valueGetter: emptyParkGetter,
-          format: (v) => (v ? String(v) : "â€”"),
+          format: (v) => (v ? String(v) : ""),
         };
       }
       if (column.key === "vesselCutoffDate") {
@@ -257,7 +257,7 @@ function Field({ label, value }) {
   return (
     <div className="space-y-0.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? "â€”"}</div>
+      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">{value ?? ""}</div>
     </div>
   );
 }

@@ -228,7 +228,7 @@ function PemsSelect({ label, value, options, onChange, inputClass }) {
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
       <select suppressHydrationWarning className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)}>
-        <option value="">{options.length ? "Select option" : "â€”"}</option>
+        <option value="">{options.length ? "Select option" : ""}</option>
         {options.map((option) => (
           <option key={option} value={option}>
             {option}

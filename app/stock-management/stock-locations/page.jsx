@@ -53,7 +53,7 @@ export default function StockLocationsPage() {
   const displayRows = locations.map(l => ({
     ...l,
     capacityDisplay: `${l.capacity} ${l.unit}`,
-    description: l.description || "â€”"
+    description: l.description || ""
   }));
 
   function openNew() { setEditingId(null); setForm(blankLocation()); setModalOpen(true); }
@@ -203,7 +203,7 @@ export default function StockLocationsPage() {
 }
 
 function DI({ label, value, highlight }) {
-  return (<div><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd></div>);
+  return (<div><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || ""}</dd></div>);
 }
 function Field({ label, required, children }) {
   return (<div className="space-y-1"><label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}{required && <span className="text-red-500"> *</span>}</label>{children}</div>);

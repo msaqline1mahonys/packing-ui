@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -106,12 +106,12 @@ const rfpFilesRowClass = "mt-1.5 grid gap-2 sm:grid-cols-2";
 const innerPanelClass = "space-y-2 rounded-md border border-slate-200 bg-slate-50/40 p-2.5";
 
 function safeValue(value) {
-  if (value == null || String(value).trim() === "") return "â€”";
+  if (value == null || String(value).trim() === "") return "";
   return String(value);
 }
 
 function formatDateTimeValue(value) {
-  if (value == null || String(value).trim() === "") return "â€”";
+  if (value == null || String(value).trim() === "") return "";
   const str = String(value).trim();
   if (!str.includes("T")) return str;
   const [datePart, timePart] = str.split("T");
@@ -1102,29 +1102,29 @@ function NewPackFormPageInner() {
         if (park) parts.push(park);
         const tr = transporters.find((t) => t.id === Number(row.transporterId))?.name;
         if (tr) parts.push(tr);
-        return parts.length ? parts.join(" Â· ") : null;
+        return parts.length ? parts.join(" · ") : null;
       })
       .filter(Boolean);
 
     return {
-      customer: customerName || "â€”",
-      jobRef: String(pack.jobReference || "").trim() || "â€”",
-      commodity: commodityName || "â€”",
-      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim() || "â€”",
+      customer: customerName || "",
+      jobRef: String(pack.jobReference || "").trim() || "",
+      commodity: commodityName || "",
+      fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim() || "",
       packWarning:
         pack.packWarningRequired && String(pack.packWarning || "").trim()
           ? String(pack.packWarning).trim()
-          : "â€”",
-      releases: releaseLines.length ? releaseLines.join(" â€¢ ") : "â€”",
+          : "",
+      releases: releaseLines.length ? releaseLines.join(" â€¢ ") : "",
       containers:
-        pack.containersRequired === "" || pack.containersRequired == null ? "â€”" : String(pack.containersRequired),
-      containerCode: String(pack.containerCode || "").trim() || "â€”",
-      mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : "â€”",
-      vessel: selectedVessel?.vessel?.trim() || "â€”",
-      etd: String(pack.etd || "").trim() || "â€”",
-      transshipment: String(pack.transshipmentPort || "").trim() || "â€”",
-      rfp: String(pack.rfp || "").trim() || "â€”",
-      edn: String(pack.edn || "").trim() || "â€”",
+        pack.containersRequired === "" || pack.containersRequired == null ? "" : String(pack.containersRequired),
+      containerCode: String(pack.containerCode || "").trim() || "",
+      mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : "",
+      vessel: selectedVessel?.vessel?.trim() || "",
+      etd: String(pack.etd || "").trim() || "",
+      transshipment: String(pack.transshipmentPort || "").trim() || "",
+      rfp: String(pack.rfp || "").trim() || "",
+      edn: String(pack.edn || "").trim() || "",
     };
   }, [
     pack.customerId,
@@ -2704,7 +2704,7 @@ function NewPackFormPageInner() {
                                     <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
                                   </div>
                                   <p className="mt-0.5 text-[11px] text-slate-600">
-                                    {safeValue(row.recordType)} Â· Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
+                                    {safeValue(row.recordType)} · Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
                                   </p>
                                 </div>
                               ))}

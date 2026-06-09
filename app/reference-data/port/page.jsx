@@ -473,7 +473,7 @@ function MobileList({ rows, selectedId, onSelect, title, primaryKey, secondaryKe
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" Â· ");
+          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
           return (
             <button
               key={row.id}
@@ -484,9 +484,9 @@ function MobileList({ rows, selectedId, onSelect, title, primaryKey, secondaryKe
                 isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
               )}
             >
-              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || "â€”"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || "â€”"}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{summary || "â€”"}</p>
+              <p className="text-xs font-bold text-blue-600">{row[primaryKey] || ""}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{row[secondaryKey] || ""}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{summary || ""}</p>
             </button>
           );
         })
@@ -499,7 +499,7 @@ function DetailItem({ label, value, highlight }) {
   return (
     <div>
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "â€”"}</dd>
+      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || ""}</dd>
     </div>
   );
 }

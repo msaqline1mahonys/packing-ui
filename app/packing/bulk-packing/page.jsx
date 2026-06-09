@@ -248,8 +248,8 @@ export default function BulkPackingPage() {
                       <span className="font-bold text-brand">#{p.id}</span>
                       <StatusBadge status={p.status} />
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{p.jobReference || "â€”"}</p>
-                    <p className="text-xs text-slate-700">{cust?.name || "â€”"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{p.jobReference || ""}</p>
+                    <p className="text-xs text-slate-700">{cust?.name || ""}</p>
                     <p className="mt-1 text-[10px] text-slate-400">Tickets: {cnt}</p>
                   </button>
                 );
@@ -271,17 +271,17 @@ export default function BulkPackingPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-bold text-slate-900">
-                      Pack #{selectedPack.id} Â· {selectedPack.jobReference || "â€”"}
+                      Pack #{selectedPack.id} · {selectedPack.jobReference || ""}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      {customer?.name} Â· {commodity?.description} Â· {selectedPack.importExport}
+                      {customer?.name} · {commodity?.description} · {selectedPack.importExport}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      Destination: {selectedPack.destinationCountry || "â€”"}{" "}
-                      {selectedPack.destinationPort ? `Â· ${selectedPack.destinationPort}` : ""}
+                      Destination: {selectedPack.destinationCountry || ""}{" "}
+                      {selectedPack.destinationPort ? `· ${selectedPack.destinationPort}` : ""}
                     </p>
                     <p className="mt-0.5 text-[11px] text-slate-400">
-                      Test required: {selectedPack.testRequired ? "Yes" : "No"} Â· Shrink taken: {selectedPack.shrinkTaken ? "Yes" : "No"}
+                      Test required: {selectedPack.testRequired ? "Yes" : "No"} · Shrink taken: {selectedPack.shrinkTaken ? "Yes" : "No"}
                     </p>
                   </div>
                   {selectedPack.status === "Pending" && (
@@ -330,14 +330,14 @@ export default function BulkPackingPage() {
                           const canComplete = net > 0 && bt.grossWeight != null && bt.tareWeight != null && bt.locationId;
                           return (
                             <tr key={bt.id} className="border-b border-slate-50">
-                              <td className="px-3 py-2.5 text-slate-800">{bt.date || "â€”"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{truck?.name || "â€”"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{bt.grossWeight ?? "â€”"}</td>
-                              <td className="px-3 py-2.5 text-slate-800">{bt.tareWeight ?? "â€”"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.date || ""}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{truck?.name || ""}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.grossWeight ?? ""}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{bt.tareWeight ?? ""}</td>
                               <td className="px-3 py-2.5 font-semibold text-emerald-600">
-                                {net > 0 ? net.toFixed(3) : "â€”"}
+                                {net > 0 ? net.toFixed(3) : ""}
                               </td>
-                              <td className="px-3 py-2.5 text-slate-800">{loc?.name || "â€”"}</td>
+                              <td className="px-3 py-2.5 text-slate-800">{loc?.name || ""}</td>
                               <td className="px-3 py-2.5">
                                 <StatusBadge status={bt.status} />
                               </td>
@@ -390,7 +390,7 @@ export default function BulkPackingPage() {
           </FormField>
           <FormField label="Truck">
             <select suppressHydrationWarning className={inputClass} value={ticketForm.truckId ?? ""} onChange={(e) => set("truckId", e.target.value)}>
-              <option value="">â€” Select â€”</option>
+              <option value=""> Select </option>
               {MOCK_TRUCKS.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -404,7 +404,7 @@ export default function BulkPackingPage() {
           </FormField>
           <FormField label="Location">
             <select suppressHydrationWarning className={inputClass} value={ticketForm.locationId ?? ""} onChange={(e) => set("locationId", e.target.value)}>
-              <option value="">â€” Select â€”</option>
+              <option value=""> Select </option>
               {MOCK_STOCK_LOCATIONS.map((l) => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}

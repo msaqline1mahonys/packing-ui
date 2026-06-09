@@ -1,140 +1,236 @@
+'use client'
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  fetchGridViews,
+  createGridView,
+  updateGridView,
+  deleteGridView,
+  hasAuthForGridViews,
+} from '../../../lib/grid-views-api'
 import { devWarn } from '../utils/safe'
 
-const PREFIX = 'clutch-grid:'
-const VIEWS_SUFFIX = ':views'
-const VERSION = 1
+const SNAPSHOT_DEBOUNCE_MS = 800
 
-const newId = () => 'v_' + Math.random().toString(36).slice(2, 10)
-
-function storageKey(key) {
-  return PREFIX + key + VIEWS_SUFFIX
-}
-
-export function loadViewsCollection(persistKey) {
-  if (!persistKey) return null
-  if (typeof window === 'undefined' || !window.localStorage) return null
-  try {
-    const raw = window.localStorage.getItem(storageKey(persistKey))
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || parsed.version !== VERSION) return null
-    if (!parsed.views || typeof parsed.views !== 'object') return null
-    return parsed
-  } catch (err) {
-    devWarn('Failed to load saved views', err)
-    return null
-  }
-}
-
-function saveViewsCollection(persistKey, collection) {
-  if (!persistKey) return
-  if (typeof window === 'undefined' || !window.localStorage) return
-  try {
-    window.localStorage.setItem(storageKey(persistKey), JSON.stringify(collection))
-  } catch (err) {
-    devWarn('Failed to persist saved views', err)
-  }
-}
-
+/**
+ * DB-backed saved views per (user, grid_key).
+ *
+ * Return shape mirrors the prior localStorage hook so Grid.jsx callsites are
+ * unchanged: { viewsList, currentId, defaultId, currentView, defaultView,
+ *              saveCurrent, saveAs, rename, remove, setCurrent, setDefault }.
+ *
+ * Behaviour:
+ *  - Loads views on mount; falls back to empty until the network call resolves.
+ *  - `saveCurrent(snapshot)` is debounced and PUTs the current view's snapshot.
+ *  - `saveAs / rename / remove / setCurrent / setDefault` apply optimistically
+ *    and sync to the server immediately.
+ *  - Silent disable when there's no auth token (matches useUserGridPreference).
+ */
 export function useSavedViews(persistKey, legacySnapshot) {
-  const [state, setState] = useState(() => {
-    const existing = loadViewsCollection(persistKey)
-    if (existing && Object.keys(existing.views).length > 0) return existing
-    if (legacySnapshot) {
-      const id = newId()
-      return {
-        version: VERSION,
-        views: { [id]: { id, name: 'Default', snapshot: legacySnapshot } },
-        currentId: id, defaultId: id,
+  const [views, setViews] = useState({})
+  const [currentId, setCurrentId] = useState(null)
+  const [defaultId, setDefaultId] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+
+  const snapshotTimerRef = useRef(null)
+  const pendingSnapshotRef = useRef(null)
+  const lastSnapshotPayloadRef = useRef(null)
+  const currentIdRef = useRef(currentId)
+  useEffect(() => { currentIdRef.current = currentId }, [currentId])
+
+  useEffect(() => {
+    if (!persistKey || !hasAuthForGridViews()) {
+      setLoaded(true)
+      return
+    }
+    let cancelled = false
+    fetchGridViews(persistKey)
+      .then((result) => {
+        if (cancelled || !result) return
+        const map = {}
+        for (const v of result.views) map[v.id] = v
+        setViews(map)
+        setCurrentId(result.currentId ?? null)
+        setDefaultId(result.defaultId ?? null)
+      })
+      .catch((err) => devWarn(`Failed to load views for "${persistKey}"`, err))
+      .finally(() => { if (!cancelled) setLoaded(true) })
+
+    return () => {
+      cancelled = true
+      if (snapshotTimerRef.current != null) {
+        window.clearTimeout(snapshotTimerRef.current)
+        snapshotTimerRef.current = null
       }
     }
-    return { version: VERSION, views: {}, currentId: null, defaultId: null }
-  })
+  }, [persistKey])
 
-  useEffect(() => { saveViewsCollection(persistKey, state) }, [persistKey, state])
+  // First-load seeding: if backend returned no views and a legacy snapshot is
+  // available (e.g. from localStorage during the migration window), seed a
+  // "Default" view server-side so the user keeps their existing layout.
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (!loaded || seededRef.current) return
+    if (!persistKey || !hasAuthForGridViews()) return
+    if (Object.keys(views).length > 0) return
+    if (!legacySnapshot) return
+    seededRef.current = true
+    createGridView(persistKey, {
+      name: 'Default',
+      snapshot: legacySnapshot,
+      isDefault: true,
+      isCurrent: true,
+    })
+      .then((created) => {
+        if (!created) return
+        setViews((prev) => ({ ...prev, [created.id]: created }))
+        setCurrentId(created.id)
+        setDefaultId(created.id)
+      })
+      .catch((err) => devWarn(`Failed to seed default view for "${persistKey}"`, err))
+  }, [loaded, persistKey, views, legacySnapshot])
 
-  const stateRef = useRef(state)
-  useEffect(() => { stateRef.current = state }, [state])
+  const flushSnapshotSave = useCallback(() => {
+    if (snapshotTimerRef.current != null) {
+      window.clearTimeout(snapshotTimerRef.current)
+      snapshotTimerRef.current = null
+    }
+    const id = currentIdRef.current
+    const snapshot = pendingSnapshotRef.current
+    if (!id || !snapshot) return
+    updateGridView(persistKey, id, { snapshot })
+      .catch((err) => devWarn(`Failed to update view snapshot for "${persistKey}"`, err))
+  }, [persistKey])
 
   const saveCurrent = useCallback((snapshot) => {
-    setState((prev) => {
-      if (!prev.currentId || !prev.views[prev.currentId]) {
-        const id = newId()
-        return {
-          ...prev,
-          views: { ...prev.views, [id]: { id, name: 'Default', snapshot } },
-          currentId: id, defaultId: prev.defaultId ?? id,
-        }
-      }
-      return {
-        ...prev,
-        views: { ...prev.views, [prev.currentId]: { ...prev.views[prev.currentId], snapshot } },
-      }
-    })
-  }, [])
+    if (!persistKey || !hasAuthForGridViews()) return
+    if (!snapshot || typeof snapshot !== 'object') return
+    if (!currentIdRef.current) return
 
-  const saveAs = useCallback((name, snapshot) => {
-    const trimmed = name.trim() || 'Untitled view'
-    const id = newId()
-    setState((prev) => ({
-      ...prev,
-      views: { ...prev.views, [id]: { id, name: trimmed, snapshot } },
-      currentId: id, defaultId: prev.defaultId ?? id,
-    }))
-    return id
-  }, [])
+    const serialized = JSON.stringify(snapshot)
+    if (serialized === lastSnapshotPayloadRef.current) return
+    lastSnapshotPayloadRef.current = serialized
+    pendingSnapshotRef.current = snapshot
 
-  const rename = useCallback((id, name) => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    setState((prev) => {
-      if (!prev.views[id]) return prev
-      return { ...prev, views: { ...prev.views, [id]: { ...prev.views[id], name: trimmed } } }
+    // Optimistic local update so re-selecting the view doesn't snap state back.
+    setViews((prev) => {
+      const v = prev[currentIdRef.current]
+      if (!v) return prev
+      return { ...prev, [v.id]: { ...v, snapshot } }
     })
-  }, [])
 
-  const remove = useCallback((id) => {
-    setState((prev) => {
-      if (!prev.views[id]) return prev
-      const remaining = { ...prev.views }
-      delete remaining[id]
-      const remainingIds = Object.keys(remaining)
-      if (remainingIds.length === 0) {
-        return { ...prev, views: {}, currentId: null, defaultId: null }
+    if (snapshotTimerRef.current != null) {
+      window.clearTimeout(snapshotTimerRef.current)
+    }
+    snapshotTimerRef.current = window.setTimeout(flushSnapshotSave, SNAPSHOT_DEBOUNCE_MS)
+  }, [persistKey, flushSnapshotSave])
+
+  const saveAs = useCallback(async (name, snapshot) => {
+    const trimmed = (name || '').trim() || 'Untitled view'
+    if (!persistKey || !hasAuthForGridViews()) return null
+    try {
+      const created = await createGridView(persistKey, {
+        name: trimmed,
+        snapshot,
+        isDefault: defaultId == null,
+        isCurrent: true,
+      })
+      if (!created) return null
+      setViews((prev) => ({ ...prev, [created.id]: created }))
+      setCurrentId(created.id)
+      if (created.isDefault) setDefaultId(created.id)
+      return created.id
+    } catch (err) {
+      devWarn(`Failed to create view "${trimmed}" for "${persistKey}"`, err)
+      return null
+    }
+  }, [persistKey, defaultId])
+
+  const rename = useCallback(async (id, name) => {
+    const trimmed = (name || '').trim()
+    if (!trimmed || !persistKey) return
+    if (!views[id]) return
+    const prevName = views[id].name
+    setViews((prev) => ({ ...prev, [id]: { ...prev[id], name: trimmed } }))
+    try {
+      await updateGridView(persistKey, id, { name: trimmed })
+    } catch (err) {
+      setViews((prev) => ({ ...prev, [id]: { ...prev[id], name: prevName } }))
+      devWarn(`Failed to rename view "${id}" for "${persistKey}"`, err)
+    }
+  }, [persistKey, views])
+
+  const remove = useCallback(async (id) => {
+    if (!persistKey || !views[id]) return
+    const snapshotPrev = views
+    const newViews = { ...views }
+    delete newViews[id]
+    const remainingIds = Object.keys(newViews)
+    const nextCurrent = currentId === id ? (remainingIds[0] ?? null) : currentId
+    const nextDefault = defaultId === id ? (remainingIds[0] ?? null) : defaultId
+    setViews(newViews)
+    setCurrentId(nextCurrent)
+    setDefaultId(nextDefault)
+    try {
+      await deleteGridView(persistKey, id)
+      // Promote nextCurrent / nextDefault flags server-side if we picked them.
+      if (nextCurrent && currentId === id) {
+        await updateGridView(persistKey, nextCurrent, { isCurrent: true })
       }
-      return {
-        ...prev, views: remaining,
-        currentId: prev.currentId === id ? remainingIds[0] : prev.currentId,
-        defaultId: prev.defaultId === id ? remainingIds[0] : prev.defaultId,
+      if (nextDefault && defaultId === id) {
+        await updateGridView(persistKey, nextDefault, { isDefault: true })
       }
-    })
-  }, [])
+    } catch (err) {
+      setViews(snapshotPrev)
+      setCurrentId(currentId)
+      setDefaultId(defaultId)
+      devWarn(`Failed to delete view "${id}" for "${persistKey}"`, err)
+    }
+  }, [persistKey, views, currentId, defaultId])
 
   const setCurrent = useCallback((id) => {
-    const view = stateRef.current.views[id]
+    const view = views[id]
     if (!view) return null
-    setState((prev) => (prev.currentId === id ? prev : { ...prev, currentId: id }))
+    if (currentId === id) return view
+    // Flush any pending snapshot save against the old current view first.
+    flushSnapshotSave()
+    lastSnapshotPayloadRef.current = view.snapshot ? JSON.stringify(view.snapshot) : null
+    setCurrentId(id)
+    if (persistKey && hasAuthForGridViews()) {
+      updateGridView(persistKey, id, { isCurrent: true })
+        .catch((err) => devWarn(`Failed to mark current view "${id}" for "${persistKey}"`, err))
+    }
     return view
-  }, [])
+  }, [views, currentId, persistKey, flushSnapshotSave])
 
   const setDefault = useCallback((id) => {
-    setState((prev) => {
-      if (id != null && !prev.views[id]) return prev
-      return { ...prev, defaultId: id }
-    })
-  }, [])
+    if (id != null && !views[id]) return
+    setDefaultId(id)
+    if (persistKey && hasAuthForGridViews() && id) {
+      updateGridView(persistKey, id, { isDefault: true })
+        .catch((err) => devWarn(`Failed to mark default view "${id}" for "${persistKey}"`, err))
+    }
+  }, [views, persistKey])
 
   const viewsList = useMemo(
-    () => Object.values(state.views).sort((a, b) => a.name.localeCompare(b.name)),
-    [state.views],
+    () => Object.values(views).sort((a, b) => a.name.localeCompare(b.name)),
+    [views],
   )
-
-  const currentView = state.currentId ? state.views[state.currentId] ?? null : null
-  const defaultView = state.defaultId ? state.views[state.defaultId] ?? null : null
+  const currentView = currentId ? views[currentId] ?? null : null
+  const defaultView = defaultId ? views[defaultId] ?? null : null
 
   return {
-    viewsList, currentId: state.currentId, defaultId: state.defaultId,
-    currentView, defaultView, saveCurrent, saveAs, rename, remove, setCurrent, setDefault,
+    viewsList,
+    currentId,
+    defaultId,
+    currentView,
+    defaultView,
+    loaded,
+    saveCurrent,
+    saveAs,
+    rename,
+    remove,
+    setCurrent,
+    setDefault,
   }
 }

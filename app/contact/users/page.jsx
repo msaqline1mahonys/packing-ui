@@ -1,9 +1,9 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
-import { loadContactUsers, saveContactUsers } from "@/lib/contact-users-store";
+import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
 import { cn } from "@/lib/utils";
 import {
   ALL_CLASSIFICATIONS,
@@ -13,6 +13,7 @@ import {
   legacyFlagsFromClassifications,
   normalizeClassifications,
 } from "@/lib/user-classifications";
+import { fetchApiUsers, createApiUser, updateApiUser, deleteApiUser, fetchAvailableRoles } from "@/lib/users-api";
 
 const MOBILE_BREAKPOINT = 900;
 const inputClass =
@@ -60,6 +61,7 @@ function buildFormData(row) {
       name: "",
       email: "",
       role: "",
+      roleIds: [],
       active: true,
       userClassifications: [],
       aoExpiry: "",
@@ -80,6 +82,7 @@ function buildFormData(row) {
     name: row.name || "",
     email: row.email || "",
     role: row.role || "",
+    roleIds: row.roleIds || [],
     active: row.active !== false,
     userClassifications,
     aoExpiry: row.aoExpiry || "",
@@ -101,17 +104,49 @@ function hasClassification(formData, classification) {
 }
 
 export default function ContactUsersPage() {
-  const [rows, setRows] = useState(() => loadContactUsers().map(toDisplayRow));
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState("");
+  const [availableRoles, setAvailableRoles] = useState([]);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setApiError("");
+      const [apiUsers, roles] = await Promise.all([fetchApiUsers(), fetchAvailableRoles()]);
+      const domainStore = loadDomainData();
+      const merged = apiUsers.map((u) => {
+        const domain = domainStore[u.id] || {};
+        return toDisplayRow({
+          id: u.id,
+          name: u.name || "",
+          email: u.email || "",
+          role: u.roles?.[0]?.display_name || u.roles?.[0]?.name || "",
+          roleIds: (u.roles || []).map((r) => r.id),
+          active: true,
+          ...domain,
+        });
+      });
+      setRows(merged);
+      setAvailableRoles(roles);
+      saveContactUsers(merged);
+    } catch (err) {
+      setApiError(err.message || "Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    saveContactUsers(rows);
-  }, [rows]);
+    loadUsers();
+  }, [loadUsers]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -144,7 +179,7 @@ export default function ContactUsersPage() {
     setModalOpen(true);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!formData.name.trim() || !formData.email.trim()) return;
     const nextPassword = (formData.newPassword || "").trim();
     const confirmPassword = (formData.confirmPassword || "").trim();
@@ -155,13 +190,33 @@ export default function ContactUsersPage() {
     const signature = (formData.signature || "").trim();
     const fumigatorLicence = (formData.fumigatorLicence || "").trim();
 
-    if (nextPassword || confirmPassword) {
+    if (editMode) {
+      if (nextPassword || confirmPassword) {
+        if (nextPassword.length < 8) {
+          window.alert("Password must be at least 8 characters.");
+          return;
+        }
+        if (nextPassword !== confirmPassword) {
+          window.alert("Password confirmation does not match.");
+          return;
+        }
+      }
+    } else {
+      if (!nextPassword) {
+        window.alert("Password is required for new users.");
+        return;
+      }
       if (nextPassword.length < 8) {
         window.alert("Password must be at least 8 characters.");
         return;
       }
       if (nextPassword !== confirmPassword) {
         window.alert("Password confirmation does not match.");
+        return;
+      }
+      const selectedRoles = formData.roleIds || [];
+      if (selectedRoles.length === 0 && availableRoles.length > 0) {
+        window.alert("Please select a role for the user.");
         return;
       }
     }
@@ -188,46 +243,80 @@ export default function ContactUsersPage() {
       return;
     }
 
-    const nextRow = toDisplayRow({
-      id: editMode && selected ? selected.id : Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1,
-      name: formData.name.trim(),
-      email: formData.email.trim(),
-      role: formData.role.trim(),
-      active: formData.active,
-      userClassifications,
-      weighbridgeAccess: legacy.weighbridgeAccess,
-      packersAccountAccess: legacy.packersAccountAccess,
-      aoActive: legacy.aoActive,
-      aoExpiry: isAo ? formData.aoExpiry : "",
-      aoNumber: isAo ? aoNumber : "",
-      aoLicenseNumber: isAo ? aoLicenseNumber : "",
-      aoPemsUsername: isAo ? aoPemsUsername : "",
-      aoPemsPassword: isAo ? (formData.aoPemsPassword || "").trim() : "",
-      aoToken: isAo ? aoToken : "",
-      signature,
-      isFumigator,
-      fumigationExpiry: isFumigator ? formData.fumigationExpiry : "",
-      fumigatorLicence: isFumigator ? fumigatorLicence : "",
-      password: editMode && selected ? (nextPassword ? nextPassword : selected.password || "") : nextPassword,
-      passwordUpdatedAt: editMode && selected ? (nextPassword ? new Date().toISOString() : selected.passwordUpdatedAt || "") : nextPassword ? new Date().toISOString() : "",
-    });
+    setSaving(true);
+    setApiError("");
 
-    if (editMode && selected) {
-      setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
-    } else {
-      setRows((prev) => [nextRow, ...prev]);
-      setSelectedId(nextRow.id);
+    try {
+      let userId;
+
+      if (editMode && selected) {
+        const updateData = {
+          name: formData.name.trim(),
+          email: formData.email.trim(),
+        };
+        if (nextPassword) updateData.password = nextPassword;
+        await updateApiUser(selected.id, updateData);
+        userId = selected.id;
+      } else {
+        const roleIds = formData.roleIds || [];
+        const created = await createApiUser({
+          name: formData.name.trim(),
+          email: formData.email.trim(),
+          password: nextPassword,
+          roles: roleIds,
+        });
+        userId = created.id;
+      }
+
+      const domainData = {
+        userClassifications,
+        weighbridgeAccess: legacy.weighbridgeAccess,
+        packersAccountAccess: legacy.packersAccountAccess,
+        aoActive: legacy.aoActive,
+        aoExpiry: isAo ? formData.aoExpiry : "",
+        aoNumber: isAo ? aoNumber : "",
+        aoLicenseNumber: isAo ? aoLicenseNumber : "",
+        aoPemsUsername: isAo ? aoPemsUsername : "",
+        aoPemsPassword: isAo ? (formData.aoPemsPassword || "").trim() : "",
+        aoToken: isAo ? aoToken : "",
+        signature,
+        isFumigator,
+        fumigationExpiry: isFumigator ? formData.fumigationExpiry : "",
+        fumigatorLicence: isFumigator ? fumigatorLicence : "",
+        passwordUpdatedAt: nextPassword ? new Date().toISOString() : (selected?.passwordUpdatedAt || ""),
+      };
+
+      const allDomain = loadDomainData();
+      allDomain[userId] = domainData;
+      saveDomainData(allDomain);
+
+      setModalOpen(false);
+      setFormData(buildFormData());
+      await loadUsers();
+      setSelectedId(userId);
+    } catch (err) {
+      window.alert(err.message || "Failed to save user.");
+    } finally {
+      setSaving(false);
     }
-
-    setModalOpen(false);
-    setFormData(buildFormData());
   }
 
-  function removeSelected() {
+  async function removeSelected() {
     if (!selected) return;
     if (!window.confirm(`Delete user "${selected.name}" permanently?`)) return;
-    setRows((prev) => prev.filter((row) => row.id !== selected.id));
-    setSelectedId(null);
+    try {
+      setSaving(true);
+      await deleteApiUser(selected.id);
+      const allDomain = loadDomainData();
+      delete allDomain[selected.id];
+      saveDomainData(allDomain);
+      setSelectedId(null);
+      await loadUsers();
+    } catch (err) {
+      window.alert(err.message || "Failed to delete user.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -238,6 +327,13 @@ export default function ContactUsersPage() {
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">Manage users, AO credentials, and fumigator details in one place.</p> : null}
       </div>
 
+      {apiError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>
+      ) : null}
+
+      {loading ? (
+        <div className="py-16 text-center text-sm text-slate-400">Loading users...</div>
+      ) : (
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
         <div className="overflow-hidden rounded-xl bg-white shadow-sm">
           {isMobile ? (
@@ -313,6 +409,7 @@ export default function ContactUsersPage() {
           </aside>
         ) : null}
       </div>
+      )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit User" : "Add New User"} width={760}>
         <div className="space-y-5">
@@ -333,13 +430,28 @@ export default function ContactUsersPage() {
           </div>
 
           <div className="grid gap-4">
-            <FormRow label="Role">
-              <Input
-                value={formData.role}
-                onChange={(event) => setFormData({ ...formData, role: event.target.value })}
-                placeholder="e.g., Manager, Supervisor, Operator"
-              />
-            </FormRow>
+            {availableRoles.length > 0 ? (
+              <FormRow label="Role" required={!editMode}>
+                <select
+                  className={inputClass}
+                  value={formData.roleIds?.[0] || ""}
+                  onChange={(event) => setFormData({ ...formData, roleIds: event.target.value ? [event.target.value] : [] })}
+                >
+                  <option value="">Select a role...</option>
+                  {availableRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.display_name || r.name}</option>
+                  ))}
+                </select>
+              </FormRow>
+            ) : (
+              <FormRow label="Role">
+                <Input
+                  value={formData.role}
+                  onChange={(event) => setFormData({ ...formData, role: event.target.value })}
+                  placeholder="e.g., Manager, Supervisor, Operator"
+                />
+              </FormRow>
+            )}
 
             <FormRow label="Status">
               <select
@@ -439,36 +551,34 @@ export default function ContactUsersPage() {
             )}
           </div>
 
-          {editMode ? (
-            <div className="border-t border-slate-200 pt-4">
-              <SectionTitle title="Security" />
-              <div className="grid gap-4">
-                <FormRow label="New Password">
-                  <Input
-                    type="password"
-                    value={formData.newPassword}
-                    onChange={(event) => setFormData({ ...formData, newPassword: event.target.value })}
-                    placeholder="Leave blank to keep current password"
-                  />
-                </FormRow>
-                <FormRow label="Confirm New Password">
-                  <Input
-                    type="password"
-                    value={formData.confirmPassword}
-                    onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
-                    placeholder="Re-enter new password"
-                  />
-                </FormRow>
-              </div>
+          <div className="border-t border-slate-200 pt-4">
+            <SectionTitle title="Security" />
+            <div className="grid gap-4">
+              <FormRow label={editMode ? "New Password" : "Password"} required={!editMode}>
+                <Input
+                  type="password"
+                  value={formData.newPassword}
+                  onChange={(event) => setFormData({ ...formData, newPassword: event.target.value })}
+                  placeholder={editMode ? "Leave blank to keep current password" : "Enter password (min 8 characters)"}
+                />
+              </FormRow>
+              <FormRow label="Confirm Password" required={!editMode}>
+                <Input
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
+                  placeholder="Re-enter password"
+                />
+              </FormRow>
             </div>
-          ) : null}
+          </div>
         </div>
 
         <div className="mt-5 flex gap-2 border-t border-slate-200 pt-4">
-          <BtnPrimary type="button" className="flex-1 justify-center" onClick={handleSubmit}>
-            {editMode ? "Update User" : "Add User"}
+          <BtnPrimary type="button" className="flex-1 justify-center" disabled={saving} onClick={handleSubmit}>
+            {saving ? "Saving..." : editMode ? "Update User" : "Add User"}
           </BtnPrimary>
-          <BtnSecondary type="button" className="flex-1 justify-center" onClick={() => setModalOpen(false)}>
+          <BtnSecondary type="button" className="flex-1 justify-center" disabled={saving} onClick={() => setModalOpen(false)}>
             Cancel
           </BtnSecondary>
         </div>

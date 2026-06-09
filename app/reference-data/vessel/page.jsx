@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { VesselIngestDialog } from "@/components/ingest/vessel-ingest-dialog";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -17,26 +18,20 @@ const inputClass =
 
 const config = {
   title: "Vessel",
-  subtitle: "Maintain vessel schedule data and shipment timing windows.",
+  subtitle: "Maintain vessel hulls (one row per ship). Voyages live on the Vessel Voyage screen.",
   columns: [
-    { key: "vessel", label: "Vessel" },
-    { key: "voyageNumber", label: "Voyage" },
-    { key: "vesselCutoffDate", label: "Cut-off" },
-    { key: "vesselReceivalsOpenDate", label: "Receivals" },
-    { key: "vesselEta", label: "ETA" },
-    { key: "vesselEtd", label: "ETD" },
-    { key: "vesselFreeDays", label: "Free Days" },
-    { key: "shippingLine", label: "Shipping Line" },
+    { key: "lloydsNumber", label: "Lloyds / IMO" },
+    { key: "vesselName", label: "Vessel" },
+    { key: "vesselType", label: "Type" },
+    { key: "shippingLine", label: "Default Shipping Line" },
+    { key: "voyagesCount", label: "Voyages" },
+    { key: "autoCreated", label: "Auto-created" },
   ],
   formFields: [
-    { key: "vessel", label: "Vessel", required: true },
-    { key: "voyageNumber", label: "Voyage Number", required: true },
-    { key: "vesselCutoffDate", label: "Cut-off", type: "datetime-local" },
-    { key: "vesselReceivalsOpenDate", label: "Receivals Open", type: "datetime-local" },
-    { key: "vesselEta", label: "ETA", type: "datetime-local" },
-    { key: "vesselEtd", label: "ETD", type: "datetime-local" },
-    { key: "vesselFreeDays", label: "Free Days", type: "number" },
-    { key: "shippingLineId", label: "Shipping Line", type: "select" },
+    { key: "vesselName", label: "Vessel Name", required: true },
+    { key: "lloydsNumber", label: "Lloyds / IMO Number" },
+    { key: "vesselType", label: "Vessel Type" },
+    { key: "shippingLineId", label: "Default Shipping Line", type: "select" },
   ],
 };
 
@@ -53,13 +48,6 @@ function buildDraft(row) {
   const next = {};
   for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
   return next;
-}
-
-function parseFieldValue(field, value) {
-  if (field.type !== "number") return value;
-  if (value === "") return "";
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? value : String(parsed);
 }
 
 function readAuthPayload() {
@@ -91,65 +79,37 @@ function extractApiError(result, fallback) {
   if (result?.errors) {
     return Object.values(result.errors).flat().join(", ");
   }
-
   return result?.message || fallback;
 }
 
 async function vesselRequest(path = "", options = {}) {
   const response = await fetch(`${VESSELS_ENDPOINT}${path}`, {
     ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...(options.headers || {}),
-    },
+    headers: { ...getAuthHeaders(), ...(options.headers || {}) },
   });
   const result = await response.json().catch(() => null);
-
   if (!response.ok || result?.success === false) {
     throw new Error(extractApiError(result, "Vessel request failed."));
   }
-
   return result?.data ?? result;
-}
-
-function toDateTimeLocal(value) {
-  if (!value) return "";
-  const normalized = String(value).replace(" ", "T");
-  return normalized.slice(0, 16);
-}
-
-function formatDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
 }
 
 function fromApiVessel(row) {
   const shippingLineName =
     row.shippingLine?.shipping_line_name ||
     row.shipping_line?.shipping_line_name ||
-    row.shipping_line_name ||
     "";
-
   return {
     id: row.id,
     organizationId: row.organization_id ?? "",
     siteId: row.site_id ?? "",
+    lloydsNumber: row.lloyds_number ?? "",
+    vesselName: row.vessel_name ?? "",
+    vesselType: row.vessel_type ?? "",
     shippingLineId: row.shipping_line_id ?? "",
-    shippingLineName,
     shippingLine: shippingLineName,
-    vessel: row.vessel ?? "",
-    voyageNumber: row.voyage_number ?? "",
-    vesselCutoffDate: toDateTimeLocal(row.vessel_cutoff_date),
-    vesselReceivalsOpenDate: toDateTimeLocal(row.vessel_receivals_open_date),
-    vesselEta: toDateTimeLocal(row.vessel_eta),
-    vesselEtd: toDateTimeLocal(row.vessel_etd),
-    vesselFreeDays: row.vessel_free_days ?? "",
-    vesselCutoffDateDisplay: formatDateTime(row.vessel_cutoff_date),
-    vesselReceivalsOpenDateDisplay: formatDateTime(row.vessel_receivals_open_date),
-    vesselEtaDisplay: formatDateTime(row.vessel_eta),
-    vesselEtdDisplay: formatDateTime(row.vessel_etd),
+    voyagesCount: row.voyages_count ?? 0,
+    autoCreated: row.auto_created ? "Yes" : "",
     organizationName: row.organization?.name ?? "",
     siteName: row.site?.name ?? "",
   };
@@ -162,20 +122,13 @@ function fromApiShippingLine(row) {
   };
 }
 
-function toApiPayload(draft, shippingLineOptions) {
-  const shippingLine = shippingLineOptions.find((option) => option.value === draft.shippingLineId);
-
+function toApiPayload(draft) {
   return {
     ...getTenantPayload(),
+    vessel_name: draft.vesselName?.trim() || null,
+    lloyds_number: draft.lloydsNumber?.trim() || null,
+    vessel_type: draft.vesselType?.trim() || null,
     shipping_line_id: draft.shippingLineId || null,
-    shipping_line_name: shippingLine?.label || null,
-    vessel: draft.vessel?.trim() || null,
-    voyage_number: draft.voyageNumber?.trim() || null,
-    vessel_cutoff_date: draft.vesselCutoffDate || null,
-    vessel_receivals_open_date: draft.vesselReceivalsOpenDate || null,
-    vessel_eta: draft.vesselEta || null,
-    vessel_etd: draft.vesselEtd || null,
-    vessel_free_days: draft.vesselFreeDays === "" ? null : Number(draft.vesselFreeDays),
   };
 }
 
@@ -192,6 +145,7 @@ export default function VesselPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [ingestOpen, setIngestOpen] = useState(false);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -212,7 +166,6 @@ export default function VesselPage() {
   const loadVesselData = useCallback(async () => {
     setIsLoading(true);
     setError("");
-
     try {
       const [vesselPayload, formPayload] = await Promise.all([
         vesselRequest("?per_page=100"),
@@ -226,7 +179,6 @@ export default function VesselPage() {
       const apiShippingLines = Array.isArray(formPayload?.shippingLines)
         ? formPayload.shippingLines
         : [];
-
       setRows(apiRows.map(fromApiVessel));
       setShippingLineOptions(apiShippingLines.map(fromApiShippingLine));
     } catch (err) {
@@ -240,7 +192,6 @@ export default function VesselPage() {
     const frame = requestAnimationFrame(() => {
       loadVesselData();
     });
-
     return () => cancelAnimationFrame(frame);
   }, [loadVesselData]);
 
@@ -267,41 +218,35 @@ export default function VesselPage() {
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some((field) => field.required && !String(draft[field.key] ?? "").trim());
+    const requiredMissing = config.formFields.some(
+      (field) => field.required && !String(draft[field.key] ?? "").trim()
+    );
     if (requiredMissing) {
       setError("Please fill all required fields.");
       return;
     }
-
-    const normalized = {};
-    for (const field of config.formFields) normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
-
     setIsSaving(true);
     setError("");
     setNotice("");
-
     try {
       if (modalMode === "add") {
         const payload = await vesselRequest("", {
           method: "POST",
-          body: JSON.stringify(toApiPayload(normalized, shippingLineOptions)),
+          body: JSON.stringify(toApiPayload(draft)),
         });
         const nextRow = fromApiVessel(payload);
-
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Vessel created successfully.");
         setModalMode(null);
         return;
       }
-
       if (modalMode === "edit" && selected) {
         const payload = await vesselRequest(`/${selected.id}`, {
           method: "PUT",
-          body: JSON.stringify(toApiPayload(normalized, shippingLineOptions)),
+          body: JSON.stringify(toApiPayload(draft)),
         });
         const nextRow = fromApiVessel(payload);
-
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Vessel updated successfully.");
         setModalMode(null);
@@ -315,18 +260,15 @@ export default function VesselPage() {
 
   const removeSelected = async () => {
     if (!selected || isDeleting) return;
-    const shouldDelete = window.confirm(`Delete ${selected.vessel || "this vessel"}?`);
+    const shouldDelete = window.confirm(
+      `Delete ${selected.vesselName || "this vessel"}? This will also delete all its voyages.`
+    );
     if (!shouldDelete) return;
-
     setIsDeleting(true);
     setError("");
     setNotice("");
-
     try {
-      await vesselRequest(`/${selected.id}`, {
-        method: "DELETE",
-      });
-
+      await vesselRequest(`/${selected.id}`, { method: "DELETE" });
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Vessel deleted successfully.");
@@ -338,9 +280,7 @@ export default function VesselPage() {
   };
 
   const formFields = config.formFields.map((field) =>
-    field.key === "shippingLineId"
-      ? { ...field, options: shippingLineOptions }
-      : field
+    field.key === "shippingLineId" ? { ...field, options: shippingLineOptions } : field
   );
   const modalError = modalMode ? error : "";
 
@@ -353,15 +293,11 @@ export default function VesselPage() {
       </div>
 
       {!modalMode && error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
       ) : null}
 
       {notice ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {notice}
-        </div>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
       ) : null}
 
       <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
@@ -374,20 +310,17 @@ export default function VesselPage() {
                 <Button type="button" variant="destructive" size="sm" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
                   {isDeleting ? "Deleting..." : "Delete"}
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={loadVesselData} disabled={isLoading}>
-                  Refresh
-                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={loadVesselData} disabled={isLoading}>Refresh</Button>
               </div>
               <MobileList
                 rows={rows}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
-                search=""
                 title={config.title}
                 isLoading={isLoading}
-                primaryKey={config.columns[0]?.key}
-                secondaryKey={config.columns[1]?.key}
-                summaryKeys={["shippingLine", "vesselEta", "vesselEtd"]}
+                primaryKey="vesselName"
+                secondaryKey="lloydsNumber"
+                summaryKeys={["vesselType", "shippingLine"]}
               />
             </>
           ) : (
@@ -410,9 +343,8 @@ export default function VesselPage() {
                   <Button type="button" variant="destructive" size="sm" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
                     {isDeleting ? "Deleting..." : "Delete"}
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={loadVesselData} disabled={isLoading}>
-                    Refresh
-                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={loadVesselData} disabled={isLoading}>Refresh</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setIngestOpen(true)} disabled={isLoading}>Import Schedule</Button>
                 </div>
               }
             />
@@ -427,7 +359,7 @@ export default function VesselPage() {
             ) : (
               <dl className="mt-4 space-y-3 text-sm">
                 {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
+                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[1]} />
                 ))}
               </dl>
             )}
@@ -435,21 +367,15 @@ export default function VesselPage() {
         ) : null}
       </div>
 
+      <VesselIngestDialog open={ingestOpen} onClose={() => setIngestOpen(false)} onIngestComplete={loadVesselData} />
+
       <Modal open={modalMode != null} title={modalMode === "edit" ? `Edit ${config.title}` : `Add ${config.title}`} onClose={closeModal}>
         {modalError ? (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">
-            {modalError}
-          </div>
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {formFields.map((field) => (
-            <FormField
-              key={field.key}
-              field={field}
-              value={draft[field.key] ?? ""}
-              disabled={isSaving}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
-            />
+            <FormField key={field.key} field={field} value={draft[field.key] ?? ""} disabled={isSaving} onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))} />
           ))}
         </div>
         <div className="mt-5 flex justify-end gap-2">
@@ -467,7 +393,7 @@ export default function VesselPage() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="fixed bottom-5 right-5 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-brand to-blue-500 text-xl text-white shadow-lg shadow-blue-500/30"
         >
-          â†‘
+          ^
         </button>
       ) : null}
     </div>
@@ -476,7 +402,7 @@ export default function VesselPage() {
 
 function FormField({ field, value, onChange, disabled }) {
   return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
+    <div className={cn("space-y-1", field.wide && "sm:col-span-2")}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
         {field.label}
         {field.required ? <span className="text-red-500"> *</span> : null}
@@ -490,8 +416,6 @@ function FormField({ field, value, onChange, disabled }) {
             </option>
           ))}
         </select>
-      ) : field.type === "textarea" ? (
-        <textarea suppressHydrationWarning className={cn(inputClass, "min-h-20 resize-y")} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
       ) : (
         <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
       )}
@@ -499,13 +423,8 @@ function FormField({ field, value, onChange, disabled }) {
   );
 }
 
-function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
-  const emptyMessage = isLoading
-    ? `Loading ${title.toLowerCase()}...`
-    : search
-      ? `No ${title.toLowerCase()} match your search.`
-      : `No ${title.toLowerCase()} found. Add your first one!`;
-
+function MobileList({ rows, selectedId, onSelect, title, primaryKey, secondaryKey, summaryKeys, isLoading }) {
+  const emptyMessage = isLoading ? `Loading ${title.toLowerCase()}...` : `No ${title.toLowerCase()} found. Add your first one!`;
   return (
     <div className="space-y-2 p-3">
       <div className="px-0.5 text-xs font-semibold text-slate-600">{title} ({rows.length})</div>
@@ -514,7 +433,7 @@ function MobileList({ rows, selectedId, onSelect, search, title, primaryKey, sec
       ) : (
         rows.map((row) => {
           const isSelected = row.id === selectedId;
-          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" · ");
+          const summary = summaryKeys.map((key) => row[key]).filter(Boolean).join(" - ");
           return (
             <button
               key={row.id}
@@ -550,9 +469,7 @@ function Modal({ open, title, onClose, children }) {
       <div role="dialog" aria-modal="true" aria-labelledby="reference-data-modal-title" className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <h2 id="reference-data-modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            x
-          </button>
+          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>x</button>
         </div>
         <div className="p-4">{children}</div>
       </div>

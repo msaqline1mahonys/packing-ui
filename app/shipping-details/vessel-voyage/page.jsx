@@ -359,7 +359,7 @@ export default function VesselVoyagePage() {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-xs text-slate-500">Reference Data / {config.title}</p>
+        <p className="text-xs text-slate-500">Shipping Details / {config.title}</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
         {!isMobile ? <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p> : null}
       </div>

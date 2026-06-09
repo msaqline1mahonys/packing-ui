@@ -41,6 +41,7 @@ export const PACKING_NAV_MODULES = [
     children: [
       { name: "Overview", href: "/" },
       { name: "Reference data", href: "/reference-data" },
+      { name: "Shipping details", href: "/shipping-details" },
       { name: "Contacts", href: "/contact" },
       { name: "Product settings", href: "/product-settings" },
     ],

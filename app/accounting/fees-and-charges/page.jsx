@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { Grid } from "@/components/clutch-table";
+import { Button } from "@/components/ui/button";
 import { CHARGE_CLASSIFICATIONS, CHARGE_TYPES, FEES_AND_CHARGES_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
@@ -9,8 +11,6 @@ const MOBILE_BREAKPOINT = 900;
 
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
-const filterInputClass =
-  "w-full rounded-md border border-slate-200/90 bg-white px-2 py-1 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand/35 focus:ring-1 focus:ring-brand/25";
 
 const initialFeesAndCharges = FEES_AND_CHARGES_ROWS;
 
@@ -19,6 +19,79 @@ function getClassLabel(charge) {
   if (charge.chargeClassification === "expense") return "Expense";
   if (charge.chargeClassification === "both") return "Both";
   return "-";
+}
+
+const gridColumns = [
+  { key: "chargeName", header: "Charge Name", type: "text", sortable: true, filterable: true, resizable: true },
+  { key: "chargeDescription", header: "Description", type: "text", sortable: true, filterable: true, resizable: true },
+  {
+    key: "chargeRate",
+    header: "Rate",
+    type: "number",
+    sortable: true,
+    filterable: true,
+    resizable: true,
+  },
+  { key: "chargeType", header: "Type", type: "text", sortable: true, filterable: true, resizable: true },
+  {
+    key: "chargeClassification",
+    header: "Classification",
+    type: "text",
+    sortable: true,
+    filterable: true,
+    resizable: true,
+    renderCell: (row) => getClassLabel(row),
+    valueGetter: (row) => getClassLabel(row),
+  },
+  { key: "accountCode", header: "Account Code", type: "text", sortable: true, filterable: true, resizable: true },
+  {
+    key: "applyToAllPacks",
+    header: "All Packs",
+    type: "text",
+    sortable: true,
+    filterable: true,
+    resizable: true,
+    renderCell: (row) => (row.applyToAllPacks ? "Yes" : "No"),
+    valueGetter: (row) => (row.applyToAllPacks ? "Yes" : "No"),
+  },
+];
+
+function nextId(items) {
+  return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
+}
+
+function MobileChargeList({ filtered, selectedId, onSelectCharge, search }) {
+  const emptyMessage = search ? "No charges match your search." : "No charges yet. Add your first one!";
+  return (
+    <div className="space-y-2 p-3">
+      <div className="px-0.5 text-xs font-semibold text-slate-600">Charges ({filtered.length})</div>
+      {filtered.length === 0 ? (
+        <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>
+      ) : (
+        filtered.map((charge) => {
+          const isSelected = charge.id === selectedId;
+          return (
+            <button
+              key={charge.id}
+              type="button"
+              onClick={() => onSelectCharge(isSelected ? null : charge.id)}
+              className={cn(
+                "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
+                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+              )}
+            >
+              <p className="text-xs font-bold text-blue-600">{charge.chargeName || "-"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{charge.chargeType || "-"} · {getClassLabel(charge)}</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Rate: {charge.chargeRate != null ? Number(charge.chargeRate) : "-"}
+                {charge.accountCode ? ` · ${charge.accountCode}` : ""}
+              </p>
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
 function InfoRow({ label, value, highlight }) {
@@ -32,69 +105,8 @@ function InfoRow({ label, value, highlight }) {
   );
 }
 
-function MobileChargeList({ filtered, selectedId, onSelectCharge, search }) {
-  const emptyMessage = search ? "No charges match your search." : "No charges yet. Add your first one!";
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="px-0.5 py-1 text-xs font-semibold text-slate-600">Charges ({filtered.length})</div>
-      {filtered.length === 0 ? (
-        <div className="p-8 text-center text-[13px] text-slate-400">{emptyMessage}</div>
-      ) : (
-        filtered.map((charge) => {
-          const isSelected = charge.id === selectedId;
-          return (
-            <div
-              key={charge.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelectCharge(isSelected ? null : charge.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelectCharge(isSelected ? null : charge.id);
-                }
-              }}
-              className={cn(
-                "min-h-0 cursor-pointer rounded-[10px] border-2 bg-white p-3 transition-all",
-                isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200"
-              )}
-            >
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <span className="text-xs font-bold text-blue-600">{charge.chargeName || "-"}</span>
-                <span className="text-[11px] font-semibold text-slate-500">
-                  {charge.chargeType || "-"} · {getClassLabel(charge)}
-                </span>
-              </div>
-              <div className="mb-1 break-words text-[13px] text-slate-500">{charge.chargeDescription || "-"}</div>
-              <div className="text-xs font-semibold text-slate-800">
-                Rate: {charge.chargeRate != null ? Number(charge.chargeRate) : "-"}
-                {charge.accountCode ? ` · ${charge.accountCode}` : ""}
-              </div>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function nextId(items) {
-  return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
-}
-
 export default function FeesAndChargesPage() {
   const [feesAndCharges, setFeesAndCharges] = useState(initialFeesAndCharges);
-  const [search, setSearch] = useState("");
-  const [colFilters, setColFilters] = useState({
-    chargeName: "",
-    chargeDescription: "",
-    chargeRate: "",
-    chargeType: "",
-    chargeClassification: "",
-    accountCode: "",
-    applyToAllPacks: "",
-  });
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -117,36 +129,7 @@ export default function FeesAndChargesPage() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  const filtered = useMemo(() => {
-    const columnValue = (charge, key) => {
-      if (key === "chargeClassification") return getClassLabel(charge);
-      if (key === "applyToAllPacks") return charge.applyToAllPacks ? "Yes" : "No";
-      return charge[key] ?? "";
-    };
-
-    return feesAndCharges
-      .filter((charge) => {
-        const q = search.trim().toLowerCase();
-        if (q) {
-          const text =
-            `${charge.chargeName || ""} ${charge.chargeDescription || ""} ${charge.chargeType || ""} ` +
-            `${getClassLabel(charge)} ${charge.accountCode || ""} ${charge.chargeRate ?? ""} ${
-              charge.applyToAllPacks ? "Yes" : "No"
-            }`;
-          if (!text.toLowerCase().includes(q)) return false;
-        }
-
-        for (const key of Object.keys(colFilters)) {
-          const value = colFilters[key].trim().toLowerCase();
-          if (!value) continue;
-          if (!String(columnValue(charge, key)).toLowerCase().includes(value)) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => (a.chargeName || "").localeCompare(b.chargeName || ""));
-  }, [feesAndCharges, search, colFilters]);
-
-  const selected = filtered.find((charge) => charge.id === selectedId) || null;
+  const selected = selectedId != null ? feesAndCharges.find((c) => c.id === selectedId) ?? null : null;
 
   function openCreateModal() {
     setEditMode(false);
@@ -225,178 +208,64 @@ export default function FeesAndChargesPage() {
     }
   }
 
+  const mobileFiltered = useMemo(
+    () => [...feesAndCharges].sort((a, b) => (a.chargeName || "").localeCompare(b.chargeName || "")),
+    [feesAndCharges]
+  );
+
   return (
-    <div className="space-y-4 md:space-y-5">
-      <div className="space-y-1">
+    <div className="space-y-5">
+      <div>
         <p className="text-xs text-slate-500">Accounting / Fees and Charges</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">Fees and Charges</h1>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Fees and Charges</h1>
         {!isMobile ? (
-          <p className="text-xs leading-relaxed text-slate-500">
-            Additional fees and charges that can be added to invoices and bills.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">Additional fees and charges that can be added to invoices and bills.</p>
         ) : null}
       </div>
 
-      <div
-        className={cn(
-          "flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-slate-200 bg-white",
-          isMobile ? "flex-col px-[14px] py-3" : "px-[18px] py-[14px]"
-        )}
-      >
-        <div className={cn("relative", isMobile ? "w-full" : "max-w-[400px] flex-[1_1_220px]")}>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search charges..."
-            className={inputClass}
-          />
-        </div>
-
-        <div className={cn("flex gap-1.5", isMobile && "w-full")}>
-          <BtnPrimary onClick={openCreateModal} className={cn(isMobile && "flex-1 justify-center")}>
-            + Add Charge
-          </BtnPrimary>
-          {isMobile && selected ? (
-            <BtnPrimary onClick={openEditModal} className="flex-1 justify-center">
-              View / Edit
-            </BtnPrimary>
+      <div className={cn("grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start", isMobile && "grid-cols-1")}>
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+          {isMobile ? (
+            <>
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">
+                <Button type="button" size="sm" onClick={openCreateModal}>+ Add Charge</Button>
+                <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEditModal}>Edit</Button>
+                <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={handleDelete}>Delete</Button>
+              </div>
+              <MobileChargeList
+                filtered={mobileFiltered}
+                selectedId={selectedId}
+                onSelectCharge={setSelectedId}
+                search=""
+              />
+            </>
           ) : (
-            <BtnSecondary onClick={openEditModal} disabled={!selected} className={cn(isMobile && "flex-1 justify-center")}>
-              Edit
-            </BtnSecondary>
+            <Grid
+              columns={gridColumns}
+              rows={feesAndCharges}
+              getRowId={(row) => row.id}
+              theme="light"
+              density="standard"
+              fileName="Fees and Charges"
+              visibleRows={15}
+              emptyMessage="No charges yet. Add your first one!"
+              onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
+              toolbarActions={
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={openCreateModal}>+ Add Charge</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={!selected} onClick={openEditModal}>Edit</Button>
+                  <Button type="button" variant="destructive" size="sm" disabled={!selected} onClick={handleDelete}>Delete</Button>
+                </div>
+              }
+            />
           )}
-          <BtnDanger onClick={handleDelete} disabled={!selected} className={cn(isMobile && "flex-1 justify-center")}>
-            Delete
-          </BtnDanger>
         </div>
-      </div>
-
-      <div className={cn("flex gap-4", isMobile && "flex-col")}>
-        {isMobile ? (
-          <MobileChargeList filtered={filtered} selectedId={selectedId} onSelectCharge={setSelectedId} search={search} />
-        ) : (
-          <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/95">
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Charge Name</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Description</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Rate</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Type</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Class.</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Account</th>
-                    <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">All Packs</th>
-                  </tr>
-                  <tr className="border-b border-slate-200 bg-white">
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.chargeName}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, chargeName: event.target.value }))}
-                        aria-label="Filter charge name"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.chargeDescription}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, chargeDescription: event.target.value }))}
-                        aria-label="Filter description"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.chargeRate}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, chargeRate: event.target.value }))}
-                        aria-label="Filter rate"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.chargeType}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, chargeType: event.target.value }))}
-                        aria-label="Filter type"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.chargeClassification}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, chargeClassification: event.target.value }))}
-                        aria-label="Filter classification"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.accountCode}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, accountCode: event.target.value }))}
-                        aria-label="Filter account code"
-                      />
-                    </th>
-                    <th className="px-2 py-1.5">
-                      <input
-                        className={filterInputClass}
-                        placeholder="Filter..."
-                        value={colFilters.applyToAllPacks}
-                        onChange={(event) => setColFilters((prev) => ({ ...prev, applyToAllPacks: event.target.value }))}
-                        aria-label="Filter all packs"
-                      />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-3 py-14 text-center text-sm text-slate-400">
-                        {search ? "No charges match your search." : "No charges yet. Add your first one!"}
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((charge) => {
-                      const isSelected = selectedId === charge.id;
-                      return (
-                        <tr
-                          key={charge.id}
-                          onClick={() => setSelectedId((prev) => (prev === charge.id ? null : charge.id))}
-                          className={cn(
-                            "cursor-pointer border-b border-slate-100 transition-colors last:border-0",
-                            isSelected ? "bg-brand/[0.07]" : "hover:bg-slate-50/90"
-                          )}
-                        >
-                          <td className="px-3 py-2.5 text-slate-700">{charge.chargeName || ""}</td>
-                          <td className="px-3 py-2.5 text-slate-700">
-                            {(charge.chargeDescription || "-").slice(0, 40)}
-                            {(charge.chargeDescription || "").length > 40 ? "..." : ""}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-700">{charge.chargeRate != null ? Number(charge.chargeRate) : ""}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{charge.chargeType || ""}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{getClassLabel(charge)}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{charge.accountCode || ""}</td>
-                          <td className="px-3 py-2.5 text-slate-700">{charge.applyToAllPacks ? "Yes" : "No"}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {!isMobile ? (
-          <div className="max-h-[600px] w-[360px] min-w-0 flex-[0_0_360px] overflow-y-auto rounded-[10px] border border-slate-200 bg-white p-[18px]">
+          <aside className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-[#0f1e3d]">Charge Details</span>
+              <h2 className="text-sm font-semibold text-slate-900">Charge Details</h2>
               {selected ? (
                 <button
                   type="button"
@@ -405,7 +274,7 @@ export default function FeesAndChargesPage() {
                   aria-label="Clear selection"
                   className="rounded px-1 text-lg leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
-                  Ã—
+                  ×
                 </button>
               ) : null}
             </div>
@@ -427,124 +296,135 @@ export default function FeesAndChargesPage() {
                           : "-"
                   }
                 />
-                <InfoRow label="Account code" value={selected.accountCode || "-"} />
+                <InfoRow label="Account Code" value={selected.accountCode || "-"} />
                 <InfoRow label="Apply to all packs" value={selected.applyToAllPacks ? "Yes" : "No"} />
-                <div className="mt-3 border-t border-slate-100 pt-3.5">
-                  <BtnSecondary onClick={openEditModal} className="mb-2 w-full justify-center">
+                <div className="mt-3 border-t border-slate-100 pt-3.5 space-y-2">
+                  <Button type="button" variant="outline" size="sm" onClick={openEditModal} className="w-full justify-center">
                     Edit Charge
-                  </BtnSecondary>
-                  <BtnDanger onClick={handleDelete} className="w-full justify-center">
+                  </Button>
+                  <Button type="button" variant="destructive" size="sm" onClick={handleDelete} className="w-full justify-center">
                     Delete Charge
-                  </BtnDanger>
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="pt-5 text-center text-[12.5px] text-slate-400">Select a charge to view details</div>
+              <p className="pt-5 text-center text-[12.5px] text-slate-400">Select a charge to view details</p>
             )}
-          </div>
+          </aside>
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit Charge" : "Add Charge"} width={520}>
-        <FormRow label="Charge Name" required>
-          <Input
-            value={formData.chargeName}
-            onChange={(event) => setFormData({ ...formData, chargeName: event.target.value })}
-            placeholder="e.g., Handling Fee"
-          />
-        </FormRow>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit Charge" : "Add Charge"}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormRow label="Charge Name" required className="sm:col-span-2">
+            <Input
+              value={formData.chargeName}
+              onChange={(event) => setFormData({ ...formData, chargeName: event.target.value })}
+              placeholder="e.g., Handling Fee"
+            />
+          </FormRow>
 
-        <FormRow label="Charge Description">
-          <Input
-            value={formData.chargeDescription}
-            onChange={(event) => setFormData({ ...formData, chargeDescription: event.target.value })}
-            placeholder="e.g., Standard handling and administration"
-          />
-        </FormRow>
+          <FormRow label="Charge Description" className="sm:col-span-2">
+            <Input
+              value={formData.chargeDescription}
+              onChange={(event) => setFormData({ ...formData, chargeDescription: event.target.value })}
+              placeholder="e.g., Standard handling and administration"
+            />
+          </FormRow>
 
-        <FormRow label="Charge Rate">
-          <Input
-            type="number"
-            min={0}
-            step={0.01}
-            value={formData.chargeRate}
-            onWheel={(event) => event.currentTarget.blur()}
-            onChange={(event) => setFormData({ ...formData, chargeRate: event.target.value })}
-            placeholder="0.00"
-          />
-        </FormRow>
+          <FormRow label="Charge Rate">
+            <Input
+              type="number"
+              min={0}
+              step={0.01}
+              value={formData.chargeRate}
+              onWheel={(event) => event.currentTarget.blur()}
+              onChange={(event) => setFormData({ ...formData, chargeRate: event.target.value })}
+              placeholder="0.00"
+            />
+          </FormRow>
 
-        <FormRow label="Charge Type">
-          <Select value={formData.chargeType} onChange={(event) => setFormData({ ...formData, chargeType: event.target.value })}>
-            {CHARGE_TYPES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </FormRow>
+          <FormRow label="Charge Type">
+            <Select value={formData.chargeType} onChange={(event) => setFormData({ ...formData, chargeType: event.target.value })}>
+              {CHARGE_TYPES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </FormRow>
 
-        <FormRow label="Revenue / Expense">
-          <Select
-            value={formData.chargeClassification}
-            onChange={(event) => setFormData({ ...formData, chargeClassification: event.target.value })}
-          >
-            {CHARGE_CLASSIFICATIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </FormRow>
+          <FormRow label="Revenue / Expense">
+            <Select
+              value={formData.chargeClassification}
+              onChange={(event) => setFormData({ ...formData, chargeClassification: event.target.value })}
+            >
+              {CHARGE_CLASSIFICATIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </FormRow>
 
-        <FormRow label="Account code">
-          <Input
-            value={formData.accountCode}
-            onChange={(event) => setFormData({ ...formData, accountCode: event.target.value })}
-            placeholder="e.g. 4000, REV-001"
-          />
-        </FormRow>
+          <FormRow label="Account Code">
+            <Input
+              value={formData.accountCode}
+              onChange={(event) => setFormData({ ...formData, accountCode: event.target.value })}
+              placeholder="e.g. 4000, REV-001"
+            />
+          </FormRow>
 
-        <FormRow label="Apply to all packs">
-          <Select
-            value={formData.applyToAllPacks ? "yes" : "no"}
-            onChange={(event) => setFormData({ ...formData, applyToAllPacks: event.target.value === "yes" })}
-          >
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </Select>
-        </FormRow>
+          <FormRow label="Apply to all packs">
+            <Select
+              value={formData.applyToAllPacks ? "yes" : "no"}
+              onChange={(event) => setFormData({ ...formData, applyToAllPacks: event.target.value === "yes" })}
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </Select>
+          </FormRow>
+        </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <BtnSecondary onClick={() => setModalOpen(false)}>Cancel</BtnSecondary>
-          <BtnPrimary onClick={handleSubmit}>{editMode ? "Save" : "Add"}</BtnPrimary>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
+          <Button type="button" size="sm" onClick={handleSubmit}>{editMode ? "Save Changes" : "Add Charge"}</Button>
         </div>
       </Modal>
     </div>
   );
 }
 
-function Modal({ open, title, onClose, width, children }) {
+function Modal({ open, title, onClose, children }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div className="relative w-full rounded-xl border border-slate-300 bg-white shadow-xl" style={{ maxWidth: `${width}px` }}>
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h2 className="text-sm font-bold text-[#20314d]">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded px-1 text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-700">
-            Ã—
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fees-modal-title"
+        className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
+          <h2 id="fees-modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          >
+            ×
           </button>
         </div>
-        <div className="space-y-3 px-6 py-4">{children}</div>
+        <div className="p-4">{children}</div>
       </div>
     </div>
   );
 }
 
-function FormRow({ label, required, children }) {
+function FormRow({ label, required, className, children }) {
   return (
-    <div className="space-y-1">
+    <div className={cn("space-y-1", className)}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
@@ -560,40 +440,4 @@ function Input({ className, ...props }) {
 
 function Select({ className, ...props }) {
   return <select suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
-}
-
-function BtnPrimary({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function BtnSecondary({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-[#1d4ed8] transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function BtnDanger({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  );
 }

@@ -39,6 +39,14 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import {
+  RELEASE_STATUSES,
+  blankRelease,
+  computeReleaseExpiry,
+  loadReleases,
+  nextReleaseId,
+  saveReleases,
+} from "@/lib/releases-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
 import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
@@ -594,7 +602,173 @@ function NewPackFormPageInner() {
   const [activeSampleIndex, setActiveSampleIndex] = useState(0);
   const prevSampleCountRef = useRef(0);
 
+  const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
+  const [quickReleaseDraft, setQuickReleaseDraft] = useState(() => blankRelease());
+  const [quickReleaseError, setQuickReleaseError] = useState("");
+  const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
+  const [quickReleaseLookups, setQuickReleaseLookups] = useState({
+    containerParks: [],
+    transporters: [],
+    containerCodes: [],
+    loading: true,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : "";
+      const headers = {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const fetchList = async (path) => {
+        try {
+          const res = await fetch(`${apiBase}${path}?per_page=500`, { headers });
+          if (!res.ok) return [];
+          const json = await res.json().catch(() => null);
+          const payload = json?.data;
+          return Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        } catch {
+          return [];
+        }
+      };
+      const [parks, transporters, codes] = await Promise.all([
+        fetchList("/reference-data/container-parks"),
+        fetchList("/contacts/transporters"),
+        fetchList("/reference-data/container-codes"),
+      ]);
+      if (cancelled) return;
+      setQuickReleaseLookups({
+        containerParks: parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
+        transporters: transporters.map((t) => ({ id: t.id, name: t.name ?? "" })),
+        containerCodes: codes,
+        loading: false,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
+
+  function openQuickAddRelease(targetIndex = null) {
+    setQuickReleaseError("");
+    setQuickReleaseTargetIndex(targetIndex);
+    setQuickReleaseDraft(blankRelease());
+    setQuickReleaseOpen(true);
+  }
+
+  function closeQuickAddRelease() {
+    setQuickReleaseOpen(false);
+    setQuickReleaseError("");
+    setQuickReleaseTargetIndex(null);
+  }
+
+  function setQuickReleaseField(key, value) {
+    setQuickReleaseDraft((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "releaseAvailableAt" || key === "freeDays") {
+        next.releaseExpiryAt = computeReleaseExpiry(
+          key === "releaseAvailableAt" ? value : prev.releaseAvailableAt,
+          key === "freeDays" ? value : prev.freeDays,
+        );
+      }
+      return next;
+    });
+  }
+
+  function updateQuickReleasePark(index, key, value) {
+    setQuickReleaseDraft((prev) => ({
+      ...prev,
+      parks: prev.parks.map((park, idx) => (idx === index ? { ...park, [key]: value } : park)),
+    }));
+  }
+
+  function addQuickReleasePark() {
+    setQuickReleaseDraft((prev) => ({
+      ...prev,
+      parks: [...(prev.parks || []), { containerParkId: "", transporterIds: [] }],
+    }));
+  }
+
+  function removeQuickReleasePark(index) {
+    setQuickReleaseDraft((prev) => {
+      const next = (prev.parks || []).filter((_, idx) => idx !== index);
+      return { ...prev, parks: next.length ? next : [{ containerParkId: "", transporterIds: [] }] };
+    });
+  }
+
+  function toggleQuickReleaseTransporter(parkIndex, transporterId) {
+    setQuickReleaseDraft((prev) => ({
+      ...prev,
+      parks: prev.parks.map((park, idx) => {
+        if (idx !== parkIndex) return park;
+        const exists = (park.transporterIds || []).some((id) => String(id) === String(transporterId));
+        const nextIds = exists
+          ? park.transporterIds.filter((id) => String(id) !== String(transporterId))
+          : [...(park.transporterIds || []), transporterId];
+        return { ...park, transporterIds: nextIds };
+      }),
+    }));
+  }
+
+  function saveQuickAddRelease() {
+    const releaseRef = String(quickReleaseDraft.releaseNumber || "").trim();
+    if (!releaseRef) {
+      setQuickReleaseError("Release Number is required.");
+      return;
+    }
+    const cleanedParks = (quickReleaseDraft.parks || [])
+      .map((park) => ({
+        containerParkId: park.containerParkId === "" ? "" : park.containerParkId,
+        transporterIds: (park.transporterIds || []).filter((id) => id !== "" && id != null),
+      }))
+      .filter((park) => park.containerParkId !== "" || park.transporterIds.length > 0);
+    if (!cleanedParks.length) {
+      setQuickReleaseError("Add at least one Empty Container Park with a transporter.");
+      return;
+    }
+
+    const existing = loadReleases();
+    const id = nextReleaseId(existing);
+    const newRelease = {
+      ...quickReleaseDraft,
+      id,
+      releaseNumber: releaseRef,
+      parks: cleanedParks,
+      releaseExpiryAt:
+        computeReleaseExpiry(quickReleaseDraft.releaseAvailableAt, quickReleaseDraft.freeDays) ||
+        quickReleaseDraft.releaseExpiryAt ||
+        "",
+    };
+    saveReleases([newRelease, ...existing]);
+
+    const firstPark = cleanedParks[0];
+    const firstTransporterId = firstPark.transporterIds[0] ?? "";
+    const newLine = {
+      releaseRef,
+      emptyContainerParkId: firstPark.containerParkId,
+      transporterId: firstTransporterId,
+    };
+
+    setPack((prev) => {
+      const currentReleases = Array.isArray(prev.releaseDetails) ? prev.releaseDetails : [];
+      let nextReleases;
+      if (quickReleaseTargetIndex != null && currentReleases[quickReleaseTargetIndex]) {
+        nextReleases = currentReleases.map((row, idx) =>
+          idx === quickReleaseTargetIndex ? { ...row, ...newLine } : row,
+        );
+      } else {
+        nextReleases = [...currentReleases.filter((row) => row.releaseRef || row.emptyContainerParkId || row.transporterId), newLine];
+      }
+      return { ...prev, releaseDetails: nextReleases };
+    });
+
+    closeQuickAddRelease();
+  }
 
   useEffect(() => {
     if (!["general", "fumigation", "accounting", "pems"].includes(requestedTab || "")) return;
@@ -1873,19 +2047,30 @@ function NewPackFormPageInner() {
                       </div>
                     ))}
 
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      type="button"
-                      onClick={() =>
-                        set("releaseDetails", [
-                          ...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]),
-                          { releaseRef: "", emptyContainerParkId: "", transporterId: "" },
-                        ])
-                      }
-                    >
-                      Add Release
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        type="button"
+                        onClick={() =>
+                          set("releaseDetails", [
+                            ...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]),
+                            { releaseRef: "", emptyContainerParkId: "", transporterId: "" },
+                          ])
+                        }
+                      >
+                        Add Release
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => openQuickAddRelease()}
+                        title="Create a full Release record and attach it to this pack"
+                      >
+                        + Quick add Release
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -3735,6 +3920,262 @@ function NewPackFormPageInner() {
             </div>
           </div>
         </footer>
+
+        <QuickAddReleaseModal
+          open={quickReleaseOpen}
+          draft={quickReleaseDraft}
+          error={quickReleaseError}
+          lookups={quickReleaseLookups}
+          onClose={closeQuickAddRelease}
+          onSave={saveQuickAddRelease}
+          onChangeField={setQuickReleaseField}
+          onUpdatePark={updateQuickReleasePark}
+          onAddPark={addQuickReleasePark}
+          onRemovePark={removeQuickReleasePark}
+          onToggleTransporter={toggleQuickReleaseTransporter}
+        />
       </>
       );
+}
+
+function QuickAddReleaseModal({
+  open,
+  draft,
+  error,
+  lookups,
+  onClose,
+  onSave,
+  onChangeField,
+  onUpdatePark,
+  onAddPark,
+  onRemovePark,
+  onToggleTransporter,
+}) {
+  if (!open) return null;
+  const parks = Array.isArray(draft?.parks) && draft.parks.length
+    ? draft.parks
+    : [{ containerParkId: "", transporterIds: [] }];
+  const fieldLabel = "text-[11px] font-semibold uppercase tracking-wide text-slate-600";
+  const lookupsLoading = lookups?.loading;
+  const containerParkOptions = lookups?.containerParks || [];
+  const transporterOptions = lookups?.transporters || [];
+  const containerCodeOptions = lookups?.containerCodes || [];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quick-release-title"
+        className="relative max-h-[min(92vh,820px)] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
+          <h2 id="quick-release-title" className="text-sm font-semibold text-slate-900">
+            Quick Add Release
+          </h2>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={onClose}
+          >
+            x
+          </button>
+        </div>
+        <div className="p-4">
+          {error ? (
+            <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className={fieldLabel}>Release Number <span className="text-red-500">*</span></label>
+              <input
+                className={inputClass}
+                value={draft.releaseNumber}
+                onChange={(e) => onChangeField("releaseNumber", e.target.value)}
+                placeholder="e.g. REL-2026-001"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Release Status</label>
+              <select
+                className={inputClass}
+                value={draft.status}
+                onChange={(e) => onChangeField("status", e.target.value)}
+              >
+                {RELEASE_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Release Available</label>
+              <input
+                type="datetime-local"
+                className={inputClass}
+                value={draft.releaseAvailableAt}
+                onChange={(e) => onChangeField("releaseAvailableAt", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Number of Free Days</label>
+              <input
+                type="number"
+                min="0"
+                className={inputClass}
+                value={draft.freeDays}
+                onChange={(e) => onChangeField("freeDays", e.target.value)}
+                placeholder="e.g. 7"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Release Expiry (computed)</label>
+              <input
+                type="datetime-local"
+                className={`${inputClass} bg-slate-50`}
+                value={draft.releaseExpiryAt}
+                readOnly
+                placeholder=""
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Pickup By</label>
+              <input
+                type="datetime-local"
+                className={inputClass}
+                value={draft.pickupBy}
+                onChange={(e) => onChangeField("pickupBy", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Number of Containers</label>
+              <input
+                type="number"
+                min="0"
+                className={inputClass}
+                value={draft.containerCount}
+                onChange={(e) => onChangeField("containerCount", e.target.value)}
+                placeholder="e.g. 4"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={fieldLabel}>Container Type</label>
+              <select
+                className={inputClass}
+                value={draft.containerCodeIsoCode}
+                onChange={(e) => onChangeField("containerCodeIsoCode", e.target.value)}
+              >
+                <option value="">
+                  {lookupsLoading ? "Loading…" : "Select container type..."}
+                </option>
+                {containerCodeOptions.map((row) => {
+                  const iso = row.iso_code ?? row.isoCode ?? "";
+                  const size = row.container_size ?? row.containerSize ?? "";
+                  const desc = row.description ?? "";
+                  return (
+                    <option key={row.id} value={iso}>
+                      {[iso, size, desc].filter(Boolean).join(" · ")}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className={fieldLabel}>Empty Container Park(s) and Transporter(s)</p>
+              <Button type="button" size="sm" variant="outline" onClick={onAddPark}>
+                + Add park
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {parks.map((park, index) => (
+                <div key={`qr-park-${index}`} className="rounded-md border border-slate-200 bg-white p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-slate-600">Park {index + 1}</p>
+                    {parks.length > 1 ? (
+                      <button
+                        type="button"
+                        className="rounded bg-rose-50 px-1.5 py-0.5 text-xs text-rose-600 hover:bg-rose-100"
+                        onClick={() => onRemovePark(index)}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                    <select
+                      className={inputClass}
+                      value={park.containerParkId === "" ? "" : String(park.containerParkId)}
+                      onChange={(e) => onUpdatePark(index, "containerParkId", e.target.value || "")}
+                    >
+                      <option value="">
+                        {lookupsLoading ? "Loading…" : "Select empty container park..."}
+                      </option>
+                      {containerParkOptions.map((cp) => (
+                        <option key={cp.id} value={cp.id}>
+                          {cp.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="rounded-md border border-slate-200 bg-white p-2">
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Transporters
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {transporterOptions.length === 0 ? (
+                          <p className="text-[11px] text-slate-400">
+                            {lookupsLoading ? "Loading transporters…" : "No transporters available."}
+                          </p>
+                        ) : null}
+                        {transporterOptions.map((t) => {
+                          const checked = (park.transporterIds || []).some(
+                            (id) => String(id) === String(t.id),
+                          );
+                          return (
+                            <label
+                              key={t.id}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                                checked
+                                  ? "border-brand bg-brand/10 text-brand-ink"
+                                  : "border-slate-200 bg-slate-50 text-slate-600",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-3 w-3"
+                                checked={checked}
+                                onChange={() => onToggleTransporter(index, t.id)}
+                              />
+                              {t.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-3 text-[10px] text-slate-500">
+            Saving creates a Release record in Reference Data and adds the release reference + first park/transporter to this pack.
+          </p>
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={onSave}>
+              Create & attach
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

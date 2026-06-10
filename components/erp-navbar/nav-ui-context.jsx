@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo } from "react";
 
+import { useCurrentUserPermissions, filterModulesByPermissions } from "@/lib/use-user-permissions";
 import {
   PACKING_NAV_DEFAULT_UI,
   PACKING_NAV_FOOTER,
@@ -43,8 +44,14 @@ export function ErpNavUiProvider({
   sections,
   user,
 }) {
-  const mergedModules = sections?.main ? mapSectionItems(sections.main) : modules ?? PACKING_NAV_MODULES;
+  const allModules = sections?.main ? mapSectionItems(sections.main) : modules ?? PACKING_NAV_MODULES;
   const mergedFooter = sections?.bottom ? mapFooterItems(sections.bottom) : footerNav ?? PACKING_NAV_FOOTER;
+
+  const userPermissions = useCurrentUserPermissions();
+  const mergedModules = useMemo(
+    () => filterModulesByPermissions(allModules, userPermissions),
+    [allModules, userPermissions]
+  );
 
   const hasAuthUserProp = user !== undefined;
 

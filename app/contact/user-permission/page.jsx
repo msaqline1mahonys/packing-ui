@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PACKING_NAV_MODULES } from "@/components/erp-navbar/packing-defaults";
-import { USER_PERMISSION_USER_ROWS } from "@/lib/Data";
+import { loadContactUsers } from "@/lib/contact-users-store";
+import { loadUserPermissions, saveUserPermissions } from "@/lib/user-permissions-store";
+import { fetchApiUsers } from "@/lib/users-api";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -39,6 +41,7 @@ export default function UserPermissionPage() {
 
   const allPermissionIds = useMemo(() => permissionsList.map((permission) => permission.id), [permissionsList]);
 
+  const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedPermissions, setSelectedPermissions] = useState([]);
@@ -46,19 +49,43 @@ export default function UserPermissionPage() {
   const [isMobile, setIsMobile] = useState(false);
   const selectAllCheckboxRef = useRef(null);
 
-  const [permissionsByUser, setPermissionsByUser] = useState(() => {
-    const map = {};
-    for (const user of USER_PERMISSION_USER_ROWS) {
-      if (user.id === 1) {
-        map[user.id] = [...allPermissionIds];
-      } else if (user.id === 2) {
-        map[user.id] = allPermissionIds.filter((id) => id.includes("packing-schedule") || id.includes("packers-schedule") || id.includes("ticketing"));
-      } else {
-        map[user.id] = [];
-      }
+  const [permissionsByUser, setPermissionsByUser] = useState(() => loadUserPermissions());
+
+  useEffect(() => {
+    let cancelled = false;
+    function mapUsers(list) {
+      return list.map((u) => ({
+        id: u.id,
+        name: u.name || "",
+        email: u.email || "",
+        role: u.roles?.[0]?.display_name || u.roles?.[0]?.name || u.role || "",
+        active: u.active !== false,
+      }));
     }
-    return map;
-  });
+    const fallback = mapUsers(loadContactUsers());
+    setUsers(fallback);
+
+    fetchApiUsers()
+      .then((apiUsers) => {
+        if (cancelled) return;
+        if (apiUsers.length > 0) {
+          const mapped = mapUsers(apiUsers);
+          setUsers(mapped);
+          if (selectedUserId != null && !mapped.some((u) => u.id === selectedUserId)) {
+            setSelectedUserId(null);
+            setSelectedPermissions([]);
+            setHasChanges(false);
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    saveUserPermissions(permissionsByUser);
+  }, [permissionsByUser]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -69,14 +96,14 @@ export default function UserPermissionPage() {
   }, []);
 
   const filteredUsers = useMemo(() => {
-    return USER_PERMISSION_USER_ROWS.filter((user) => {
+    return users.filter((user) => {
       if (!search) return true;
       const text = `${user.name} ${user.email} ${user.role}`.toLowerCase();
       return text.includes(search.toLowerCase());
     });
-  }, [search]);
+  }, [search, users]);
 
-  const selected = USER_PERMISSION_USER_ROWS.find((user) => user.id === selectedUserId) || null;
+  const selected = users.find((user) => user.id === selectedUserId) || null;
 
   function getUserPermissions(userId) {
     return permissionsByUser[userId] || [];

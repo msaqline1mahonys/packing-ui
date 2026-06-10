@@ -33,8 +33,13 @@ import {
 } from "@/lib/pems";
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
+<<<<<<< HEAD
 import { savePack } from "@/lib/pack-schedule-store";
 import { getPackFormData } from "@/lib/api/packing";
+=======
+import { fetchPackFormData, isUuid } from "@/lib/pack-schedule-api";
+import { loadPackScheduleRow, persistPackScheduleRow } from "@/lib/pack-schedule-store";
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -57,6 +62,18 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+<<<<<<< HEAD
+=======
+const {
+  shippingLines,
+  containerParks,
+  transporters,
+  vesselScheduleCsvRows: vesselSchedule,
+} = PACK_FORM_LOOKUPS;
+const DEFAULT_CUSTOMER_OPTIONS = CUSTOMER_CONTACT_ROWS;
+const DEFAULT_COMMODITY_OPTIONS = COMMODITY_MASTER_ROWS.filter((row) => row.status !== "Inactive");
+const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
 const PACK_FUMIGATION_APPLICATION_METHOD = ["in-container", "bulk"];
@@ -374,7 +391,14 @@ function toFileEntries(fileList) {
   }));
 }
 
+<<<<<<< HEAD
 function rowToPack(row, siteId, customerOpts, commodityOpts) {
+=======
+function rowToPack(row, siteId, lookups = {}) {
+  const customerOptions = lookups.customers ?? DEFAULT_CUSTOMER_OPTIONS;
+  const commodityOptions = lookups.commodities ?? DEFAULT_COMMODITY_OPTIONS;
+  const matchedCommodity = commodityOptions.find((c) => c.description === row.commodity);
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
   const legacyReleaseNumbers = Array.isArray(row.releaseNumbers) ? row.releaseNumbers : [];
   const legacyCollectFrom = Array.isArray(row.collectFromIds) ? row.collectFromIds : [];
   const legacyTransporters = Array.isArray(row.transporterIds) ? row.transporterIds : [];
@@ -412,6 +436,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
   const resolvedShippingLineId = row.shipping_line_id ?? row.shippingLineId ?? "";
   return {
     ...blankPack(siteId),
+<<<<<<< HEAD
     importExport: (row.import_export ?? row.importExport) || "Export",
     status: row.status || "Pending",
     customerId: resolvedCustomerId,
@@ -472,6 +497,41 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     methodologyId: (row.methodology_id ?? row.methodologyId) ?? null,
     certificateTemplateId: (row.certificate_template_id ?? row.certificateTemplateId) ?? null,
     recordTemplateId: (row.record_template_id ?? row.recordTemplateId) ?? null,
+=======
+    id: row.id ?? "",
+    importExport: row.importExport || "Export",
+    status: row.status || "Pending",
+    customerId: row.customerId ?? row.customer_id ?? customerOptions.find((c) => c.name === row.customer)?.id ?? "",
+    exporter: row.exporterId ?? row.exporter_id ?? customerOptions.find((c) => c.name === row.exporter)?.id ?? "",
+    commodityId: row.commodityId ?? row.commodity_id ?? matchedCommodity?.id ?? "",
+    commodityTypeId: row.commodityTypeId ?? row.commodity_type_id ?? matchedCommodity?.commodityTypeId ?? "",
+    jobReference: row.jobReference || "",
+    containersRequired: row.containersRequired ?? "",
+    mtTotal: row.mtTotal ?? "",
+    containerCode: row.containerCode || "",
+    releaseDetails: Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
+    destinationCountry: row.destinationCountry || "",
+    terminalId: row.terminalId ?? "",
+    portOfLoading: row.portOfLoading || "",
+    commodityCountryOfOrigin: row.commodityCountryOfOrigin || "Australia",
+    treatmentProviderId: row.treatmentProviderId || "",
+    fumigatorAccreditationNumber: row.fumigatorAccreditationNumber || "",
+    vesselDepartureId: null,
+    vesselName: row.vessel || "",
+    packingStartDate: row.packingStartDate || "",
+    packConfirmed: Boolean(row.packConfirmed),
+    voyageNumber: row.voyageNumber || "",
+    lloydId: row.lloydId || "",
+    vesselCutoffDate: row.vesselCutoffDate || "",
+    etd: row.etd || "",
+    fumigation: row.fumigation || "",
+    fumigationRequired: Boolean(row.fumigationRequired),
+    fumigationTiming: row.fumigationTiming || "",
+    fumigantId: row.fumigantId ?? null,
+    methodologyId: row.methodologyId ?? null,
+    certificateTemplateId: row.certificateTemplateId ?? null,
+    recordTemplateId: row.recordTemplateId ?? null,
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
     containers: buildPackContainers(row, row),
     fumigationDetail: detail,
     daffPermission: (row.daff_permission ?? row.daffPermission) || "N/A",
@@ -520,7 +580,16 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
   };
 }
 
+<<<<<<< HEAD
 function packToScheduleRow(pack, existingRow) {
+=======
+function packToScheduleRow(pack, existingRow, lookups = {}) {
+  const customerOptions = lookups.customers ?? DEFAULT_CUSTOMER_OPTIONS;
+  const commodityOptions = lookups.commodities ?? DEFAULT_COMMODITY_OPTIONS;
+  const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name || existingRow?.customer || "Unknown Customer";
+  const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description || existingRow?.commodity || "Unknown Commodity";
+  const exporterName = customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || existingRow?.exporter || "-";
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const containers = buildPackContainers(pack, existingRow);
@@ -532,6 +601,7 @@ function packToScheduleRow(pack, existingRow) {
   return {
     id: existingRow?.id ?? null,
     importExport: pack.importExport,
+<<<<<<< HEAD
     customerId: pack.customerId ?? null,
     commodityId: pack.commodityId ?? null,
     commodityTypeId: pack.commodityTypeId ?? null,
@@ -539,6 +609,13 @@ function packToScheduleRow(pack, existingRow) {
     shippingLineId: pack.shippingLineId ?? null,
     vessel_voyage_id: pack.vesselDepartureId ?? null,
     terminalId: pack.terminalId ?? "",
+=======
+    customer: customerName,
+    customerId: pack.customerId ?? existingRow?.customerId ?? null,
+    commodity: commodityName,
+    commodityId: pack.commodityId ?? existingRow?.commodityId ?? null,
+    commodityTypeId: pack.commodityTypeId ?? existingRow?.commodityTypeId ?? null,
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
     status: pack.status,
     jobReference: pack.jobReference || "",
     packType: pack.packType || "container",
@@ -549,6 +626,14 @@ function packToScheduleRow(pack, existingRow) {
     mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? null : Number(pack.mtTotal),
     releases: releaseDetails.filter((r) => r.releaseRef || r.emptyContainerParkId || r.transporterId),
     containers,
+<<<<<<< HEAD
+=======
+    releaseNumbers: releaseDetails.map((row) => row.releaseRef).filter(Boolean),
+    collectFromIds: releaseDetails.map((row) => row.emptyContainerParkId).filter(Boolean),
+    transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
+    exporter: exporterName,
+    exporterId: pack.exporter ?? existingRow?.exporterId ?? null,
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
     destinationCountry: pack.destinationCountry || "",
     destinationPort: pack.destinationPort || "",
     transshipmentPort: pack.transshipmentPort || "",
@@ -703,6 +788,8 @@ function NewPackFormPageInner() {
     () => packerOptions.filter((row) => String(row.status ?? "active").toLowerCase() === "active").map((row) => row.name),
     [packerOptions]
   );
+  const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
@@ -728,6 +815,33 @@ function NewPackFormPageInner() {
     containerCodes: [],
     loading: true,
   });
+  const [formLookups, setFormLookups] = useState({
+    customers: DEFAULT_CUSTOMER_OPTIONS,
+    commodities: DEFAULT_COMMODITY_OPTIONS,
+    loaded: false,
+  });
+  const customerOptions = formLookups.customers;
+  const commodityOptions = formLookups.commodities;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPackFormData()
+      .then((data) => {
+        if (cancelled || !data) return;
+        setFormLookups({
+          customers: Array.isArray(data.customers) && data.customers.length ? data.customers : DEFAULT_CUSTOMER_OPTIONS,
+          commodities:
+            Array.isArray(data.commodities) && data.commodities.length ? data.commodities : DEFAULT_COMMODITY_OPTIONS,
+          loaded: true,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setFormLookups((prev) => ({ ...prev, loaded: true }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1277,8 +1391,16 @@ function NewPackFormPageInner() {
         };
         const packId = nextPack.id ?? editingRow?.id;
         if (packId) {
+<<<<<<< HEAD
           const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
           savePack({ ...rowToSave, id: packId }).catch(() => {});
+=======
+          persistPackScheduleRow({
+            ...nextPack,
+            id: packId,
+            exporterId: isUuid(nextPack.exporter) ? nextPack.exporter : isUuid(nextPack.exporterId) ? nextPack.exporterId : null,
+          }).catch(() => {});
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
         }
         return nextPack;
       });
@@ -1417,7 +1539,11 @@ function NewPackFormPageInner() {
   const packRfpText = String(pack.rfp || "").trim();
   const packPemsCommodityLabel = useMemo(
     () => safeValue(commodityOptions.find((row) => String(row.id) === String(pack.commodityId))?.description),
+<<<<<<< HEAD
     [pack.commodityId]
+=======
+    [pack.commodityId, commodityOptions]
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
   );
   const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
   const containersLeftToPack = packContainers.filter((container) => {
@@ -1491,13 +1617,17 @@ function NewPackFormPageInner() {
     selectedVessel,
     customerOptions,
     commodityOptions,
+<<<<<<< HEAD
     containerParkOptions,
     transporterOptions,
+=======
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
   ]);
 
   useEffect(() => {
     if (mode !== "edit" || !editId) return;
     let cancelled = false;
+<<<<<<< HEAD
     import("@/lib/api/packing").then(({ getPack }) => getPack(editId)).then((row) => {
       if (cancelled || !row) return;
       setEditingRow(row);
@@ -1505,6 +1635,17 @@ function NewPackFormPageInner() {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [mode, editId, currentSite, customerOptions, commodityOptions]);
+=======
+    loadPackScheduleRow(editId).then((row) => {
+      if (cancelled || !row) return;
+      setEditingRow(row);
+      setPack(rowToPack(row, currentSite, formLookups));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, editId, currentSite, formLookups.loaded]);
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
 
   useEffect(() => {
     if (mode !== "add") return;
@@ -1567,24 +1708,65 @@ function NewPackFormPageInner() {
   }, [sampleEntries.length]);
 
   const save = async () => {
+<<<<<<< HEAD
     const normalized = {
       ...pack,
       customerId: pack.customerId || null,
       commodityId: pack.commodityId || null,
       commodityTypeId: pack.commodityTypeId || null,
       siteId: pack.siteId || currentSite || null,
+=======
+    const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name || "";
+    const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description || "";
+    const exporterName = customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || "";
+    const normalized = {
+      ...pack,
+      customerId: isUuid(pack.customerId) ? pack.customerId : null,
+      commodityId: isUuid(pack.commodityId) ? pack.commodityId : null,
+      commodityTypeId: (() => {
+        const fromCommodity = isUuid(pack.commodityId)
+          ? commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.commodityTypeId ?? pack.commodityTypeId ?? null
+          : pack.commodityTypeId ?? null;
+        return isUuid(fromCommodity) ? fromCommodity : null;
+      })(),
+      siteId: pack.siteId || currentSite,
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
       containersRequired: pack.containersRequired === "" ? null : Number(pack.containersRequired),
       quantityPerContainer: pack.quantityPerContainer === "" ? null : Number(pack.quantityPerContainer),
       maxQtyPerContainer: pack.maxQtyPerContainer === "" ? null : Number(pack.maxQtyPerContainer),
       mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? Number(computedMtTotal) : null,
       shippingLineId: pack.shippingLineId || null,
       vesselDepartureId: pack.vesselDepartureId || null,
+<<<<<<< HEAD
       exporter: pack.exporter || null,
       fumigationRequired: Boolean(pack.fumigationRequired),
       fumigantId: pack.fumigantId != null && pack.fumigantId !== "" ? pack.fumigantId : null,
       methodologyId: pack.methodologyId != null && pack.methodologyId !== "" ? pack.methodologyId : null,
       certificateTemplateId: pack.certificateTemplateId != null && pack.certificateTemplateId !== "" ? pack.certificateTemplateId : null,
       recordTemplateId: pack.recordTemplateId != null && pack.recordTemplateId !== "" ? pack.recordTemplateId : null,
+=======
+      fumigationRequired: Boolean(pack.fumigationRequired),
+      fumigantId:
+        pack.fumigantId !== null && pack.fumigantId !== undefined && pack.fumigantId !== ""
+          ? pack.fumigantId
+          : null,
+      methodologyId:
+        pack.methodologyId !== null && pack.methodologyId !== undefined && pack.methodologyId !== ""
+          ? pack.methodologyId
+          : null,
+      certificateTemplateId:
+        pack.certificateTemplateId !== null &&
+          pack.certificateTemplateId !== undefined &&
+          pack.certificateTemplateId !== ""
+          ? pack.certificateTemplateId
+          : null,
+      recordTemplateId:
+        pack.recordTemplateId !== null &&
+          pack.recordTemplateId !== undefined &&
+          pack.recordTemplateId !== ""
+          ? pack.recordTemplateId
+          : null,
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
       fumigationDetail:
         pack.fumigationDetail && typeof pack.fumigationDetail === "object"
           ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
@@ -1603,8 +1785,10 @@ function NewPackFormPageInner() {
       additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
       rfpFiles: normalizeFileItems(pack.rfpFiles),
       packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+      containers: buildPackContainers(pack, editingRow),
     };
     setSaveError("");
+<<<<<<< HEAD
     try {
       if (mode === "edit" && editingRow) {
         const updated = packToScheduleRow(normalized, editingRow);
@@ -1616,6 +1800,26 @@ function NewPackFormPageInner() {
       router.push("/packing-schedule");
     } catch (err) {
       setSaveError(err?.message || "Failed to save pack.");
+=======
+    setIsSaving(true);
+    try {
+      const packId = [editingRow?.id, editId, pack.id].find((value) => isUuid(value)) ?? null;
+      const payload = {
+        ...normalized,
+        customer: customerName,
+        commodity: commodityName,
+        exporter: exporterName,
+        exporterName,
+        exporterId: isUuid(pack.exporter) ? pack.exporter : null,
+        ...(packId ? { id: packId } : {}),
+      };
+      await persistPackScheduleRow(payload);
+      router.push("/packing-schedule");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save pack.");
+    } finally {
+      setIsSaving(false);
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
     }
   };
 
@@ -1649,6 +1853,9 @@ function NewPackFormPageInner() {
         <div className="flex flex-wrap items-center justify-between gap-1">
           <h1 className="text-base font-semibold leading-tight text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
         </div>
+        {saveError ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{saveError}</div>
+        ) : null}
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
@@ -4169,6 +4376,7 @@ function NewPackFormPageInner() {
                 ))}
               </dl>
             </div>
+<<<<<<< HEAD
             <div className="flex shrink-0 flex-col items-end gap-1.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
               {saveError ? <p className="text-[11px] text-red-600">{saveError}</p> : null}
               <div className="flex items-center gap-2">
@@ -4179,6 +4387,15 @@ function NewPackFormPageInner() {
                   {mode === "edit" ? "Save changes" : "Create pack"}
                 </Button>
               </div>
+=======
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
+              <Button variant="outline" size="sm" type="button" onClick={() => router.push("/packing-schedule")}>
+                Cancel
+              </Button>
+              <Button size="sm" type="button" onClick={save} disabled={isSaving}>
+                {isSaving ? "Saving..." : mode === "edit" ? "Save changes" : "Create pack"}
+              </Button>
+>>>>>>> 2507bc838466530d30cfcfc124ea19c461d3c58f
             </div>
           </div>
         </footer>

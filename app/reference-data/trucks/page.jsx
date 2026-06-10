@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
@@ -139,6 +139,14 @@ function toApiPayload(draft) {
 }
 
 export default function TrucksPage() {
+  return (
+    <Suspense fallback={null}>
+      <TrucksPageContent />
+    </Suspense>
+  );
+}
+
+function TrucksPageContent() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();

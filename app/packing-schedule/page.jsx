@@ -381,18 +381,6 @@ export default function PackingSchedulePage() {
     router.push(`/packing-schedule/new-pack-form?mode=edit&id=${selected.id}`);
   }
 
-  async function handleDelete() {
-    if (!selected) return;
-    if (typeof window !== "undefined" && !window.confirm(`Delete pack ${selected.id}?`)) return;
-    try {
-      await removePackScheduleRow(selected.id);
-      setRows((prev) => prev.filter((row) => row.id !== selected.id));
-      setSelectedId(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to delete pack.");
-    }
-  }
-
   return (
     <div className="space-y-5">
       <div>
@@ -400,10 +388,6 @@ export default function PackingSchedulePage() {
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
         <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p>
       </div>
-
-      {loadError ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{loadError}</div>
-      ) : null}
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -497,7 +481,6 @@ export default function PackingSchedulePage() {
             density="standard"
             fileName="Packing Schedule"
             visibleRows={14}
-            loading={isLoading}
             onRowClick={(row) => setSelectedId(row.id)}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {

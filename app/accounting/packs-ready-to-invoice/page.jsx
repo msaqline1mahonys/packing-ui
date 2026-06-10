@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import {
-  calculateInitialLineItems,
   calculateLineItemAmount,
   formatCurrency,
   formatTon,
@@ -37,14 +36,11 @@ export default function PacksReadyToInvoicePage() {
 
   const packsWithBreakdown = useMemo(
     () =>
-      invoicePacks.map((pack) => {
-        const lineItems = calculateInitialLineItems(pack);
-        return {
-          ...pack,
-          lineItems,
-          invoiceTotal: lineItems.reduce((total, item) => total + calculateLineItemAmount(item), 0),
-        };
-      }),
+      invoicePacks.map((pack) => ({
+        ...pack,
+        lineItems: pack.lineItems ?? [],
+        invoiceTotal: pack.invoiceTotal ?? (pack.lineItems ?? []).reduce((t, i) => t + calculateLineItemAmount(i), 0),
+      })),
     [invoicePacks]
   );
 

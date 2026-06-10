@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
@@ -153,6 +153,29 @@ export default function PackingSchedulePage() {
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
+  const tableRef = useRef(null);
+  const detailsRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedId == null) return;
+
+    function onPointerDown(event) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (tableRef.current?.contains(target)) return;
+      if (detailsRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest(".MuiPopover-root, .MuiModal-root, .MuiMenu-root, .MuiPopper-root, .MuiDialog-root")
+      ) {
+        return;
+      }
+      setSelectedId(null);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [selectedId]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -472,7 +495,7 @@ export default function PackingSchedulePage() {
       </section>
 
       <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
-        <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
             columns={gridColumns}
             rows={filtered}
@@ -481,7 +504,7 @@ export default function PackingSchedulePage() {
             density="standard"
             fileName="Packing Schedule"
             visibleRows={14}
-            onRowClick={(row) => setSelectedId(row.id)}
+            onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {
               const ie = row.import_export ?? row.importExport;
@@ -539,7 +562,7 @@ export default function PackingSchedulePage() {
         </div>
 
         {selected ? (
-          <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
+          <div ref={detailsRef} className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-3 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
             </div>

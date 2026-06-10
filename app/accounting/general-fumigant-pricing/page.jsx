@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { CUSTOMER_MASTER_ROWS, FUMIGANT_MASTER_ROWS, GENERAL_FUMIGANT_PRICING_STATE } from "@/lib/Data";
+import { getFumigantPricing, getPricingFormData, saveFumigantPricing } from "@/lib/api/accounting";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -36,17 +36,18 @@ function InfoRow({ label, value, highlight }) {
 }
 
 export default function GeneralFumigantPricingPage() {
-  const fumigants = useMemo(() => FUMIGANT_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const customers = useMemo(() => CUSTOMER_MASTER_ROWS.map((row) => ({ ...row })), []);
+  // Reference lists — loaded from the backend (real DB records), not seed data.
+  const [fumigants, setFumigants] = useState([]);
+  const [customers, setCustomers] = useState([]);
 
-  const [pricingState, setPricingState] = useState(() => ({
-    baseFumigantPrices: GENERAL_FUMIGANT_PRICING_STATE.baseFumigantPrices.map((item) => ({ ...item })),
-    customerFumigantPrices: GENERAL_FUMIGANT_PRICING_STATE.customerFumigantPrices.map((item) => ({ ...item })),
-  }));
+  const [pricingState, setPricingState] = useState({
+    baseFumigantPrices: [],
+    customerFumigantPrices: [],
+  });
   const { baseFumigantPrices, customerFumigantPrices } = pricingState;
 
   const [isMobile, setIsMobile] = useState(false);
-  const [selectedFumigantId, setSelectedFumigantId] = useState(fumigants[0]?.id ?? null);
+  const [selectedFumigantId, setSelectedFumigantId] = useState(null);
   const [baseDraft, setBaseDraft] = useState("");
   const [customerDrafts, setCustomerDrafts] = useState({});
   const [baseDirty, setBaseDirty] = useState(false);
@@ -60,6 +61,36 @@ export default function GeneralFumigantPricingPage() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  useEffect(() => {
+    getFumigantPricing()
+      .then((data) => {
+        if (!data) return;
+        setPricingState({
+          baseFumigantPrices: data.baseFumigantPrices ?? [],
+          customerFumigantPrices: data.customerFumigantPrices ?? [],
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load reference lists (fumigants, customers) from the backend.
+  useEffect(() => {
+    getPricingFormData()
+      .then((data) => {
+        if (!data) return;
+        const fums = data.fumigants ?? [];
+        const custs = data.customers ?? [];
+        setFumigants(fums);
+        setCustomers(custs);
+        setSelectedFumigantId((prev) => prev ?? fums[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
+  function persist(nextState) {
+    saveFumigantPricing(nextState).catch(() => {});
+  }
 
   useEffect(() => {
     if (!selectedFumigantId) return;
@@ -103,34 +134,32 @@ export default function GeneralFumigantPricingPage() {
 
     setPricingState((prev) => {
       const existing = prev.baseFumigantPrices.find((item) => item.fumigantId === selectedFumigantId);
+      let next;
       if (parsed === "") {
         if (!existing) return prev;
-        return {
-          ...prev,
-          baseFumigantPrices: prev.baseFumigantPrices.filter((item) => item.id !== existing.id),
-        };
-      }
-
-      if (existing) {
-        return {
+        next = { ...prev, baseFumigantPrices: prev.baseFumigantPrices.filter((item) => item.id !== existing.id) };
+      } else if (existing) {
+        next = {
           ...prev,
           baseFumigantPrices: prev.baseFumigantPrices.map((item) =>
             item.id === existing.id ? { ...item, price: parsed } : item
           ),
         };
+      } else {
+        next = {
+          ...prev,
+          baseFumigantPrices: [
+            ...prev.baseFumigantPrices,
+            {
+              id: nextId(prev.baseFumigantPrices),
+              fumigantId: selectedFumigantId,
+              price: parsed,
+            },
+          ],
+        };
       }
-
-      return {
-        ...prev,
-        baseFumigantPrices: [
-          ...prev.baseFumigantPrices,
-          {
-            id: nextId(prev.baseFumigantPrices),
-            fumigantId: selectedFumigantId,
-            price: parsed,
-          },
-        ],
-      };
+      persist(next);
+      return next;
     });
     setBaseDirty(false);
     setErrorText("");
@@ -159,35 +188,33 @@ export default function GeneralFumigantPricingPage() {
         (item) => item.customerId === customerId && item.fumigantId === selectedFumigantId
       );
 
+      let next;
       if (parsed === "") {
         if (!existing) return prev;
-        return {
-          ...prev,
-          customerFumigantPrices: prev.customerFumigantPrices.filter((item) => item.id !== existing.id),
-        };
-      }
-
-      if (existing) {
-        return {
+        next = { ...prev, customerFumigantPrices: prev.customerFumigantPrices.filter((item) => item.id !== existing.id) };
+      } else if (existing) {
+        next = {
           ...prev,
           customerFumigantPrices: prev.customerFumigantPrices.map((item) =>
             item.id === existing.id ? { ...item, price: parsed } : item
           ),
         };
+      } else {
+        next = {
+          ...prev,
+          customerFumigantPrices: [
+            ...prev.customerFumigantPrices,
+            {
+              id: nextId(prev.customerFumigantPrices),
+              customerId,
+              fumigantId: selectedFumigantId,
+              price: parsed,
+            },
+          ],
+        };
       }
-
-      return {
-        ...prev,
-        customerFumigantPrices: [
-          ...prev.customerFumigantPrices,
-          {
-            id: nextId(prev.customerFumigantPrices),
-            customerId,
-            fumigantId: selectedFumigantId,
-            price: parsed,
-          },
-        ],
-      };
+      persist(next);
+      return next;
     });
 
     setDirtyCustomers((prev) => ({ ...prev, [customerId]: false }));

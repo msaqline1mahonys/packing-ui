@@ -5,14 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 import {
-  FEES_AND_CHARGES_LOOKUP,
-  calculateInitialLineItems,
   calculateLineItemAmount,
   createFeeLineItem,
   formatCurrency,
   formatTon,
 } from "@/lib/packs-ready-to-invoice-dummy";
 import { findPackReadyToInvoice } from "@/lib/packs-ready-to-invoice";
+import { createInvoice } from "@/lib/api/accounting";
 
 export default function PackInvoiceBreakdownPage() {
   const params = useParams();
@@ -20,18 +19,26 @@ export default function PackInvoiceBreakdownPage() {
 
   const [selectedPack, setSelectedPack] = useState(null);
   const [lineItems, setLineItems] = useState([]);
+  const [selectedChargeId, setSelectedChargeId] = useState("");
+
+  // Generate Invoice state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [generatedInvoice, setGeneratedInvoice] = useState(null);
+  const [invoiceError, setInvoiceError] = useState(null);
 
   useEffect(() => {
     findPackReadyToInvoice(packId).then((pack) => {
       setSelectedPack(pack || null);
-      setLineItems(pack ? calculateInitialLineItems(pack) : []);
+      setLineItems(pack?.lineItems ?? []);
     });
   }, [packId]);
-  const [selectedChargeId, setSelectedChargeId] = useState("");
 
   const availableCharges = useMemo(
-    () => FEES_AND_CHARGES_LOOKUP.filter((charge) => !lineItems.some((item) => item.source === "fee" && item.chargeId === charge.id)),
-    [lineItems]
+    () =>
+      (selectedPack?.charges ?? []).filter(
+        (charge) => !lineItems.some((item) => item.source === "fee" && item.chargeId === charge.id)
+      ),
+    [lineItems, selectedPack]
   );
 
   const invoiceTotal = useMemo(() => lineItems.reduce((total, item) => total + calculateLineItemAmount(item), 0), [lineItems]);
@@ -42,7 +49,7 @@ export default function PackInvoiceBreakdownPage() {
 
   function handleAddCharge() {
     if (!selectedPack || !selectedChargeId) return;
-    const charge = FEES_AND_CHARGES_LOOKUP.find((item) => String(item.id) === selectedChargeId);
+    const charge = (selectedPack.charges ?? []).find((item) => String(item.id) === selectedChargeId);
     if (!charge) return;
 
     setLineItems((prev) => [...prev, createFeeLineItem(charge, selectedPack)]);
@@ -53,6 +60,20 @@ export default function PackInvoiceBreakdownPage() {
     const parsed = Number.parseFloat(value);
     const nextUnitPrice = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
     setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, unitPrice: nextUnitPrice } : item)));
+  }
+
+  async function handleGenerateInvoice() {
+    if (!selectedPack || isSubmitting || generatedInvoice) return;
+    setIsSubmitting(true);
+    setInvoiceError(null);
+    try {
+      const result = await createInvoice({ packId: selectedPack.id, lineItems });
+      setGeneratedInvoice(result);
+    } catch (err) {
+      setInvoiceError(err?.message || "Failed to generate invoice. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (!selectedPack) {
@@ -70,6 +91,8 @@ export default function PackInvoiceBreakdownPage() {
     );
   }
 
+  const isLocked = Boolean(generatedInvoice);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -82,13 +105,44 @@ export default function PackInvoiceBreakdownPage() {
             Unit prices are brought back as guideline values and can be edited before finalizing the breakdown.
           </p>
         </div>
-        <Link
-          href="/accounting/packs-ready-to-invoice"
-          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          Back to Pack List
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/accounting/packs-ready-to-invoice"
+            className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Back to Pack List
+          </Link>
+          <button
+            type="button"
+            onClick={handleGenerateInvoice}
+            disabled={isSubmitting || isLocked}
+            className="inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? "Generating…" : "Generate Invoice"}
+          </button>
+        </div>
       </div>
+
+      {generatedInvoice ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+          <p className="text-sm font-semibold text-green-800">Invoice generated successfully!</p>
+          <p className="mt-1 text-xs text-green-700">
+            Invoice number: <span className="font-semibold">{generatedInvoice.invoice_number}</span>
+          </p>
+          <p className="mt-2 text-xs text-green-700">
+            <Link href="/accounting/packs-ready-to-invoice" className="font-semibold underline hover:text-green-900">
+              Back to Pack List
+            </Link>
+          </p>
+        </div>
+      ) : null}
+
+      {invoiceError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+          <p className="text-sm font-semibold text-rose-800">Error generating invoice</p>
+          <p className="mt-1 text-xs text-rose-700">{invoiceError}</p>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -108,7 +162,7 @@ export default function PackInvoiceBreakdownPage() {
           <MetricCard label="Total Weight" value={formatTon(selectedPack.totalWeightTon)} />
           <MetricCard
             label="Fumigation"
-            value={selectedPack.fumigationRequired ? `Required @ ${formatCurrency(selectedPack.fumigationRatePerTon)}/MT` : "Not required"}
+            value={selectedPack.fumigationRequired ? "Required" : "Not required"}
           />
         </div>
       </div>
@@ -118,32 +172,34 @@ export default function PackInvoiceBreakdownPage() {
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Edit Breakdown</h3>
             <p className="mt-1 text-xs text-slate-500">
-              Remove line items as needed and edit unit prices. Additional fees can be added from Fees & Charges.
+              Remove line items as needed and edit unit prices. Additional fees can be added from Fees &amp; Charges.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedChargeId}
-              onChange={(event) => setSelectedChargeId(event.target.value)}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20"
-            >
-              <option value="">Select fee/charge to add</option>
-              {availableCharges.map((charge) => (
-                <option key={charge.id} value={String(charge.id)}>
-                  {charge.chargeName} ({charge.chargeType})
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={handleAddCharge}
-              disabled={!selectedChargeId}
-              className="inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Add line item
-            </button>
-          </div>
+          {!isLocked ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedChargeId}
+                onChange={(event) => setSelectedChargeId(event.target.value)}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20"
+              >
+                <option value="">Select fee/charge to add</option>
+                {availableCharges.map((charge) => (
+                  <option key={charge.id} value={String(charge.id)}>
+                    {charge.chargeName} ({charge.chargeType})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddCharge}
+                disabled={!selectedChargeId}
+                className="inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Add line item
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-4 overflow-x-auto">
@@ -172,31 +228,37 @@ export default function PackInvoiceBreakdownPage() {
                     <td className="py-3 pr-3 text-slate-500">{index + 1}</td>
                     <td className="py-3 pr-3 font-medium">{item.label}</td>
                     <td className="py-3 pr-3 text-slate-600">
-                      <div className="inline-flex items-center gap-1.5">
-                        <span className="text-[11px] text-slate-400">$</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={item.unitPrice}
-                          onWheel={(event) => event.currentTarget.blur()}
-                          onChange={(event) => handleUnitPriceChange(item.id, event.target.value)}
-                          className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20"
-                        />
-                        <span className="text-[11px] text-slate-500">/ {item.unitLabel}</span>
-                      </div>
+                      {isLocked ? (
+                        <span>{formatCurrency(item.unitPrice)} / {item.unitLabel}</span>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-400">$</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={item.unitPrice}
+                            onWheel={(event) => event.currentTarget.blur()}
+                            onChange={(event) => handleUnitPriceChange(item.id, event.target.value)}
+                            className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20"
+                          />
+                          <span className="text-[11px] text-slate-500">/ {item.unitLabel}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 pr-3 text-slate-600">{item.quantity}</td>
                     <td className="py-3 pr-3 text-slate-600">{item.basisText}</td>
                     <td className="py-3 pr-3 text-right font-semibold">{formatCurrency(calculateLineItemAmount(item))}</td>
                     <td className="py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLineItem(item.id)}
-                        className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
-                      >
-                        Remove
-                      </button>
+                      {!isLocked ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLineItem(item.id)}
+                          className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))

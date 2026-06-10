@@ -2,14 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  COMMODITY_TYPE_MASTER_ROWS,
-  COMMODITY_MASTER_ROWS,
-  CUSTOMER_MASTER_ROWS,
-  GENERAL_PACK_PRICING_STATE,
-  REFERENCE_CONTAINER_CODE_ROWS,
-} from "@/lib/Data";
+import { getPackPricing, getPricingFormData, savePackPricing } from "@/lib/api/accounting";
 import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const MOBILE_BREAKPOINT = 900;
 const RATE_BASIS_PER_TON = "perTon";
@@ -17,7 +15,9 @@ const RATE_BASIS_PER_CONTAINER = "perContainer";
 const inputClass =
   "w-full rounded-md border border-slate-200/95 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-const initialPricingState = GENERAL_PACK_PRICING_STATE;
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
 
 function nextId(items) {
   return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
@@ -45,1011 +45,22 @@ function normalizeContainerSize(value) {
     .replace(/\s+/g, "");
 }
 
-function containerSizeSortValue(size) {
-  const matched = String(size).match(/^(\d+)/);
-  if (!matched) return Number.MAX_SAFE_INTEGER;
-  return Number(matched[1]);
+/** "20FT" -> "20 Foot Containers", fallback to raw */
+function sizeTabLabel(size) {
+  const m = String(size).match(/^(\d+)FT$/i);
+  if (m) return `${m[1]} Foot Containers`;
+  return size;
 }
 
-function InfoRow({ label, value, highlight }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[11px] font-semibold text-slate-500">{label}</span>
-      <span className={cn("break-words text-[13px] font-medium text-slate-800", highlight && "font-semibold text-blue-700")}>
-        {value || "-"}
-      </span>
-    </div>
-  );
-}
-
-export default function GeneralPackPricingPage() {
-  const commodityTypes = useMemo(() => COMMODITY_TYPE_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const commodities = useMemo(() => COMMODITY_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const customers = useMemo(() => CUSTOMER_MASTER_ROWS.map((row) => ({ ...row })), []);
-  const containerSizes = useMemo(() => {
-    const sizesFromContainerCodes = Array.from(
-      new Set(REFERENCE_CONTAINER_CODE_ROWS.map((row) => normalizeContainerSize(row.containerSize)).filter(Boolean))
-    ).sort((left, right) => {
-      const leftValue = containerSizeSortValue(left);
-      const rightValue = containerSizeSortValue(right);
-      if (leftValue !== rightValue) return leftValue - rightValue;
-      return left.localeCompare(right);
-    });
-
-    if (sizesFromContainerCodes.length > 0) return sizesFromContainerCodes;
-
-    const fallbackFromPricing = Array.from(
-      new Set(
-        [...initialPricingState.defaultPackingPrices, ...initialPricingState.commodityTypeCustomerPrices].map((row) =>
-          normalizeContainerSize(row.containerSize)
-        )
-      )
-    ).filter(Boolean);
-
-    return fallbackFromPricing.length > 0 ? fallbackFromPricing : ["20FT", "40FT"];
-  }, []);
-
-  const [pricingState, setPricingState] = useState(() => ({
-    defaultPackingPrices: initialPricingState.defaultPackingPrices.map((item) => ({ ...item })),
-    commodityPrices: initialPricingState.commodityPrices.map((item) => ({ ...item })),
-    commodityTypeCustomerPrices: initialPricingState.commodityTypeCustomerPrices.map((item) => ({ ...item })),
-    commodityCustomerPrices: initialPricingState.commodityCustomerPrices.map((item) => ({ ...item })),
-  }));
-  const { defaultPackingPrices, commodityPrices, commodityTypeCustomerPrices, commodityCustomerPrices } = pricingState;
-
-  const [isMobile, setIsMobile] = useState(false);
-  const [selectedCommodityTypeId, setSelectedCommodityTypeId] = useState(commodityTypes[0]?.id ?? null);
-  const [baseDraft, setBaseDraft] = useState(() =>
-    containerSizes.reduce((acc, size) => ({ ...acc, [size]: "" }), {})
-  );
-  const [baseRateBasisDraft, setBaseRateBasisDraft] = useState(() =>
-    containerSizes.reduce((acc, size) => ({ ...acc, [size]: RATE_BASIS_PER_TON }), {})
-  );
-  const [customerDrafts, setCustomerDrafts] = useState({});
-  const [customerRateBasisDrafts, setCustomerRateBasisDrafts] = useState({});
-  const [baseDirty, setBaseDirty] = useState(false);
-  const [dirtyCustomers, setDirtyCustomers] = useState({});
-  const [errorText, setErrorText] = useState("");
-
-  const [defaultPricesEditing, setDefaultPricesEditing] = useState(false);
-
-  // Commodity price modal states
-  const [cpModalOpen, setCpModalOpen] = useState(false);
-  const [cpEditId, setCpEditId] = useState(null);
-  const [cpForm, setCpForm] = useState({ commodityId: "", containerSize: "", price: "" });
-
-  // Commodity type + Customer price modal states
-  const [ctcpModalOpen, setCtcpModalOpen] = useState(false);
-  const [ctcpEditId, setCtcpEditId] = useState(null);
-  const [ctcpForm, setCtcpForm] = useState({ customerId: "", commodityTypeId: "", containerSize: "", price: "" });
-
-  // Commodity + Customer price modal states
-  const [ccpModalOpen, setCcpModalOpen] = useState(false);
-  const [ccpEditId, setCcpEditId] = useState(null);
-  const [ccpForm, setCcpForm] = useState({ customerId: "", commodityId: "", containerSize: "", price: "" });
-
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
-    const handler = () => setIsMobile(mq.matches);
-    handler();
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCommodityTypeId) return;
-    const nextBase = {};
-    const nextBaseRateBasis = {};
-    containerSizes.forEach((size) => {
-      const match = defaultPackingPrices.find(
-        (item) => item.commodityTypeId === selectedCommodityTypeId && normalizeContainerSize(item.containerSize) === size
-      );
-      nextBase[size] = toInputValue(match?.price);
-      nextBaseRateBasis[size] = normalizeRateBasis(match?.rateBasis);
-    });
-
-    const nextCustomerDrafts = {};
-    const nextCustomerRateBasisDrafts = {};
-    customers.forEach((customer) => {
-      const perCustomer = {};
-      const perCustomerRateBasis = {};
-      containerSizes.forEach((size) => {
-        const match = commodityTypeCustomerPrices.find(
-          (item) =>
-            item.customerId === customer.id &&
-            item.commodityTypeId === selectedCommodityTypeId &&
-            normalizeContainerSize(item.containerSize) === size
-        );
-        perCustomer[size] = toInputValue(match?.price);
-        perCustomerRateBasis[size] = normalizeRateBasis(match?.rateBasis);
-      });
-      nextCustomerDrafts[customer.id] = perCustomer;
-      nextCustomerRateBasisDrafts[customer.id] = perCustomerRateBasis;
-    });
-
-    setBaseDraft(nextBase);
-    setBaseRateBasisDraft(nextBaseRateBasis);
-    setCustomerDrafts(nextCustomerDrafts);
-    setCustomerRateBasisDrafts(nextCustomerRateBasisDrafts);
-    setBaseDirty(false);
-    setDirtyCustomers({});
-    setErrorText("");
-  }, [selectedCommodityTypeId, containerSizes, customers, defaultPackingPrices, commodityTypeCustomerPrices]);
-
-  function getDefaultPrice(commodityTypeId, containerSize) {
-    return defaultPackingPrices.find(
-      (item) => item.commodityTypeId === commodityTypeId && normalizeContainerSize(item.containerSize) === containerSize
-    );
-  }
-
-  function getCustomerPrice(customerId, commodityTypeId, containerSize) {
-    return commodityTypeCustomerPrices.find(
-      (item) =>
-        item.customerId === customerId &&
-        item.commodityTypeId === commodityTypeId &&
-        normalizeContainerSize(item.containerSize) === containerSize
-    );
-  }
-
-  function handleBaseInputChange(size, value) {
-    setBaseDraft((prev) => ({ ...prev, [size]: value }));
-    setBaseDirty(true);
-    setErrorText("");
-  }
-
-  function handleBaseRateBasisChange(size, checked) {
-    setBaseRateBasisDraft((prev) => ({
-      ...prev,
-      [size]: checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON,
-    }));
-    setBaseDirty(true);
-    setErrorText("");
-  }
-
-  function handleCustomerInputChange(customerId, size, value) {
-    setCustomerDrafts((prev) => ({
-      ...prev,
-      [customerId]: {
-        ...(prev[customerId] || {}),
-        [size]: value,
-      },
-    }));
-    setDirtyCustomers((prev) => ({ ...prev, [customerId]: true }));
-    setErrorText("");
-  }
-
-  function handleCustomerRateBasisChange(customerId, size, checked) {
-    setCustomerRateBasisDrafts((prev) => ({
-      ...prev,
-      [customerId]: {
-        ...(prev[customerId] || {}),
-        [size]: checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON,
-      },
-    }));
-    setDirtyCustomers((prev) => ({ ...prev, [customerId]: true }));
-    setErrorText("");
-  }
-
-  function saveBasePrices() {
-    if (!selectedCommodityTypeId) return;
-    const parsedBySize = {};
-    for (const size of containerSizes) {
-      const raw = String(baseDraft[size] ?? "").trim();
-      if (!raw) {
-        parsedBySize[size] = "";
-        continue;
-      }
-      const parsed = toNumber(raw);
-      if (parsed == null) {
-        setErrorText(`Base ${size} price must be a valid number.`);
-        return;
-      }
-      parsedBySize[size] = parsed;
-    }
-
-    setPricingState((prev) => {
-      let nextRows = [...prev.defaultPackingPrices];
-      let maxId = nextId(nextRows) - 1;
-
-      containerSizes.forEach((size) => {
-        const idx = nextRows.findIndex(
-          (item) => item.commodityTypeId === selectedCommodityTypeId && normalizeContainerSize(item.containerSize) === size
-        );
-        const parsed = parsedBySize[size];
-        const rateBasis = normalizeRateBasis(baseRateBasisDraft[size]);
-        if (parsed === "") {
-          if (idx >= 0) nextRows.splice(idx, 1);
-          return;
-        }
-
-        if (idx >= 0) {
-          nextRows[idx] = { ...nextRows[idx], price: parsed, rateBasis };
-        } else {
-          maxId += 1;
-          nextRows.push({
-            id: maxId,
-            commodityTypeId: selectedCommodityTypeId,
-            containerSize: size,
-            price: parsed,
-            rateBasis,
-          });
-        }
-      });
-
-      return {
-        ...prev,
-        defaultPackingPrices: nextRows,
-      };
-    });
-    setBaseDirty(false);
-    setErrorText("");
-  }
-
-  function handleDefaultPriceChange(commodityTypeId, containerSize, value) {
-    const parsed = toNumber(value);
-    setPricingState((prev) => {
-      let nextRows = [...prev.defaultPackingPrices];
-      const existingIdx = nextRows.findIndex(
-        (item) => item.commodityTypeId === commodityTypeId && normalizeContainerSize(item.containerSize) === normalizeContainerSize(containerSize)
-      );
-
-      if (existingIdx >= 0) {
-        if (value === "") {
-          nextRows.splice(existingIdx, 1);
-        } else {
-          nextRows[existingIdx] = { ...nextRows[existingIdx], price: parsed };
-        }
-      } else if (value !== "") {
-        nextRows.push({
-          id: nextId(nextRows),
-          commodityTypeId,
-          containerSize: containerSize,
-          price: parsed,
-          rateBasis: RATE_BASIS_PER_TON,
-        });
-      }
-
-      return {
-        ...prev,
-        defaultPackingPrices: nextRows,
-      };
-    });
-  }
-
-  function openAddCp() {
-    setCpEditId(null);
-    setCpForm({ commodityId: "", containerSize: containerSizes[0] || "", price: "" });
-    setCpModalOpen(true);
-  }
-
-  function openEditCp(entry) {
-    setCpEditId(entry.id);
-    setCpForm({
-      commodityId: String(entry.commodityId),
-      containerSize: entry.containerSize,
-      price: entry.price == null ? "" : String(entry.price),
-    });
-    setCpModalOpen(true);
-  }
-
-  function saveCp() {
-    if (!cpForm.commodityId || !cpForm.containerSize) return;
-    const parsed = toNumber(cpForm.price);
-    if (parsed == null) return;
-
-    setPricingState((prev) => {
-      if (!cpEditId) {
-        const nextItem = {
-          id: nextId(prev.commodityPrices),
-          commodityId: Number(cpForm.commodityId),
-          containerSize: cpForm.containerSize,
-          price: parsed,
-        };
-        return { ...prev, commodityPrices: [...prev.commodityPrices, nextItem] };
-      }
-      return {
-        ...prev,
-        commodityPrices: prev.commodityPrices.map((item) =>
-          item.id === cpEditId
-            ? {
-              ...item,
-              commodityId: Number(cpForm.commodityId),
-              containerSize: cpForm.containerSize,
-              price: parsed,
-            }
-            : item
-        ),
-      };
-    });
-    setCpModalOpen(false);
-  }
-
-  function openAddCtcp() {
-    setCtcpEditId(null);
-    setCtcpForm({ customerId: "", commodityTypeId: "", containerSize: containerSizes[0] || "", price: "" });
-    setCtcpModalOpen(true);
-  }
-
-  function openEditCtcp(entry) {
-    setCtcpEditId(entry.id);
-    setCtcpForm({
-      customerId: String(entry.customerId),
-      commodityTypeId: String(entry.commodityTypeId),
-      containerSize: entry.containerSize,
-      price: entry.price == null ? "" : String(entry.price),
-    });
-    setCtcpModalOpen(true);
-  }
-
-  function saveCtcp() {
-    if (!ctcpForm.customerId || !ctcpForm.commodityTypeId || !ctcpForm.containerSize) return;
-    const parsed = toNumber(ctcpForm.price);
-    if (parsed == null) return;
-
-    setPricingState((prev) => {
-      if (!ctcpEditId) {
-        const nextItem = {
-          id: nextId(prev.commodityTypeCustomerPrices),
-          customerId: Number(ctcpForm.customerId),
-          commodityTypeId: Number(ctcpForm.commodityTypeId),
-          containerSize: ctcpForm.containerSize,
-          price: parsed,
-        };
-        return { ...prev, commodityTypeCustomerPrices: [...prev.commodityTypeCustomerPrices, nextItem] };
-      }
-      return {
-        ...prev,
-        commodityTypeCustomerPrices: prev.commodityTypeCustomerPrices.map((item) =>
-          item.id === ctcpEditId
-            ? {
-              ...item,
-              customerId: Number(ctcpForm.customerId),
-              commodityTypeId: Number(ctcpForm.commodityTypeId),
-              containerSize: ctcpForm.containerSize,
-              price: parsed,
-            }
-            : item
-        ),
-      };
-    });
-    setCtcpModalOpen(false);
-  }
-
-  function openAddCcp() {
-    setCcpEditId(null);
-    setCcpForm({ customerId: "", commodityId: "", containerSize: containerSizes[0] || "", price: "" });
-    setCcpModalOpen(true);
-  }
-
-  function openEditCcp(entry) {
-    setCcpEditId(entry.id);
-    setCcpForm({
-      customerId: String(entry.customerId),
-      commodityId: String(entry.commodityId),
-      containerSize: entry.containerSize,
-      price: entry.price == null ? "" : String(entry.price),
-    });
-    setCcpModalOpen(true);
-  }
-
-  function saveCcp() {
-    if (!ccpForm.customerId || !ccpForm.commodityId || !ccpForm.containerSize) return;
-    const parsed = toNumber(ccpForm.price);
-    if (parsed == null) return;
-
-    setPricingState((prev) => {
-      if (!ccpEditId) {
-        const nextItem = {
-          id: nextId(prev.commodityCustomerPrices),
-          customerId: Number(ccpForm.customerId),
-          commodityId: Number(ccpForm.commodityId),
-          containerSize: ccpForm.containerSize,
-          price: parsed,
-        };
-        return { ...prev, commodityCustomerPrices: [...prev.commodityCustomerPrices, nextItem] };
-      }
-      return {
-        ...prev,
-        commodityCustomerPrices: prev.commodityCustomerPrices.map((item) =>
-          item.id === ccpEditId
-            ? {
-              ...item,
-              customerId: Number(ccpForm.customerId),
-              commodityId: Number(ccpForm.commodityId),
-              containerSize: ccpForm.containerSize,
-              price: parsed,
-            }
-            : item
-        ),
-      };
-    });
-    setCcpModalOpen(false);
-  }
-
-  return (
-    <div className="space-y-3 md:space-y-4">
-      <div className="space-y-0.5">
-        <p className="text-xs text-slate-500">Accounting / General Pack Pricing</p>
-        <h1 className="text-xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.5rem]">General Pack Pricing</h1>
-        <p className="text-xs leading-relaxed text-slate-500">
-          Set base prices by commodity type and optional customer-specific overrides for both container sizes in one
-          place.
-        </p>
-      </div>
-
-      <SectionCard
-        title="1. Default packing price"
-        description="Set on commodity type and container size. Used when no customer-specific or commodity-specific price exists."
-        isMobile={isMobile}
-      >
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {!defaultPricesEditing ? (
-            <BtnPrimary onClick={() => setDefaultPricesEditing(true)} className={cn(isMobile && "w-full justify-center")}>
-              Edit default prices
-            </BtnPrimary>
-          ) : (
-            <>
-              <div className={cn("flex gap-2", isMobile && "w-full flex-col")}>
-                <BtnPrimary
-                  onClick={() => {
-                    setDefaultPricesEditing(false);
-                  }}
-                  className={cn(isMobile && "w-full justify-center")}
-                >
-                  Save
-                </BtnPrimary>
-                <BtnSecondary
-                  onClick={() => setDefaultPricesEditing(false)}
-                  className={cn(isMobile && "w-full justify-center")}
-                >
-                  Cancel
-                </BtnSecondary>
-              </div>
-              <span className="text-xs text-slate-500">Press Save to confirm changes</span>
-            </>
-          )}
-        </div>
-
-        <div className="overflow-x-auto">
-          <div
-            className="mb-2 grid items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-            style={{ gridTemplateColumns: `160px repeat(${containerSizes.length}, ${isMobile ? 72 : 100}px)` }}
-          >
-            <span>Commodity type</span>
-            {containerSizes.map((size) => (
-              <span key={size}>{size}</span>
-            ))}
-          </div>
-
-          {commodityTypes.map((type) => (
-            <div
-              key={type.id}
-              className="mb-2 grid items-center gap-2"
-              style={{ gridTemplateColumns: `160px repeat(${containerSizes.length}, ${isMobile ? 72 : 100}px)` }}
-            >
-              <span className="text-[13px] font-medium text-slate-800">{type.name}</span>
-              {containerSizes.map((size) => {
-                const entry = getDefaultPrice(type.id, size);
-                return (
-                  <input
-                    key={`${type.id}-${size}`}
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={entry?.price ?? ""}
-                    placeholder="-"
-                    onWheel={(event) => event.currentTarget.blur()}
-                    onChange={(event) => handleDefaultPriceChange(type.id, size, event.target.value)}
-                    disabled={!defaultPricesEditing}
-                    className={cn(inputClass, !defaultPricesEditing && "cursor-not-allowed bg-slate-100")}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title="2. Commodity price"
-        description="Overrides the default commodity type price for a specific commodity and container size."
-        isMobile={isMobile}
-      >
-        <div className="mb-3">
-          <BtnPrimary onClick={openAddCp} className={cn(isMobile && "w-full justify-center")}>
-            + Add commodity price
-          </BtnPrimary>
-        </div>
-        {commodityPrices.length === 0 ? (
-          <p className="text-[13px] text-slate-400">No commodity-level prices. Add one to override the default price.</p>
-        ) : (
-          <ListSection
-            isMobile={isMobile}
-            entries={commodityPrices}
-            columns={["Commodity", "Size", "Price", "Actions"]}
-            renderDesktop={(entry) => {
-              const commodity = commodities.find((item) => item.id === entry.commodityId);
-              const type = commodityTypes.find((item) => item.id === commodity?.commodityTypeId);
-              return (
-                <>
-                  <span className="font-medium text-slate-800">
-                    {commodity
-                      ? `${commodity.description || commodity.commodityCode} (${type?.name || ""})`
-                      : `Commodity #${entry.commodityId}`}
-                  </span>
-                  <span className="text-slate-600">{entry.containerSize}</span>
-                  <span className="font-semibold text-blue-700">{Number(entry.price).toFixed(2)}</span>
-                  <span className="flex gap-1">
-                    <BtnSecondary className="px-2 py-1 text-[11px]" onClick={() => openEditCp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="px-2 py-1 text-[11px]"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityPrices: prev.commodityPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </span>
-                </>
-              );
-            }}
-            renderMobile={(entry) => {
-              const commodity = commodities.find((item) => item.id === entry.commodityId);
-              const type = commodityTypes.find((item) => item.id === commodity?.commodityTypeId);
-              return (
-                <>
-                  <InfoRow
-                    label="Commodity"
-                    value={
-                      commodity
-                        ? `${commodity.description || commodity.commodityCode} (${type?.name || ""})`
-                        : `Commodity #${entry.commodityId}`
-                    }
-                    highlight
-                  />
-                  <div className="flex flex-wrap gap-3">
-                    <InfoRow label="Size" value={entry.containerSize} />
-                    <InfoRow label="Price" value={Number(entry.price).toFixed(2)} highlight />
-                  </div>
-                  <div className="mt-1 flex gap-2">
-                    <BtnSecondary className="flex-1 justify-center" onClick={() => openEditCp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="flex-1 justify-center"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityPrices: prev.commodityPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </div>
-                </>
-              );
-            }}
-            desktopTemplate="1fr 80px 100px 100px"
-          />
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title="3. Commodity Type + Customer price (contract)"
-        description="Overrides commodity and default prices for one customer across an entire commodity type."
-        isMobile={isMobile}
-      >
-        <div className="mb-3">
-          <BtnPrimary onClick={openAddCtcp} className={cn(isMobile && "w-full justify-center")}>
-            + Add commodity type + customer price
-          </BtnPrimary>
-        </div>
-        {commodityTypeCustomerPrices.length === 0 ? (
-          <p className="text-[13px] text-slate-400">No commodity type + customer prices yet.</p>
-        ) : (
-          <ListSection
-            isMobile={isMobile}
-            entries={commodityTypeCustomerPrices}
-            columns={["Customer", "Commodity Type", "Size", "Price", "Actions"]}
-            renderDesktop={(entry) => {
-              const customer = customers.find((item) => item.id === entry.customerId);
-              const type = commodityTypes.find((item) => item.id === entry.commodityTypeId);
-              return (
-                <>
-                  <span className="font-medium text-slate-800">{customer?.name || `Customer #${entry.customerId}`}</span>
-                  <span className="text-slate-600">{type?.name || `Type #${entry.commodityTypeId}`}</span>
-                  <span className="text-slate-600">{entry.containerSize}</span>
-                  <span className="font-semibold text-blue-700">{Number(entry.price).toFixed(2)}</span>
-                  <span className="flex gap-1">
-                    <BtnSecondary className="px-2 py-1 text-[11px]" onClick={() => openEditCtcp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="px-2 py-1 text-[11px]"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityTypeCustomerPrices: prev.commodityTypeCustomerPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </span>
-                </>
-              );
-            }}
-            renderMobile={(entry) => {
-              const customer = customers.find((item) => item.id === entry.customerId);
-              const type = commodityTypes.find((item) => item.id === entry.commodityTypeId);
-              return (
-                <>
-                  <InfoRow label="Customer" value={customer?.name || `Customer #${entry.customerId}`} highlight />
-                  <InfoRow label="Commodity type" value={type?.name || `Type #${entry.commodityTypeId}`} />
-                  <div className="flex flex-wrap gap-3">
-                    <InfoRow label="Size" value={entry.containerSize} />
-                    <InfoRow label="Price" value={Number(entry.price).toFixed(2)} highlight />
-                  </div>
-                  <div className="mt-1 flex gap-2">
-                    <BtnSecondary className="flex-1 justify-center" onClick={() => openEditCtcp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="flex-1 justify-center"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityTypeCustomerPrices: prev.commodityTypeCustomerPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </div>
-                </>
-              );
-            }}
-            desktopTemplate="1fr 1fr 80px 100px 100px"
-          />
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title="4. Commodity + Customer price (contract)"
-        description="Most specific contract price. Overrides every other level for that customer, commodity, and container size."
-        isMobile={isMobile}
-      >
-        <div className="mb-3">
-          <BtnPrimary onClick={openAddCcp} className={cn(isMobile && "w-full justify-center")}>
-            + Add commodity + customer price
-          </BtnPrimary>
-        </div>
-        {commodityCustomerPrices.length === 0 ? (
-          <p className="text-[13px] text-slate-400">No commodity + customer prices yet.</p>
-        ) : (
-          <ListSection
-            isMobile={isMobile}
-            entries={commodityCustomerPrices}
-            columns={["Customer", "Commodity", "Size", "Price", "Actions"]}
-            renderDesktop={(entry) => {
-              const customer = customers.find((item) => item.id === entry.customerId);
-              const commodity = commodities.find((item) => item.id === entry.commodityId);
-              const type = commodityTypes.find((item) => item.id === commodity?.commodityTypeId);
-              return (
-                <>
-                  <span className="font-medium text-slate-800">{customer?.name || `Customer #${entry.customerId}`}</span>
-                  <span className="text-slate-600">
-                    {commodity
-                      ? `${commodity.description || commodity.commodityCode} (${type?.name || ""})`
-                      : `Commodity #${entry.commodityId}`}
-                  </span>
-                  <span className="text-slate-600">{entry.containerSize}</span>
-                  <span className="font-semibold text-blue-700">{Number(entry.price).toFixed(2)}</span>
-                  <span className="flex gap-1">
-                    <BtnSecondary className="px-2 py-1 text-[11px]" onClick={() => openEditCcp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="px-2 py-1 text-[11px]"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityCustomerPrices: prev.commodityCustomerPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </span>
-                </>
-              );
-            }}
-            renderMobile={(entry) => {
-              const customer = customers.find((item) => item.id === entry.customerId);
-              const commodity = commodities.find((item) => item.id === entry.commodityId);
-              const type = commodityTypes.find((item) => item.id === commodity?.commodityTypeId);
-              return (
-                <>
-                  <InfoRow label="Customer" value={customer?.name || `Customer #${entry.customerId}`} highlight />
-                  <InfoRow
-                    label="Commodity"
-                    value={
-                      commodity
-                        ? `${commodity.description || commodity.commodityCode} (${type?.name || ""})`
-                        : `Commodity #${entry.commodityId}`
-                    }
-                  />
-                  <div className="flex flex-wrap gap-3">
-                    <InfoRow label="Size" value={entry.containerSize} />
-                    <InfoRow label="Price" value={Number(entry.price).toFixed(2)} highlight />
-                  </div>
-                  <div className="mt-1 flex gap-2">
-                    <BtnSecondary className="flex-1 justify-center" onClick={() => openEditCcp(entry)}>
-                      Edit
-                    </BtnSecondary>
-                    <BtnDanger
-                      className="flex-1 justify-center"
-                      onClick={() =>
-                        setPricingState((prev) => ({
-                          ...prev,
-                          commodityCustomerPrices: prev.commodityCustomerPrices.filter((item) => item.id !== entry.id),
-                        }))
-                      }
-                    >
-                      Delete
-                    </BtnDanger>
-                  </div>
-                </>
-              );
-            }}
-            desktopTemplate="1fr 1fr 80px 100px 100px"
-          />
-        )}
-      </SectionCard>
-
-      <PriceModal
-        open={cpModalOpen}
-        title={cpEditId ? "Edit commodity price" : "Add commodity price"}
-        onClose={() => setCpModalOpen(false)}
-        onSave={saveCp}
-      >
-        <FormRow label="Commodity" required>
-          <select suppressHydrationWarning className={inputClass} value={cpForm.commodityId} onChange={(event) => setCpForm({ ...cpForm, commodityId: event.target.value })}>
-            <option value="">Select commodity</option>
-            {commodities.map((item) => {
-              const type = commodityTypes.find((typeItem) => typeItem.id === item.commodityTypeId);
-              return (
-                <option key={item.id} value={item.id}>
-                  {item.description || item.commodityCode} ({type?.name || "Unknown"})
-                </option>
-              );
-            })}
-          </select>
-        </FormRow>
-        <FormRow label="Container size" required>
-          <select suppressHydrationWarning className={inputClass} value={cpForm.containerSize} onChange={(event) => setCpForm({ ...cpForm, containerSize: event.target.value })}>
-            {containerSizes.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Price" required>
-          <input
-            className={inputClass}
-            type="number"
-            min={0}
-            step={0.01}
-            value={cpForm.price}
-            onWheel={(event) => event.currentTarget.blur()}
-            onChange={(event) => setCpForm({ ...cpForm, price: event.target.value })}
-            placeholder="0"
-          />
-        </FormRow>
-      </PriceModal>
-
-      <PriceModal
-        open={ctcpModalOpen}
-        title={ctcpEditId ? "Edit commodity type + customer price" : "Add commodity type + customer price"}
-        onClose={() => setCtcpModalOpen(false)}
-        onSave={saveCtcp}
-      >
-        <FormRow label="Customer" required>
-          <select suppressHydrationWarning className={inputClass} value={ctcpForm.customerId} onChange={(event) => setCtcpForm({ ...ctcpForm, customerId: event.target.value })}>
-            <option value="">Select customer</option>
-            {customers.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} ({item.code})
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Commodity type" required>
-          <select
-            className={inputClass}
-            value={ctcpForm.commodityTypeId}
-            onChange={(event) => setCtcpForm({ ...ctcpForm, commodityTypeId: event.target.value })}
-          >
-            <option value="">Select commodity type</option>
-            {commodityTypes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Container size" required>
-          <select suppressHydrationWarning className={inputClass} value={ctcpForm.containerSize} onChange={(event) => setCtcpForm({ ...ctcpForm, containerSize: event.target.value })}>
-            {containerSizes.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Price" required>
-          <input
-            className={inputClass}
-            type="number"
-            min={0}
-            step={0.01}
-            value={ctcpForm.price}
-            onWheel={(event) => event.currentTarget.blur()}
-            onChange={(event) => setCtcpForm({ ...ctcpForm, price: event.target.value })}
-            placeholder="0"
-          />
-        </FormRow>
-      </PriceModal>
-
-      <PriceModal
-        open={ccpModalOpen}
-        title={ccpEditId ? "Edit commodity + customer price" : "Add commodity + customer price"}
-        onClose={() => setCcpModalOpen(false)}
-        onSave={saveCcp}
-      >
-        <FormRow label="Customer" required>
-          <select suppressHydrationWarning className={inputClass} value={ccpForm.customerId} onChange={(event) => setCcpForm({ ...ccpForm, customerId: event.target.value })}>
-            <option value="">Select customer</option>
-            {customers.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} ({item.code})
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Commodity" required>
-          <select suppressHydrationWarning className={inputClass} value={ccpForm.commodityId} onChange={(event) => setCcpForm({ ...ccpForm, commodityId: event.target.value })}>
-            <option value="">Select commodity</option>
-            {commodities.map((item) => {
-              const type = commodityTypes.find((typeItem) => typeItem.id === item.commodityTypeId);
-              return (
-                <option key={item.id} value={item.id}>
-                  {item.description || item.commodityCode} ({type?.name || "Unknown"})
-                </option>
-              );
-            })}
-          </select>
-        </FormRow>
-        <FormRow label="Container size" required>
-          <select suppressHydrationWarning className={inputClass} value={ccpForm.containerSize} onChange={(event) => setCcpForm({ ...ccpForm, containerSize: event.target.value })}>
-            {containerSizes.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Price" required>
-          <input
-            className={inputClass}
-            type="number"
-            min={0}
-            step={0.01}
-            value={ccpForm.price}
-            onWheel={(event) => event.currentTarget.blur()}
-            onChange={(event) => setCcpForm({ ...ccpForm, price: event.target.value })}
-            placeholder="0"
-          />
-        </FormRow>
-      </PriceModal>
-    </div>
-  );
-}
-
-function ListSection({ isMobile, entries, columns, renderDesktop, renderMobile, desktopTemplate }) {
-  if (isMobile) {
-    return (
-      <div className="space-y-2.5">
-        {entries.map((entry) => (
-          <div key={entry.id} className="space-y-2.5 rounded-[10px] border border-slate-200 bg-white p-3">
-            {renderMobile(entry)}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div
-        className="mb-2 grid items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-        style={{ gridTemplateColumns: desktopTemplate }}
-      >
-        {columns.map((column) => (
-          <span key={column}>{column}</span>
-        ))}
-      </div>
-      {entries.map((entry) => (
-        <div
-          key={entry.id}
-          className="grid items-center gap-2 border-b border-slate-100 py-2 text-[13px] last:border-b-0"
-          style={{ gridTemplateColumns: desktopTemplate }}
-        >
-          {renderDesktop(entry)}
-        </div>
-      ))}
-    </>
-  );
-}
-
-function PriceModal({ open, title, onClose, onSave, children }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div className="relative w-full max-w-[440px] rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button type="button" className="rounded px-2 py-1 text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800" onClick={onClose}>
-            x
-          </button>
-        </div>
-        <div className="space-y-3 p-4">{children}</div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-4 py-3">
-          <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
-          <BtnPrimary onClick={onSave}>Save</BtnPrimary>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-0.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Module-scope sub-components
+// ---------------------------------------------------------------------------
 
 function BtnPrimary({ className, ...props }) {
   return (
     <button
       className={cn(
-        "inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function BtnSecondary({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -1061,7 +72,7 @@ function BtnDanger({ className, ...props }) {
   return (
     <button
       className={cn(
-        "inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40",
         className
       )}
       {...props}
@@ -1069,15 +80,569 @@ function BtnDanger({ className, ...props }) {
   );
 }
 
-function SectionCard({ title, description, isMobile, children }) {
+/** Container-size tab bar */
+function SizeTabs({ sizes, selectedSize, onSelect }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm space-y-3.5">
-      <div>
-        <h2 className="text-sm font-bold text-[#0f1e3d]">{title}</h2>
-        {description && <p className="mt-1 text-xs text-slate-500 leading-relaxed">{description}</p>}
+    <div className="flex flex-wrap gap-1 border-b border-slate-200 pb-3">
+      {sizes.map((size) => {
+        const active = size === selectedSize;
+        return (
+          <button
+            key={size}
+            type="button"
+            onClick={() => onSelect(size)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+              active
+                ? "bg-brand text-white shadow-sm"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            {sizeTabLabel(size)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Scrollable single-select master list (left panel) */
+function MasterList({ header, items, selectedId, onSelect }) {
+  return (
+    <div className="flex flex-col rounded-[10px] border border-slate-200 overflow-hidden">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 shrink-0">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{header}</p>
       </div>
-      <div className="pt-2 border-t border-slate-100/80">
-        {children}
+      <div className="flex-1 overflow-auto max-h-[460px]">
+        {items.length === 0 && (
+          <p className="px-3 py-3 text-[13px] text-slate-400">No items.</p>
+        )}
+        {items.map((item) => {
+          const selected = item.id === selectedId;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect(item.id)}
+              className={cn(
+                "flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm transition-colors last:border-b-0",
+                selected
+                  ? "bg-brand/10 font-semibold text-[#0f1e3d]"
+                  : "text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              <span>{item.label}</span>
+              {selected && (
+                <svg className="h-3.5 w-3.5 shrink-0 text-brand" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** "Using Base Commodity Price" badge */
+function UsingBaseIndicator() {
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-700">
+      <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+      </svg>
+      Using Base Commodity Price
+    </div>
+  );
+}
+
+/**
+ * Base price block — single container size, single commodity type.
+ * Props: price (string), rateBasis, dirty, onPriceChange, onRateBasisChange, onSave
+ */
+function BasePriceBlock({ price, rateBasis, dirty, onPriceChange, onRateBasisChange, onSave }) {
+  const isPerContainer = rateBasis === RATE_BASIS_PER_CONTAINER;
+  return (
+    <div className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-[#0f1e3d]">Commodity Base Price Per Ton (Ex GST)</h3>
+        <p className="text-[11px] text-slate-500">Applies to every commodity under this commodity type.</p>
+      </div>
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex items-center gap-1 flex-1 min-w-[120px] max-w-[200px]">
+          <span className="text-sm font-semibold text-slate-500">$</span>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={price}
+            placeholder="0.00"
+            onWheel={(e) => e.currentTarget.blur()}
+            onChange={(e) => onPriceChange(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600 select-none pb-1.5">
+          <input
+            type="checkbox"
+            checked={isPerContainer}
+            onChange={(e) => onRateBasisChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300 accent-brand"
+          />
+          Per Container
+        </label>
+        <BtnPrimary disabled={!dirty} onClick={onSave}>
+          Save
+        </BtnPrimary>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Customer list panel (scrollable single-select, inside the right panel).
+ * Props: customers [{id, label}], selectedId, onSelect
+ */
+function CustomerListPanel({ customers, selectedId, onSelect }) {
+  return (
+    <div className="rounded-[10px] border border-slate-200 overflow-hidden">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customers</p>
+      </div>
+      <div className="max-h-[300px] overflow-auto">
+        {customers.length === 0 && (
+          <p className="px-3 py-3 text-[13px] text-slate-400">No customers found.</p>
+        )}
+        {customers.map((c) => {
+          const selected = c.id === selectedId;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onSelect(c.id)}
+              className={cn(
+                "flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm transition-colors last:border-b-0",
+                selected
+                  ? "bg-brand/10 font-semibold text-[#0f1e3d]"
+                  : "text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              <span>{c.label}</span>
+              {selected && (
+                <svg className="h-3.5 w-3.5 shrink-0 text-brand" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Customer override block — shows below the customer list once a customer is selected.
+ */
+function CustomerOverrideBlock({
+  customerName,
+  usingBase,
+  price,
+  rateBasis,
+  dirty,
+  hasExistingOverride,
+  onPriceChange,
+  onRateBasisChange,
+  onSave,
+  onDelete,
+}) {
+  const isPerContainer = rateBasis === RATE_BASIS_PER_CONTAINER;
+  return (
+    <div className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-4 space-y-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        {usingBase && <UsingBaseIndicator />}
+        {customerName && (
+          <span className="text-xs font-semibold text-slate-500">{customerName}</span>
+        )}
+      </div>
+      <h3 className="text-sm font-semibold text-[#0f1e3d]">Customer Price Per Ton (Ex GST)</h3>
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex items-center gap-1 flex-1 min-w-[120px] max-w-[200px]">
+          <span className="text-sm font-semibold text-slate-500">$</span>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={price}
+            placeholder="0.00"
+            onWheel={(e) => e.currentTarget.blur()}
+            onChange={(e) => onPriceChange(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600 select-none pb-1.5">
+          <input
+            type="checkbox"
+            checked={isPerContainer}
+            onChange={(e) => onRateBasisChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300 accent-brand"
+          />
+          Per Container
+        </label>
+        <div className="flex gap-2 pb-0">
+          <BtnPrimary disabled={!dirty} onClick={onSave}>
+            Save
+          </BtnPrimary>
+          <BtnDanger disabled={!hasExistingOverride} onClick={onDelete}>
+            Delete
+          </BtnDanger>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function GeneralPackPricingPage() {
+  // Reference lists — loaded from the backend (real DB records), not seed data.
+  const [commodityTypes, setCommodityTypes] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [containerSizes, setContainerSizes] = useState([]);
+
+  // Pricing state — all four arrays are kept so the backend round-trip is preserved,
+  // but this screen only edits the commodity-type tiers (default + type+customer).
+  const [pricingState, setPricingState] = useState({
+    defaultPackingPrices: [],
+    commodityPrices: [],
+    commodityTypeCustomerPrices: [],
+    commodityCustomerPrices: [],
+  });
+  const { defaultPackingPrices, commodityTypeCustomerPrices } = pricingState;
+
+  // UI / navigation state
+  const [isMobile, setIsMobile] = useState(false);
+  const [selectedSize, setSelectedSize] = useState("");
+  const [selectedTypeId, setSelectedTypeId] = useState(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+
+  // Base block draft
+  const [baseDraft, setBaseDraft] = useState("");
+  const [baseRateBasis, setBaseRateBasis] = useState(RATE_BASIS_PER_TON);
+  const [baseDirty, setBaseDirty] = useState(false);
+
+  // Customer override block draft
+  const [customerDraft, setCustomerDraft] = useState("");
+  const [customerRateBasis, setCustomerRateBasis] = useState(RATE_BASIS_PER_TON);
+  const [customerDirty, setCustomerDirty] = useState(false);
+
+  const [errorText, setErrorText] = useState("");
+
+  // Derived lists
+  const masterItems = useMemo(
+    () => commodityTypes.map((t) => ({ id: t.id, label: t.name })),
+    [commodityTypes]
+  );
+  const customerItems = useMemo(() => customers.map((c) => ({ id: c.id, label: c.name })), [customers]);
+
+  // Responsive breakpoint
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const handler = () => setIsMobile(mq.matches);
+    handler();
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Load reference lists (commodity types, customers, sizes) from the backend.
+  useEffect(() => {
+    getPricingFormData()
+      .then((data) => {
+        if (!data) return;
+        const types = data.commodityTypes ?? [];
+        const custs = data.customers ?? [];
+        const sizes = data.containerSizes ?? [];
+        setCommodityTypes(types);
+        setCustomers(custs);
+        setContainerSizes(sizes);
+        setSelectedTypeId((prev) => prev ?? types[0]?.id ?? null);
+        setSelectedCustomerId((prev) => prev ?? custs[0]?.id ?? null);
+        setSelectedSize((prev) => prev || sizes[0] || "");
+      })
+      .catch(() => {});
+  }, []);
+
+  // Hydrate pricing values from the backend on mount.
+  useEffect(() => {
+    getPackPricing()
+      .then((data) => {
+        if (!data) return;
+        setPricingState({
+          defaultPackingPrices: data.defaultPackingPrices ?? [],
+          commodityPrices: data.commodityPrices ?? [],
+          commodityTypeCustomerPrices: data.commodityTypeCustomerPrices ?? [],
+          commodityCustomerPrices: data.commodityCustomerPrices ?? [],
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Hydrate base draft from the default (commodity-type) tier
+  useEffect(() => {
+    if (!selectedTypeId || !selectedSize) {
+      setBaseDraft("");
+      setBaseRateBasis(RATE_BASIS_PER_TON);
+      setBaseDirty(false);
+      return;
+    }
+    const normSize = normalizeContainerSize(selectedSize);
+    const match = defaultPackingPrices.find(
+      (item) =>
+        item.commodityTypeId === selectedTypeId &&
+        normalizeContainerSize(item.containerSize) === normSize
+    );
+    setBaseDraft(toInputValue(match?.price));
+    setBaseRateBasis(normalizeRateBasis(match?.rateBasis));
+    setBaseDirty(false);
+    setErrorText("");
+  }, [selectedTypeId, selectedSize, pricingState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hydrate customer draft from the type+customer tier
+  useEffect(() => {
+    if (!selectedTypeId || !selectedSize || !selectedCustomerId) {
+      setCustomerDraft("");
+      setCustomerRateBasis(RATE_BASIS_PER_TON);
+      setCustomerDirty(false);
+      return;
+    }
+    const normSize = normalizeContainerSize(selectedSize);
+    const match = commodityTypeCustomerPrices.find(
+      (item) =>
+        item.customerId === selectedCustomerId &&
+        item.commodityTypeId === selectedTypeId &&
+        normalizeContainerSize(item.containerSize) === normSize
+    );
+    setCustomerDraft(toInputValue(match?.price));
+    setCustomerRateBasis(normalizeRateBasis(match?.rateBasis));
+    setCustomerDirty(false);
+    setErrorText("");
+  }, [selectedTypeId, selectedSize, selectedCustomerId, pricingState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function persist(nextState) {
+    savePackPricing(nextState).catch(() => {});
+  }
+
+  // Base price Save → default (commodity-type) tier
+  function handleSaveBase() {
+    if (!selectedTypeId || !selectedSize) return;
+    const raw = String(baseDraft ?? "").trim();
+    const parsed = raw === "" ? "" : toNumber(raw);
+    if (parsed == null) {
+      setErrorText("Base price must be a valid non-negative number.");
+      return;
+    }
+    const normSize = normalizeContainerSize(selectedSize);
+    const rateBasis = normalizeRateBasis(baseRateBasis);
+
+    setPricingState((prev) => {
+      let rows = [...prev.defaultPackingPrices];
+      const idx = rows.findIndex(
+        (item) =>
+          item.commodityTypeId === selectedTypeId &&
+          normalizeContainerSize(item.containerSize) === normSize
+      );
+      if (parsed === "") {
+        if (idx >= 0) rows.splice(idx, 1);
+      } else if (idx >= 0) {
+        rows[idx] = { ...rows[idx], price: parsed, rateBasis };
+      } else {
+        rows = [...rows, { id: nextId(rows), commodityTypeId: selectedTypeId, containerSize: normSize, price: parsed, rateBasis }];
+      }
+      const next = { ...prev, defaultPackingPrices: rows };
+      persist(next);
+      return next;
+    });
+    setBaseDirty(false);
+    setErrorText("");
+  }
+
+  // Customer price Save → type+customer tier
+  function handleSaveCustomer() {
+    if (!selectedTypeId || !selectedSize || !selectedCustomerId) return;
+    const raw = String(customerDraft ?? "").trim();
+    const parsed = raw === "" ? "" : toNumber(raw);
+    if (parsed == null) {
+      setErrorText("Customer price must be a valid non-negative number.");
+      return;
+    }
+    const normSize = normalizeContainerSize(selectedSize);
+    const rateBasis = normalizeRateBasis(customerRateBasis);
+
+    setPricingState((prev) => {
+      let rows = [...prev.commodityTypeCustomerPrices];
+      const idx = rows.findIndex(
+        (item) =>
+          item.customerId === selectedCustomerId &&
+          item.commodityTypeId === selectedTypeId &&
+          normalizeContainerSize(item.containerSize) === normSize
+      );
+      if (parsed === "") {
+        if (idx >= 0) rows.splice(idx, 1);
+      } else if (idx >= 0) {
+        rows[idx] = { ...rows[idx], price: parsed, rateBasis };
+      } else {
+        rows = [...rows, { id: nextId(rows), customerId: selectedCustomerId, commodityTypeId: selectedTypeId, containerSize: normSize, price: parsed, rateBasis }];
+      }
+      const next = { ...prev, commodityTypeCustomerPrices: rows };
+      persist(next);
+      return next;
+    });
+    setCustomerDirty(false);
+    setErrorText("");
+  }
+
+  // Customer price Delete (remove override → falls back to base)
+  function handleDeleteCustomer() {
+    if (!selectedTypeId || !selectedSize || !selectedCustomerId) return;
+    const normSize = normalizeContainerSize(selectedSize);
+
+    setPricingState((prev) => {
+      const rows = prev.commodityTypeCustomerPrices.filter(
+        (item) =>
+          !(
+            item.customerId === selectedCustomerId &&
+            item.commodityTypeId === selectedTypeId &&
+            normalizeContainerSize(item.containerSize) === normSize
+          )
+      );
+      const next = { ...prev, commodityTypeCustomerPrices: rows };
+      persist(next);
+      return next;
+    });
+    setCustomerDirty(false);
+    setErrorText("");
+  }
+
+  // Derived values for render
+  const normSelectedSize = normalizeContainerSize(selectedSize);
+
+  const hasExistingCustomerOverride =
+    !!selectedTypeId &&
+    !!selectedSize &&
+    !!selectedCustomerId &&
+    commodityTypeCustomerPrices.some(
+      (item) =>
+        item.customerId === selectedCustomerId &&
+        item.commodityTypeId === selectedTypeId &&
+        normalizeContainerSize(item.containerSize) === normSelectedSize
+    );
+
+  const selectedCustomerName = customers.find((c) => c.id === selectedCustomerId)?.name ?? "";
+
+  // Render
+  return (
+    <div className="space-y-4 md:space-y-5">
+      {/* Page header */}
+      <div className="space-y-1">
+        <p className="text-xs text-slate-500">Accounting / General Pack Pricing</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">
+          General Pack Pricing
+        </h1>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Set the base packing price for each commodity type and container size, with optional
+          customer-specific contract overrides. The type price applies to every commodity under it.
+        </p>
+      </div>
+
+      {/* Outer wrapper card */}
+      <div className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-[18px] space-y-4">
+
+        {/* Container size tabs */}
+        <SizeTabs
+          sizes={containerSizes}
+          selectedSize={selectedSize}
+          onSelect={(size) => {
+            setSelectedSize(size);
+            setBaseDirty(false);
+            setCustomerDirty(false);
+            setErrorText("");
+          }}
+        />
+
+        {/* Error banner */}
+        {errorText ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+            {errorText}
+          </div>
+        ) : null}
+
+        {/* Master–detail layout */}
+        <div className={cn("grid gap-4", !isMobile && "grid-cols-[240px_minmax(0,1fr)]")}>
+
+          {/* LEFT — Commodity types */}
+          <MasterList
+            header="Commodity Types"
+            items={masterItems}
+            selectedId={selectedTypeId}
+            onSelect={(id) => {
+              setSelectedTypeId(id);
+              setBaseDirty(false);
+              setCustomerDirty(false);
+              setErrorText("");
+            }}
+          />
+
+          {/* RIGHT — Base + Customer panels */}
+          <div className="space-y-4">
+
+            {/* Base price block */}
+            {selectedTypeId ? (
+              <BasePriceBlock
+                price={baseDraft}
+                rateBasis={baseRateBasis}
+                dirty={baseDirty}
+                onPriceChange={(val) => { setBaseDraft(val); setBaseDirty(true); setErrorText(""); }}
+                onRateBasisChange={(checked) => { setBaseRateBasis(checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON); setBaseDirty(true); setErrorText(""); }}
+                onSave={handleSaveBase}
+              />
+            ) : (
+              <div className="rounded-[10px] border border-slate-200 p-4 text-[13px] text-slate-400">
+                Select a commodity type on the left.
+              </div>
+            )}
+
+            {/* Customer list */}
+            <CustomerListPanel
+              customers={customerItems}
+              selectedId={selectedCustomerId}
+              onSelect={(id) => {
+                setSelectedCustomerId(id);
+                setCustomerDirty(false);
+                setErrorText("");
+              }}
+            />
+
+            {/* Customer override block */}
+            {selectedCustomerId && selectedTypeId ? (
+              <CustomerOverrideBlock
+                customerName={selectedCustomerName}
+                usingBase={!hasExistingCustomerOverride}
+                price={customerDraft}
+                rateBasis={customerRateBasis}
+                dirty={customerDirty}
+                hasExistingOverride={hasExistingCustomerOverride}
+                onPriceChange={(val) => { setCustomerDraft(val); setCustomerDirty(true); setErrorText(""); }}
+                onRateBasisChange={(checked) => { setCustomerRateBasis(checked ? RATE_BASIS_PER_CONTAINER : RATE_BASIS_PER_TON); setCustomerDirty(true); setErrorText(""); }}
+                onSave={handleSaveCustomer}
+                onDelete={handleDeleteCustomer}
+              />
+            ) : null}
+
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { createCharge, deleteCharge, listCharges, updateCharge } from "@/lib/api/accounting";
 import { CHARGE_CLASSIFICATIONS, CHARGE_TYPES, FEES_AND_CHARGES_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
@@ -11,8 +12,6 @@ const MOBILE_BREAKPOINT = 900;
 
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
-
-const initialFeesAndCharges = FEES_AND_CHARGES_ROWS;
 
 function getClassLabel(charge) {
   if (charge.chargeClassification === "revenue") return "Revenue";
@@ -105,8 +104,17 @@ function InfoRow({ label, value, highlight }) {
   );
 }
 
+async function fetchCharges(setFeesAndCharges) {
+  try {
+    const rows = await listCharges();
+    if (Array.isArray(rows)) setFeesAndCharges(rows);
+  } catch {
+    // keep existing state on error
+  }
+}
+
 export default function FeesAndChargesPage() {
-  const [feesAndCharges, setFeesAndCharges] = useState(initialFeesAndCharges);
+  const [feesAndCharges, setFeesAndCharges] = useState(FEES_AND_CHARGES_ROWS);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -120,6 +128,10 @@ export default function FeesAndChargesPage() {
     chargeClassification: "revenue",
     accountCode: "",
   });
+
+  useEffect(() => {
+    fetchCharges(setFeesAndCharges);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -160,7 +172,7 @@ export default function FeesAndChargesPage() {
     setModalOpen(true);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!formData.chargeName.trim()) {
       window.alert("Charge Name is required");
       return;
@@ -181,12 +193,17 @@ export default function FeesAndChargesPage() {
       accountCode: formData.accountCode.trim(),
     };
 
-    setFeesAndCharges((prev) => {
+    try {
       if (editMode && selected) {
-        return prev.map((item) => (item.id === selected.id ? { ...item, ...chargeData } : item));
+        await updateCharge(selected.id, chargeData);
+      } else {
+        await createCharge(chargeData);
       }
-      return [{ id: nextId(prev), ...chargeData }, ...prev];
-    });
+      await fetchCharges(setFeesAndCharges);
+    } catch (err) {
+      window.alert(err?.message || "Failed to save charge. Please try again.");
+      return;
+    }
 
     setModalOpen(false);
     setFormData({
@@ -200,11 +217,16 @@ export default function FeesAndChargesPage() {
     });
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!selected) return;
     if (window.confirm(`Delete charge "${selected.chargeName}" permanently?`)) {
-      setFeesAndCharges((prev) => prev.filter((item) => item.id !== selected.id));
-      setSelectedId(null);
+      try {
+        await deleteCharge(selected.id);
+        await fetchCharges(setFeesAndCharges);
+        setSelectedId(null);
+      } catch (err) {
+        window.alert(err?.message || "Failed to delete charge. Please try again.");
+      }
     }
   }
 

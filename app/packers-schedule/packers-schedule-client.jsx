@@ -41,16 +41,25 @@ function formatCutoffOrEtdDisplay(value) {
 }
 
 function emptyParkRaw(row, parkIdToName) {
-  const details = Array.isArray(row.releaseDetails) ? row.releaseDetails : [];
+  const releases = Array.isArray(row.releases) ? row.releases
+    : Array.isArray(row.release_details) ? row.release_details
+    : Array.isArray(row.releaseDetails) ? row.releaseDetails
+    : [];
   const names = [];
   const seen = new Set();
-  for (const r of details) {
-    const id = r.emptyContainerParkId;
-    if (!id) continue;
-    const name = parkIdToName.get(String(id));
+  for (const r of releases) {
+    const name = r.empty_container_park?.name ?? r.emptyContainerPark?.name ?? null;
     if (name && !seen.has(name)) {
       seen.add(name);
       names.push(name);
+      continue;
+    }
+    const id = r.empty_container_park_id ?? r.emptyContainerParkId;
+    if (!id || !parkIdToName) continue;
+    const fallbackName = parkIdToName.get(String(id));
+    if (fallbackName && !seen.has(fallbackName)) {
+      seen.add(fallbackName);
+      names.push(fallbackName);
     }
   }
   return names.join(", ");
@@ -82,7 +91,7 @@ export default function PackersScheduleClient() {
 
   const filtered = useMemo(() => {
     return rows
-      .filter((row) => (importExportFilter === "all" ? true : row.importExport === importExportFilter))
+      .filter((row) => (importExportFilter === "all" ? true : (row.import_export ?? row.importExport) === importExportFilter))
       .filter((row) => (searchByDate ? row.date === selectedDate : true));
   }, [rows, importExportFilter, searchByDate, selectedDate]);
 
@@ -123,6 +132,25 @@ export default function PackersScheduleClient() {
         filterable: true,
         resizable: true,
       };
+      if (column.key === "customer") {
+        return { ...base, valueGetter: (row) => row.customer?.name ?? row.customer_name ?? (typeof row.customer === "string" ? row.customer : "") };
+      }
+      if (column.key === "commodity") {
+        return {
+          ...base,
+          valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? (typeof row.commodity === "string" ? row.commodity : ""),
+        };
+      }
+      if (column.key === "vessel") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.vessel_voyage?.vessel?.vessel_name ??
+            row.vesselVoyage?.vessel?.vesselName ??
+            (typeof row.vessel === "string" ? row.vessel : "") ??
+            "",
+        };
+      }
       if (column.key === "emptyPark") {
         return {
           ...base,
@@ -131,10 +159,32 @@ export default function PackersScheduleClient() {
         };
       }
       if (column.key === "vesselCutoffDate") {
-        return { ...base, type: "text", format: formatCutoffOrEtdDisplay };
+        return {
+          ...base,
+          type: "text",
+          valueGetter: (row) => row.vessel_cutoff_date ?? row.vesselCutoffDate ?? row.vessel_voyage?.vessel_cutoff_date ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
       }
       if (column.key === "etd") {
-        return { ...base, type: "date", format: formatCutoffOrEtdDisplay };
+        return {
+          ...base,
+          type: "date",
+          valueGetter: (row) => row.etd ?? row.vessel_voyage?.vessel_etd ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "importExport") {
+        return { ...base, valueGetter: (row) => row.import_export ?? row.importExport ?? "" };
+      }
+      if (column.key === "containersRequired") {
+        return { ...base, valueGetter: (row) => row.containers_required ?? row.containersRequired ?? null };
+      }
+      if (column.key === "mtTotal") {
+        return { ...base, valueGetter: (row) => row.mt_total ?? row.mtTotal ?? null };
+      }
+      if (column.key === "jobReference") {
+        return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
       }
       return base;
     });
@@ -239,14 +289,14 @@ export default function PackersScheduleClient() {
             <div className="space-y-3 p-3 text-xs">
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
-              <Field label="Customer" value={selected.customer} />
-              <Field label="Commodity" value={selected.commodity} />
-              <Field label="Job Ref" value={selected.jobReference} />
-              <Field label="Vessel" value={selected.vessel} />
-              <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />
-              <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vesselCutoffDate)} />
+              <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? (typeof selected.customer === "string" ? selected.customer : "")} />
+              <Field label="Commodity" value={selected.commodity?.description ?? selected.commodity_description ?? (typeof selected.commodity === "string" ? selected.commodity : "")} />
+              <Field label="Job Ref" value={selected.job_reference ?? selected.jobReference ?? ""} />
+              <Field label="Vessel" value={selected.vessel_voyage?.vessel?.vessel_name ?? selected.vesselVoyage?.vessel?.vesselName ?? (typeof selected.vessel === "string" ? selected.vessel : "") ?? ""} />
+              <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd ?? selected.vessel_voyage?.vessel_etd ?? "")} />
+              <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vessel_cutoff_date ?? selected.vesselCutoffDate ?? selected.vessel_voyage?.vessel_cutoff_date ?? "")} />
               <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
-              <Field label="Count" value={String(selected.containersRequired)} />
+              <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
               <Field label="PRA progress" value={getPackProgress(selected, workByPack).label} />
               <div className="pt-1">
                 <Button type="button" size="sm" className="w-full text-[12px]" onClick={openPack}>

@@ -97,19 +97,11 @@ export function Grid(props) {
     if (persistKey) return persistKey;
     return persistKeyFromPathname(pathname);
   }, [persistKey, pathname]);
-  const persisted = useMemo(() => loadPersistedState(effectivePersistKey), [effectivePersistKey]);
-  const persistedScrollTop = typeof persisted?.scrollTop === 'number' ? persisted.scrollTop : 0;
-  const persistedInitialSelectedIds = useMemo(() => {
-    if (Array.isArray(persisted?.selectedRowIds) && persisted.selectedRowIds.length > 0) {
-      return persisted.selectedRowIds.map(String);
-    }
-    if (persisted?.lastInteractedRowId != null) {
-      return [String(persisted.lastInteractedRowId)];
-    }
-    return [];
-  }, [persisted]);
-  const scrollTopRef = useRef(persistedScrollTop);
-  const pendingScrollRestoreRef = useRef(effectivePersistKey && persistedScrollTop > 0 ? persistedScrollTop : null);
+  // localStorage is read after mount so SSR and the first client render match (avoids hydration mismatch).
+  const [legacySnapshot, setLegacySnapshot] = useState(null);
+  const [persistedInitialSelectedIds, setPersistedInitialSelectedIds] = useState([]);
+  const scrollTopRef = useRef(0);
+  const pendingScrollRestoreRef = useRef(null);
   const didRestoreScrollRef = useRef(false);
   const dndContextId = useMemo(() => {
     const slug = String(effectivePersistKey ?? fileName ?? 'default')
@@ -173,20 +165,48 @@ export function Grid(props) {
     if (!appliedServerColumnStateRef.current) return;
     saveColumnStateToServer(colStates);
   }, [colStates, saveColumnStateToServer]);
-  const [globalSearch, setGlobalSearch] = useState(() =>
-    getSessionSearch(effectivePersistKey) || persisted?.globalSearch || ''
-  );
+  const [globalSearch, setGlobalSearch] = useState('');
   useEffect(() => {
     setSessionSearch(effectivePersistKey, globalSearch);
   }, [effectivePersistKey, globalSearch]);
-  const [sortModel, setSortModel] = useState(() => persisted?.sortModel ?? []);
-  const [filters, setFilters] = useState(() => persisted?.filters ?? {});
-  const [page, setPage] = useState(() => persisted?.page ?? 0);
-  const [internalPageSize, setInternalPageSize] = useState(() => {
-    const persistedSize = persisted?.pageSize;
-    if (typeof persistedSize === 'number' && persistedSize > 0) return persistedSize;
-    return pageSize;
-  });
+  const [sortModel, setSortModel] = useState([]);
+  const [filters, setFilters] = useState({});
+  const [page, setPage] = useState(0);
+  const [internalPageSize, setInternalPageSize] = useState(pageSize);
+  const [lastInteractedRowId, setLastInteractedRowId] = useState(null);
+  useLayoutEffect(() => {
+    if (!effectivePersistKey) return;
+    const persisted = loadPersistedState(effectivePersistKey);
+    setLegacySnapshot(persisted);
+    if (!persisted) return;
+    const sessionSearch = getSessionSearch(effectivePersistKey);
+    if (sessionSearch) setGlobalSearch(sessionSearch);
+    else if (persisted.globalSearch) setGlobalSearch(persisted.globalSearch);
+    if (Array.isArray(persisted.sortModel) && persisted.sortModel.length > 0) {
+      setSortModel(persisted.sortModel);
+    }
+    if (persisted.filters && typeof persisted.filters === 'object' && Object.keys(persisted.filters).length > 0) {
+      setFilters(persisted.filters);
+    }
+    if (typeof persisted.page === 'number' && persisted.page > 0) {
+      setPage(persisted.page);
+    }
+    if (typeof persisted.pageSize === 'number' && persisted.pageSize > 0) {
+      setInternalPageSize(persisted.pageSize);
+    }
+    if (persisted.lastInteractedRowId != null) {
+      setLastInteractedRowId(persisted.lastInteractedRowId);
+    }
+    if (Array.isArray(persisted.selectedRowIds) && persisted.selectedRowIds.length > 0) {
+      setPersistedInitialSelectedIds(persisted.selectedRowIds.map(String));
+    } else if (persisted.lastInteractedRowId != null) {
+      setPersistedInitialSelectedIds([String(persisted.lastInteractedRowId)]);
+    }
+    if (typeof persisted.scrollTop === 'number' && persisted.scrollTop > 0) {
+      scrollTopRef.current = persisted.scrollTop;
+      pendingScrollRestoreRef.current = persisted.scrollTop;
+    }
+  }, [effectivePersistKey]);
   // Apply server-backed grid_state once the prefs load resolves. Server wins
   // over localStorage when present so a user logging in elsewhere sees the same
   // sort / filters / page size.
@@ -234,7 +254,6 @@ export function Grid(props) {
   const [activeColumnKey, setActiveColumnKey] = useState(null);
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState(null);
   const [sortDialogOpen, setSortDialogOpen] = useState(false);
-  const [lastInteractedRowId, setLastInteractedRowId] = useState(() => persisted?.lastInteractedRowId ?? null);
   const resizingRef = useRef(null);
   // Mirrors `columnWidthByKey` so handleResizeStart (declared earlier) can read
   // the latest displayed widths without a TDZ reference.
@@ -717,7 +736,7 @@ export function Grid(props) {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => effectiveRowHeight,
     overscan: 8,
-    initialOffset: effectivePersistKey && persistedScrollTop > 0 ? persistedScrollTop : 0
+    initialOffset: 0
   });
   const virtualItems = enableVirtualization ? virtualizer.getVirtualItems() : null;
   const handleCellKeyDown = useCallback((r, c, event) => {
@@ -1101,7 +1120,7 @@ export function Grid(props) {
   // ---- Saved Views ----
   const showSavedViews = enableSavedViews && Boolean(effectivePersistKey);
   const buildSnapshot = buildPersistSnapshot;
-  const views = useSavedViews(effectivePersistKey, persisted);
+  const views = useSavedViews(effectivePersistKey, legacySnapshot);
   const viewsRef = useRef(views);
   useEffect(() => { viewsRef.current = views; }, [views]);
   const applySnapshot = useCallback(snap => {

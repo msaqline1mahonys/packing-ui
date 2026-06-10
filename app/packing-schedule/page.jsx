@@ -1,13 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
 import { Button } from "@/components/ui/button";
-import { PACK_FORM_LOOKUPS, PACK_STATUSES } from "@/lib/Data";
-import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { PACK_STATUSES } from "@/lib/Data";
+import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -30,7 +30,61 @@ const TABLE_COLUMNS = [
   { key: "mtTotal", label: "MT", numeric: true },
   { key: "id", label: "ID", numeric: true },
   { key: "importExport", label: "I/E" },
+  // Pack basics
+  { key: "packType", label: "Pack Type", hidden: true },
+  { key: "packConfirmed", label: "Pack Confirmed", hidden: true },
+  // Site & import
+  { key: "testRequired", label: "Test Required", hidden: true },
+  { key: "shrinkTaken", label: "Shrink Taken", hidden: true },
+  // Sample
+  { key: "sampleRequired", label: "Sample Required", hidden: true },
+  // Basic details
+  { key: "exporter", label: "Exporter", hidden: true },
+  { key: "packingStartDate", label: "Packing Start Date", date: true, hidden: true },
+  { key: "assignedPackers", label: "Assigned Packers", hidden: true },
+  { key: "fumigationRequired", label: "Fumigation Required", hidden: true },
+  { key: "fumigation", label: "Fumigant", hidden: true },
+  { key: "daffPermission", label: "DAFF Permission", hidden: true },
+  { key: "packWarningRequired", label: "Pack Warning", hidden: true },
+  { key: "packWarning", label: "Pack Warning Details", hidden: true },
+  // Containers & quantity
+  { key: "containerCode", label: "Container Code", hidden: true },
+  { key: "quantityPerContainer", label: "Req Tonnes/Ctr", numeric: true, hidden: true },
+  { key: "maxQtyPerContainer", label: "Max MT/Ctr", numeric: true, hidden: true },
+  // Destination & shipping
+  { key: "destinationCountry", label: "Destination Country", hidden: true },
+  { key: "destinationPort", label: "Destination Port", hidden: true },
+  { key: "shippingLine", label: "Shipping Line", hidden: true },
+  { key: "terminal", label: "Terminal", hidden: true },
+  { key: "transshipmentPort", label: "Transshipment Port", hidden: true },
+  { key: "transshipmentPortCode", label: "Transship. Port Code", hidden: true },
+  { key: "voyageNumber", label: "Voyage Number", hidden: true },
+  { key: "lloydId", label: "Lloyd ID", hidden: true },
+  // Import permit
+  { key: "importPermitRequired", label: "Import Permit Req.", hidden: true },
+  { key: "importPermitNumber", label: "Import Permit No.", hidden: true },
+  { key: "importPermitDate", label: "Import Permit Date", date: true, hidden: true },
+  // RFP
+  { key: "rfp", label: "RFP", hidden: true },
+  { key: "edn", label: "EDN", hidden: true },
+  { key: "rfpAdditionalDeclarationRequired", label: "RFP Add. Decl.", hidden: true },
+  { key: "rfpComment", label: "RFP Comment", hidden: true },
+  { key: "rfpExpiry", label: "RFP Expiry", date: true, hidden: true },
+  { key: "rfpCommodityCode", label: "RFP Commodity Code", hidden: true },
+  { key: "rfpPackType", label: "RFP Pack Type", hidden: true },
+  { key: "rfpTotalQuantity", label: "RFP Total Qty", numeric: true, hidden: true },
+  { key: "rfpQuantityUnit", label: "RFP Qty Unit", hidden: true },
+  { key: "rfpFlowPath", label: "RFP Flow Path", hidden: true },
+  { key: "originalRfpNumber", label: "Original RFP No.", hidden: true },
+  // Packing & notes
+  { key: "jobNotes", label: "Job Notes", hidden: true },
 ];
+
+const BOOL_COLUMN_KEYS = new Set([
+  "packConfirmed", "testRequired", "shrinkTaken", "sampleRequired",
+  "fumigationRequired", "packWarningRequired", "importPermitRequired",
+  "rfpAdditionalDeclarationRequired",
+]);
 
 const DATE_FILTER_OPTIONS = [
   { key: "vesselCutoffDate", label: "Cut-off" },
@@ -55,14 +109,15 @@ function formatCutoffOrEtdDisplay(value) {
   return str;
 }
 
-function emptyParkRaw(row, parkIdToName) {
-  const details = Array.isArray(row.releaseDetails) ? row.releaseDetails : [];
+function emptyParkRaw(row) {
+  const releases = Array.isArray(row.releases) ? row.releases
+    : Array.isArray(row.release_details) ? row.release_details
+    : Array.isArray(row.releaseDetails) ? row.releaseDetails
+    : [];
   const names = [];
   const seen = new Set();
-  for (const r of details) {
-    const id = r.emptyContainerParkId;
-    if (!id) continue;
-    const name = parkIdToName.get(Number(id));
+  for (const r of releases) {
+    const name = r.empty_container_park?.name ?? r.emptyContainerPark?.name ?? null;
     if (name && !seen.has(name)) {
       seen.add(name);
       names.push(name);
@@ -71,9 +126,8 @@ function emptyParkRaw(row, parkIdToName) {
   return names.join(", ");
 }
 
-function emptyParkDisplay(row, parkIdToName) {
-  const s = emptyParkRaw(row, parkIdToName);
-  return s || "";
+function emptyParkDisplay(row) {
+  return emptyParkRaw(row) || "";
 }
 
 function getDateOnlyValue(rawValue) {
@@ -89,7 +143,8 @@ function getDateOnlyValue(rawValue) {
 
 export default function PackingSchedulePage() {
   const router = useRouter();
-  const [rows, setRows] = useState(() => loadPackScheduleRows());
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [importExportFilter, setImportExportFilter] = useState("all");
   const [dateFilterField, setDateFilterField] = useState("vesselCutoffDate");
   const [dateFilterMode, setDateFilterMode] = useState("all");
@@ -98,17 +153,34 @@ export default function PackingSchedulePage() {
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
-  useEffect(() => {
-    setRows(loadPackScheduleRows());
-  }, []);
+
+  const loadRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {
+        status: selectedStatuses,
+        importExport: importExportFilter,
+        ...(dateFilterMode === "specific" && specificDate ? { dateField: dateFilterField, on: specificDate } : {}),
+        ...(dateFilterMode === "range" ? { dateField: dateFilterField, from: dateFrom, to: dateTo } : {}),
+        perPage: 500,
+      };
+      const { rows: fetched } = await fetchPackRows(params);
+      setRows(fetched);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedStatuses, importExportFilter, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
   useEffect(() => {
-    savePackScheduleRows(rows);
-  }, [rows]);
+    loadRows();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+  }, [loadRows]);
 
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.length > 0 && selectedStatuses.includes(p.status))
-      .filter((p) => importExportFilter === "all" || p.importExport === importExportFilter)
+      .filter((p) => importExportFilter === "all" || (p.import_export ?? p.importExport) === importExportFilter)
       .filter((p) => {
         if (dateFilterMode === "all") return true;
         const rowDate = getDateOnlyValue(p[dateFilterField]);
@@ -128,16 +200,7 @@ export default function PackingSchedulePage() {
 
   const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
 
-  const parkIdToName = useMemo(() => {
-    const m = new Map();
-    for (const p of PACK_FORM_LOOKUPS.containerParks) {
-      m.set(p.id, p.name);
-    }
-    return m;
-  }, []);
-
   const gridColumns = useMemo(() => {
-    const emptyParkGetter = (row) => emptyParkRaw(row, parkIdToName);
     return TABLE_COLUMNS.map((column) => {
       const base = {
         key: column.key,
@@ -146,24 +209,168 @@ export default function PackingSchedulePage() {
         sortable: true,
         filterable: true,
         resizable: true,
+        hidden: column.hidden ?? false,
       };
+      if (column.key === "customer") {
+        return { ...base, valueGetter: (row) => row.customer?.name ?? row.customer_name ?? row.customer ?? "" };
+      }
+      if (column.key === "commodity") {
+        return { ...base, valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "" };
+      }
+      if (column.key === "vessel") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.vessel_voyage?.vessel?.vessel_name ??
+            row.vesselVoyage?.vessel?.vesselName ??
+            row.vessel ??
+            "",
+        };
+      }
+      if (column.key === "etd") {
+        return {
+          ...base,
+          type: "date",
+          valueGetter: (row) => row.etd ?? row.vessel_voyage?.vessel_etd ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "vesselCutoffDate") {
+        return {
+          ...base,
+          type: "text",
+          valueGetter: (row) => row.vessel_cutoff_date ?? row.vesselCutoffDate ?? row.vessel_voyage?.vessel_cutoff_date ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "importExport") {
+        return { ...base, valueGetter: (row) => row.import_export ?? row.importExport ?? "" };
+      }
       if (column.key === "emptyPark") {
         return {
           ...base,
           type: "text",
-          valueGetter: emptyParkGetter,
+          valueGetter: (row) => emptyParkRaw(row),
           format: (v) => (v ? String(v) : ""),
         };
       }
-      if (column.key === "vesselCutoffDate") {
-        return { ...base, type: "text", format: formatCutoffOrEtdDisplay };
+      if (BOOL_COLUMN_KEYS.has(column.key)) {
+        const snakeKey = column.key.replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`);
+        return {
+          ...base,
+          valueGetter: (row) => ((row[column.key] ?? row[snakeKey]) ? "Yes" : "No"),
+        };
       }
-      if (column.key === "etd") {
-        return { ...base, type: "date", format: formatCutoffOrEtdDisplay };
+      if (column.key === "exporter") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.exporter?.name ??
+            row.exporter_details?.name ??
+            row.exporterDetails?.name ??
+            row.exporter_name ??
+            (typeof row.exporter === "string" ? row.exporter : "") ??
+            "",
+        };
+      }
+      if (column.key === "assignedPackers") {
+        return {
+          ...base,
+          valueGetter: (row) => {
+            const assignments = row.packer_assignments ?? row.packerAssignments ?? [];
+            if (Array.isArray(assignments) && assignments.length > 0) {
+              return assignments.map((a) => a.packer?.name ?? "").filter(Boolean).join(", ");
+            }
+            const ids = row.assignedPackerIds ?? row.assigned_packer_ids ?? [];
+            return Array.isArray(ids) ? ids.join(", ") : String(ids || "");
+          },
+        };
+      }
+      if (column.key === "fumigation") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.fumigation ??
+            row.fumigation_detail?.fumigationNotes ??
+            row.fumigationDetail?.fumigationNotes ??
+            "",
+        };
+      }
+      if (column.key === "daffPermission") {
+        return { ...base, valueGetter: (row) => row.daffPermission ?? row.daff_permission ?? "" };
+      }
+      if (column.key === "packWarning") {
+        return { ...base, valueGetter: (row) => row.packWarning ?? row.pack_warning ?? "" };
+      }
+      if (column.key === "shippingLine") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.shipping_line?.shipping_line_name ??
+            row.shipping_line?.name ??
+            row.shippingLine?.shipping_line_name ??
+            row.shippingLine?.name ??
+            row.shipping_line_name ??
+            "",
+        };
+      }
+      if (column.key === "terminal") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.terminal?.terminal_name ?? row.terminal?.terminalName ?? row.terminal?.name ?? row.terminal_name ?? "",
+        };
+      }
+      if (column.key === "packingStartDate") {
+        return {
+          ...base,
+          type: "date",
+          valueGetter: (row) => row.packingStartDate ?? row.packing_start_date ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "importPermitDate") {
+        return {
+          ...base,
+          type: "date",
+          valueGetter: (row) => row.importPermitDate ?? row.import_permit_date ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "rfpExpiry") {
+        return {
+          ...base,
+          type: "date",
+          valueGetter: (row) => row.rfpExpiry ?? row.rfp_expiry ?? "",
+          format: formatCutoffOrEtdDisplay,
+        };
+      }
+      if (column.key === "containerCode") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.container_code?.iso_code ??
+            row.containerCode?.iso_code ??
+            (typeof row.container_code === "string" ? row.container_code : null) ??
+            (typeof row.containerCode === "string" ? row.containerCode : null) ??
+            "",
+        };
+      }
+      // Auto snake_case fallback for any remaining camelCase column key
+      const snakeKey = column.key.replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`);
+      if (snakeKey !== column.key) {
+        return {
+          ...base,
+          valueGetter: (row) => {
+            const val = row[column.key] ?? row[snakeKey];
+            if (column.numeric) return val != null && val !== "" ? Number(val) : null;
+            return val ?? "";
+          },
+        };
       }
       return base;
     });
-  }, [parkIdToName]);
+  }, []);
 
   function openAddPage() {
     router.push("/packing-schedule/new-pack-form");
@@ -277,19 +484,21 @@ export default function PackingSchedulePage() {
             onRowClick={(row) => setSelectedId(row.id)}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {
+              const ie = row.import_export ?? row.importExport;
               const rowClasses = [];
-              if (row.importExport === "Import") rowClasses.push("clutch-row-import");
+              if (ie === "Import") rowClasses.push("clutch-row-import");
               if (row.id === selectedId) rowClasses.push("clutch-row-selected");
               return rowClasses.join(" ") || undefined;
             }}
             getRowStyle={({ row }) => {
+              const ie = row.import_export ?? row.importExport;
               if (row.id === selectedId) return { backgroundColor: "#dbeafe" };
-              if (row.importExport === "Import") return { backgroundColor: "#eff6ff" };
+              if (ie === "Import") return { backgroundColor: "#eff6ff" };
               return undefined;
             }}
             toolbarActions={
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]">
+                <Button type="button" size="sm" variant="secondary" disabled title="Calendar view coming soon" className="h-7 px-2.5 text-[11px]">
                   Schedule
                 </Button>
                 <Button type="button" size="sm" onClick={openAddPage} className="h-7 px-2.5 text-[11px]">
@@ -298,14 +507,33 @@ export default function PackingSchedulePage() {
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={openEditPage}>
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="destructive" disabled={!selected} className="h-7 px-2.5 text-[11px]">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={!selected}
+                  className="h-7 px-2.5 text-[11px]"
+                  onClick={async () => {
+                    if (!selected) return;
+                    if (!window.confirm(`Delete pack #${selected.id}? This cannot be undone.`)) return;
+                    try {
+                      await removePack(selected.id);
+                      setSelectedId(null);
+                      loadRows();
+                    } catch (err) {
+                      window.alert(err?.message || "Failed to delete pack.");
+                    }
+                  }}
+                >
                   Delete
                 </Button>
-                <span className="ms-auto text-[11px] text-slate-500">View: All Orders</span>
+                <span className="ms-auto text-[11px] text-slate-500">
+                  {loading ? "Loading…" : "View: All Orders"}
+                </span>
               </div>
             }
           />
-          {!filtered.length ? (
+          {!loading && !filtered.length ? (
             <p className="border-t border-slate-100 px-3 py-8 text-center text-xs text-slate-400">No packs match the current filters.</p>
           ) : null}
         </div>
@@ -318,17 +546,17 @@ export default function PackingSchedulePage() {
             <div className="space-y-3 p-3 text-xs">
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
-              <Field label="Customer" value={selected.customer} />
-              <Field label="Commodity" value={selected.commodity} />
-              <Field label="Import/Export" value={selected.importExport} />
-              <Field label="Job Ref" value={selected.jobReference} />
-              <Field label="Vessel" value={selected.vessel} />
-              <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />
-              <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vesselCutoffDate)} />
-              <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packingStartDate)} />
-              <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
-              <Field label="Count" value={String(selected.containersRequired)} />
-              <Field label="MT" value={selected.mtTotal?.toFixed(1)} />
+              <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? selected.customer ?? ""} />
+              <Field label="Commodity" value={selected.commodity?.description ?? selected.commodity_description ?? selected.commodity ?? ""} />
+              <Field label="Import/Export" value={selected.import_export ?? selected.importExport ?? ""} />
+              <Field label="Job Ref" value={selected.job_reference ?? selected.jobReference ?? ""} />
+              <Field label="Vessel" value={selected.vessel_voyage?.vessel?.vessel_name ?? selected.vesselVoyage?.vessel?.vesselName ?? selected.vessel ?? ""} />
+              <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd ?? selected.vessel_voyage?.vessel_etd ?? "")} />
+              <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vessel_cutoff_date ?? selected.vesselCutoffDate ?? selected.vessel_voyage?.vessel_cutoff_date ?? "")} />
+              <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packing_start_date ?? selected.packingStartDate ?? "")} />
+              <Field label="Empty park" value={emptyParkDisplay(selected)} />
+              <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
+              <Field label="MT" value={selected.mt_total != null ? Number(selected.mt_total).toFixed(1) : selected.mtTotal?.toFixed(1)} />
             </div>
           </div>
         ) : null}

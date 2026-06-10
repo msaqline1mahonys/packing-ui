@@ -9,17 +9,12 @@ import ContainerFormSections from "@/components/pems/container-form-sections";
 import PackFileList from "@/components/pack-file-list";
 import { Button } from "@/components/ui/button";
 import {
-  COMMODITY_MASTER_ROWS,
-  CUSTOMER_CONTACT_ROWS,
-  DEFAULT_CONTAINER_SIZES,
-  PACK_FORM_LOOKUPS,
   PACK_STATUSES,
   PACK_TEMPLATE,
   REFERENCE_CONTAINER_CODE_ROWS,
-  REFERENCE_COUNTRIES_ROWS,
-  REFERENCE_TERMINAL_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
+import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import {
   loadCertificateTemplates,
   loadFumigants,
@@ -38,7 +33,8 @@ import {
 } from "@/lib/pems";
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
-import { loadPackScheduleRows, nextPackId, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { savePack } from "@/lib/pack-schedule-store";
+import { getPackFormData } from "@/lib/api/packing";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -61,15 +57,6 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const {
-  shippingLines,
-  containerParks,
-  transporters,
-  vesselScheduleCsvRows: vesselSchedule,
-} = PACK_FORM_LOOKUPS;
-const customerOptions = CUSTOMER_CONTACT_ROWS;
-const commodityOptions = COMMODITY_MASTER_ROWS.filter((row) => row.status !== "Inactive");
-const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
 const PACK_FUMIGATION_APPLICATION_METHOD = ["in-container", "bulk"];
@@ -137,6 +124,36 @@ function formatDateTimeInput(value) {
   const hours = String(parsed.getHours()).padStart(2, "0");
   const minutes = String(parsed.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+/** Normalize a release (DB or localStorage shape) into a uniform dropdown option. */
+function normalizeReleaseOption(r) {
+  const parks = (Array.isArray(r.parks) ? r.parks : []).map((p) => ({
+    containerParkId: p.container_park_id ?? p.containerParkId ?? "",
+    transporterIds: Array.isArray(p.transporters)
+      ? p.transporters.map((t) => t?.id ?? t).filter(Boolean)
+      : (p.transporterIds ?? p.transporter_ids ?? []).filter(Boolean),
+  }));
+  return {
+    id: r.id,
+    releaseNumber: r.release_number ?? r.releaseNumber ?? "",
+    status: r.status ?? "",
+    parks,
+  };
+}
+
+function vesselDisplayName(voyage) {
+  if (!voyage) return "";
+  const vessel = voyage.vessel;
+  if (vessel && typeof vessel === "object") return vessel.vessel_name ?? vessel.vesselName ?? "";
+  if (typeof vessel === "string") return vessel;
+  return voyage.vesselName ?? voyage.vessel_name ?? "";
+}
+
+function toDateInputValue(value) {
+  if (!value) return "";
+  const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
 }
 
 function formatDateDisplay(value) {
@@ -250,9 +267,11 @@ function createDraftContainer(pack, index, existing = {}) {
     containerNumber: existing.containerNumber ?? existing.containerNo ?? "",
     containerCode: existing.containerCode ?? pack.containerCode ?? "",
     containerIsoCode:
-      existing.containerIsoCode ??
-      existing.isoCode ??
-      defaultIsoForContainerCode(existing.containerCode ?? pack.containerCode),
+      existing.containerIsoCode ||
+      existing.isoCode ||
+      defaultIsoForContainerCode(existing.containerCode) ||
+      pack.containerCode ||
+      "",
     sealNumber: existing.sealNumber ?? existing.sealNo ?? "",
     releaseNumber: existing.releaseNumber ?? "",
     releasePark: existing.releasePark ?? "",
@@ -313,6 +332,7 @@ const blankPack = (siteId) => ({
     ...(PACK_TEMPLATE.fumigationDetail || {}),
   },
   containerCode: "",
+  containerCodeId: "",
   releaseNumbers: [],
   collectFromIds: [],
   releaseIds: [],
@@ -354,8 +374,7 @@ function toFileEntries(fileList) {
   }));
 }
 
-function rowToPack(row, siteId) {
-  const matchedCommodity = commodityOptions.find((c) => c.description === row.commodity);
+function rowToPack(row, siteId, customerOpts, commodityOpts) {
   const legacyReleaseNumbers = Array.isArray(row.releaseNumbers) ? row.releaseNumbers : [];
   const legacyCollectFrom = Array.isArray(row.collectFromIds) ? row.collectFromIds : [];
   const legacyTransporters = Array.isArray(row.transporterIds) ? row.transporterIds : [];
@@ -368,57 +387,109 @@ function rowToPack(row, siteId) {
         transporterId: legacyTransporters[index] ?? null,
       }))
       : [];
+  const rawDetail = row.fumigationDetail ?? row.fumigation_detail;
   const detail =
-    row.fumigationDetail && typeof row.fumigationDetail === "object"
-      ? { ...blankFumigationDetail(), ...row.fumigationDetail }
+    rawDetail && typeof rawDetail === "object"
+      ? { ...blankFumigationDetail(), ...rawDetail }
       : blankFumigationDetail();
+  const customers = Array.isArray(customerOpts) ? customerOpts : [];
+  const commodities = Array.isArray(commodityOpts) ? commodityOpts : [];
+  const resolvedCustomerId =
+    row.customer_id ?? row.customerId ??
+    customers.find((c) => c.name === row.customer)?.id ?? "";
+  const resolvedExporterId =
+    row.exporter_id ??
+    (typeof row.exporter === "string" ? customers.find((c) => c.name === row.exporter)?.id ?? "" : row.exporter ?? "");
+  const resolvedCommodityId =
+    row.commodity_id ?? row.commodityId ??
+    commodities.find((c) => c.description === row.commodity)?.id ?? "";
+  const resolvedCommodityTypeId =
+    row.commodity_type_id ?? row.commodityTypeId ??
+    commodities.find((c) => c.id === resolvedCommodityId)?.commodity_type_id ??
+    commodities.find((c) => c.description === row.commodity)?.commodityTypeId ?? "";
+  const resolvedVesselVoyageId = row.vessel_voyage_id ?? row.vesselDepartureId ?? null;
+  const resolvedTerminalId = row.terminal_id ?? row.terminalId ?? "";
+  const resolvedShippingLineId = row.shipping_line_id ?? row.shippingLineId ?? "";
   return {
     ...blankPack(siteId),
-    importExport: row.importExport || "Export",
+    importExport: (row.import_export ?? row.importExport) || "Export",
     status: row.status || "Pending",
-    customerId: customerOptions.find((c) => c.name === row.customer)?.id ?? "",
-    exporter: customerOptions.find((c) => c.name === row.exporter)?.id ?? "",
-    commodityId: matchedCommodity?.id ?? "",
-    commodityTypeId: matchedCommodity?.commodityTypeId ?? "",
-    jobReference: row.jobReference || "",
-    containersRequired: row.containersRequired ?? "",
-    mtTotal: row.mtTotal ?? "",
-    containerCode: row.containerCode || "",
-    releaseDetails: Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
-    destinationCountry: row.destinationCountry || "",
-    terminalId: row.terminalId ?? "",
-    portOfLoading: row.portOfLoading || "",
-    commodityCountryOfOrigin: row.commodityCountryOfOrigin || "Australia",
-    treatmentProviderId: row.treatmentProviderId || "",
-    fumigatorAccreditationNumber: row.fumigatorAccreditationNumber || "",
-    vesselDepartureId: null,
-    vesselName: row.vessel || "",
-    packingStartDate: row.packingStartDate || "",
-    packConfirmed: Boolean(row.packConfirmed),
-    voyageNumber: row.voyageNumber || "",
-    lloydId: row.lloydId || "",
-    vesselCutoffDate: row.vesselCutoffDate || "",
-    etd: row.etd || "",
-    fumigation: row.fumigation || "",
-    fumigationRequired: Boolean(row.fumigationRequired),
-    fumigationTiming: row.fumigationTiming || "",
-    fumigantId: row.fumigantId ?? null,
-    methodologyId: row.methodologyId ?? null,
-    certificateTemplateId: row.certificateTemplateId ?? null,
-    recordTemplateId: row.recordTemplateId ?? null,
+    customerId: resolvedCustomerId,
+    exporter: resolvedExporterId,
+    commodityId: resolvedCommodityId,
+    commodityTypeId: resolvedCommodityTypeId,
+    shippingLineId: resolvedShippingLineId,
+    jobReference: (row.job_reference ?? row.jobReference) || "",
+    containersRequired: (row.containers_required ?? row.containersRequired) ?? "",
+    mtTotal: (row.mt_total ?? row.mtTotal) ?? "",
+    containerCode: (typeof row.container_code === "object" ? row.container_code?.iso_code : row.container_code) ?? row.containerCode ?? "",
+    containerCodeId: row.container_code?.id ?? row.container_code_id ?? row.containerCodeId ?? "",
+    packType: (row.pack_type ?? row.packType) || "container",
+    testRequired: Boolean(row.test_required ?? row.testRequired),
+    shrinkTaken: Boolean(row.shrink_taken ?? row.shrinkTaken),
+    sampleRequired: Boolean(row.sample_required ?? row.sampleRequired),
+    quantityPerContainer: (row.quantity_per_container ?? row.quantityPerContainer) ?? "",
+    maxQtyPerContainer: (row.max_qty_per_container ?? row.maxQtyPerContainer) ?? "",
+    destinationPort: (row.destination_port ?? row.destinationPort) || "",
+    transshipmentPort: (row.transshipment_port ?? row.transshipmentPort) || "",
+    transshipmentPortCode: (row.transshipment_port_code ?? row.transshipmentPortCode) || "",
+    rfpComment: (row.rfp_comment ?? row.rfpComment) || "",
+    rfpExpiry: (row.rfp_expiry ?? row.rfpExpiry) || "",
+    rfpCommodityCode: (row.rfp_commodity_code ?? row.rfpCommodityCode) || "",
+    rfpPackType: (row.rfp_pack_type ?? row.rfpPackType) || "",
+    rfpTotalQuantity: (row.rfp_total_quantity ?? row.rfpTotalQuantity) ?? "",
+    rfpQuantityUnit: (row.rfp_quantity_unit ?? row.rfpQuantityUnit) || "M/TONS",
+    rfpFlowPath: (row.rfp_flow_path ?? row.rfpFlowPath) || "",
+    originalRfpNumber: (row.original_rfp_number ?? row.originalRfpNumber) || "",
+    assignedPackerIds: Array.isArray(row.packer_assignments)
+      ? row.packer_assignments.map((a) => String(a.packer_id ?? a.packerId ?? "")).filter(Boolean)
+      : Array.isArray(row.assigned_packer_ids ?? row.assignedPackerIds)
+        ? (row.assigned_packer_ids ?? row.assignedPackerIds).map(String)
+        : [],
+    releaseDetails: Array.isArray(row.releases) ? row.releases.map((r) => ({
+      releaseRef: r.release_ref ?? r.releaseRef ?? "",
+      emptyContainerParkId: r.empty_container_park_id ?? r.emptyContainerParkId ?? null,
+      transporterId: r.transporter_id ?? r.transporterId ?? null,
+    })) : Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
+    destinationCountry: (row.destination_country ?? row.destinationCountry) || "",
+    terminalId: resolvedTerminalId,
+    portOfLoading: (row.port_of_loading ?? row.portOfLoading) || "",
+    commodityCountryOfOrigin: (row.commodity_country_of_origin ?? row.commodityCountryOfOrigin) || "Australia",
+    treatmentProviderId: (row.treatment_provider_id ?? row.treatmentProviderId) || "",
+    fumigatorAccreditationNumber: (row.fumigator_accreditation_number ?? row.fumigatorAccreditationNumber) || "",
+    vesselDepartureId: resolvedVesselVoyageId,
+    vesselName: row.vessel_voyage?.vessel?.vessel_name ?? row.vesselVoyage?.vessel?.vesselName ?? row.vessel ?? "",
+    packingStartDate: (row.packing_start_date ?? row.packingStartDate) || "",
+    packConfirmed: Boolean(row.pack_confirmed ?? row.packConfirmed),
+    voyageNumber: (row.voyage_number ?? row.voyageNumber) || "",
+    lloydId: (row.lloyd_id ?? row.lloydId) || "",
+    vesselCutoffDate: (row.vessel_cutoff_date ?? row.vesselCutoffDate) || "",
+    etd: row.etd ?? "",
+    fumigation: row.fumigation || detail.fumigationNotes || "",
+    fumigationRequired: Boolean(row.fumigation_required ?? row.fumigationRequired),
+    fumigationTiming: (row.fumigation_timing ?? row.fumigationTiming) || "",
+    fumigantId: (row.fumigant_id ?? row.fumigantId) ?? null,
+    methodologyId: (row.methodology_id ?? row.methodologyId) ?? null,
+    certificateTemplateId: (row.certificate_template_id ?? row.certificateTemplateId) ?? null,
+    recordTemplateId: (row.record_template_id ?? row.recordTemplateId) ?? null,
     containers: buildPackContainers(row, row),
     fumigationDetail: detail,
-    daffPermission: row.daffPermission || "N/A",
+    daffPermission: (row.daff_permission ?? row.daffPermission) || "N/A",
     edn: row.edn || "",
-    importPermitRequired: Boolean(row.importPermitRequired),
-    importPermitNumber: row.importPermitNumber || "",
-    importPermitDate: row.importPermitDate || "",
-    packWarningRequired: Boolean(row.packWarningRequired),
-    packWarning: row.packWarning || "",
-    jobNotes: row.jobNotes || "",
+    importPermitRequired: Boolean(row.import_permit_required ?? row.importPermitRequired),
+    importPermitNumber: (row.import_permit_number ?? row.importPermitNumber) || "",
+    importPermitDate: (row.import_permit_date ?? row.importPermitDate) || "",
+    packWarningRequired: Boolean(row.pack_warning_required ?? row.packWarningRequired),
+    packWarning: (row.pack_warning ?? row.packWarning) || "",
+    jobNotes: (row.job_notes ?? row.jobNotes) || "",
     date: row.date || new Date().toISOString().slice(0, 10),
-    sampleEntries: Array.isArray(row.sampleEntries)
-      ? row.sampleEntries
+    sampleEntries: Array.isArray(row.samples) ? row.samples.map((s) => ({
+      type: s.type ?? "Pre",
+      sampleLocation: s.sample_location ?? s.sampleLocation ?? "",
+      sampleSentDate: s.sample_sent_date ?? s.sampleSentDate ?? "",
+      status: s.status ?? SAMPLE_STATUSES[0] ?? "Pending",
+      notes: s.notes ?? "",
+    })) : Array.isArray(row.sampleEntries) ? row.sampleEntries
       : (row.sampleStatuses || []).map((status, index) => ({
         type: "Pre",
         sampleLocation: row.sampleLocations?.[index] || "",
@@ -426,21 +497,30 @@ function rowToPack(row, siteId) {
         status: status || SAMPLE_STATUSES[0] || "Pending",
         notes: "",
       })),
-    importPermitFiles: normalizeFileItems(row.importPermitFiles),
-    additionalDeclarationFiles: normalizeFileItems(row.additionalDeclarationFiles),
+    importPermitFiles: normalizeFileItems(
+      row.importPermitFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importPermit") : null)
+    ),
+    additionalDeclarationFiles: normalizeFileItems(
+      row.additionalDeclarationFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "additionalDeclaration") : null)
+    ),
     rfp: row.rfp || "",
-    rfpFiles: normalizeFileItems(row.rfpFiles),
-    rfpAdditionalDeclarationRequired: Boolean(row.rfpAdditionalDeclarationRequired),
-    packingInstructionFiles: normalizeFileItems(row.packingInstructionFiles),
-    pemsDraft: { ...defaultPemsDraft(), ...(row.pemsDraft || {}) },
-    pemsSubmissions: Array.isArray(row.pemsSubmissions) ? row.pemsSubmissions : [],
+    rfpFiles: normalizeFileItems(
+      row.rfpFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "rfp") : null)
+    ),
+    rfpAdditionalDeclarationRequired: Boolean(row.rfp_additional_declaration_required ?? row.rfpAdditionalDeclarationRequired),
+    packingInstructionFiles: normalizeFileItems(
+      row.packingInstructionFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "packingInstruction") : null)
+    ),
+    pemsDraft: { ...defaultPemsDraft(), ...((row.pems_draft ?? row.pemsDraft) || {}) },
+    pemsSubmissions: Array.isArray(row.pems_submissions ?? row.pemsSubmissions) ? (row.pems_submissions ?? row.pemsSubmissions) : [],
   };
 }
 
 function packToScheduleRow(pack, existingRow) {
-  const customerName = customerOptions.find((c) => c.id === Number(pack.customerId))?.name || existingRow?.customer || "Unknown Customer";
-  const commodityName = commodityOptions.find((c) => c.id === Number(pack.commodityId))?.description || existingRow?.commodity || "Unknown Commodity";
-  const exporterName = customerOptions.find((c) => c.id === Number(pack.exporter))?.name || existingRow?.exporter || "-";
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const containers = buildPackContainers(pack, existingRow);
@@ -450,28 +530,33 @@ function packToScheduleRow(pack, existingRow) {
       : blankFumigationDetail();
   const fumigationSummary = String(detail.fumigationNotes || pack.fumigation || "").trim();
   return {
-    id: existingRow?.id ?? 0,
+    id: existingRow?.id ?? null,
     importExport: pack.importExport,
-    customer: customerName,
-    commodity: commodityName,
+    customerId: pack.customerId ?? null,
+    commodityId: pack.commodityId ?? null,
+    commodityTypeId: pack.commodityTypeId ?? null,
+    exporterId: pack.exporter ?? null,
+    shippingLineId: pack.shippingLineId ?? null,
+    vessel_voyage_id: pack.vesselDepartureId ?? null,
+    terminalId: pack.terminalId ?? "",
     status: pack.status,
     jobReference: pack.jobReference || "",
+    packType: pack.packType || "container",
     containersRequired: pack.containersRequired === "" ? 0 : Number(pack.containersRequired),
-    mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? 0 : Number(pack.mtTotal),
-    containerCode: pack.containerCode || "",
-    releaseDetails,
+    containerCodeId: pack.containerCodeId || null,
+    quantityPerContainer: pack.quantityPerContainer === "" || pack.quantityPerContainer == null ? null : Number(pack.quantityPerContainer),
+    maxQtyPerContainer: pack.maxQtyPerContainer === "" || pack.maxQtyPerContainer == null ? null : Number(pack.maxQtyPerContainer),
+    mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? null : Number(pack.mtTotal),
+    releases: releaseDetails.filter((r) => r.releaseRef || r.emptyContainerParkId || r.transporterId),
     containers,
-    releaseNumbers: releaseDetails.map((row) => row.releaseRef).filter(Boolean),
-    collectFromIds: releaseDetails.map((row) => row.emptyContainerParkId).filter(Boolean),
-    transporterIds: releaseDetails.map((row) => row.transporterId).filter(Boolean),
-    exporter: exporterName,
     destinationCountry: pack.destinationCountry || "",
-    terminalId: pack.terminalId ?? "",
+    destinationPort: pack.destinationPort || "",
+    transshipmentPort: pack.transshipmentPort || "",
+    transshipmentPortCode: pack.transshipmentPortCode || "",
     portOfLoading: pack.portOfLoading || "",
     commodityCountryOfOrigin: pack.commodityCountryOfOrigin || "Australia",
     treatmentProviderId: pack.treatmentProviderId || "",
     fumigatorAccreditationNumber: pack.fumigatorAccreditationNumber || "",
-    vessel: pack.vesselName || existingRow?.vessel || "",
     packingStartDate: pack.packingStartDate || "",
     packConfirmed: Boolean(pack.packConfirmed),
     voyageNumber: pack.voyageNumber || "",
@@ -481,30 +566,47 @@ function packToScheduleRow(pack, existingRow) {
     fumigation: fumigationSummary,
     fumigationRequired: Boolean(pack.fumigationRequired),
     fumigationTiming: pack.fumigationTiming || "",
-    fumigantId: pack.fumigantId ? Number(pack.fumigantId) : null,
-    methodologyId: pack.methodologyId ? Number(pack.methodologyId) : null,
-    certificateTemplateId: pack.certificateTemplateId ? Number(pack.certificateTemplateId) : null,
-    recordTemplateId: pack.recordTemplateId ? Number(pack.recordTemplateId) : null,
+    fumigantId: pack.fumigantId || null,
+    methodologyId: pack.methodologyId || null,
+    certificateTemplateId: pack.certificateTemplateId || null,
+    recordTemplateId: pack.recordTemplateId || null,
     fumigationDetail: detail,
+    testRequired: Boolean(pack.testRequired),
+    shrinkTaken: Boolean(pack.shrinkTaken),
+    sampleRequired: Boolean(pack.sampleRequired),
     daffPermission: pack.daffPermission || "N/A",
     edn: pack.edn || "",
     packWarningRequired: Boolean(pack.packWarningRequired),
     packWarning: pack.packWarning || "",
     jobNotes: pack.jobNotes || "",
     date: pack.date || new Date().toISOString().slice(0, 10),
-    sampleEntries,
-    sampleLocations: sampleEntries.map((entry) => entry.sampleLocation).filter(Boolean),
-    sampleSentDates: sampleEntries.map((entry) => entry.sampleSentDate).filter(Boolean),
-    sampleStatuses: sampleEntries.map((entry) => entry.status).filter(Boolean),
+    samples: sampleEntries,
     importPermitRequired: Boolean(pack.importPermitRequired),
     importPermitNumber: pack.importPermitNumber || "",
     importPermitDate: pack.importPermitDate || "",
+    files: {
+      importPermit: normalizeFileItems(pack.importPermitFiles),
+      rfp: normalizeFileItems(pack.rfpFiles),
+      packingInstruction: normalizeFileItems(pack.packingInstructionFiles),
+      additionalDeclaration: normalizeFileItems(pack.additionalDeclarationFiles),
+    },
     importPermitFiles: normalizeFileItems(pack.importPermitFiles),
     additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
     rfp: pack.rfp || "",
     rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
+    rfpComment: pack.rfpComment || "",
+    rfpExpiry: pack.rfpExpiry || "",
+    rfpCommodityCode: pack.rfpCommodityCode || "",
+    rfpPackType: pack.rfpPackType || "",
+    rfpTotalQuantity: pack.rfpTotalQuantity === "" || pack.rfpTotalQuantity == null ? null : Number(pack.rfpTotalQuantity),
+    rfpQuantityUnit: pack.rfpQuantityUnit || "M/TONS",
+    rfpFlowPath: pack.rfpFlowPath || "",
+    originalRfpNumber: pack.originalRfpNumber || "",
     rfpFiles: normalizeFileItems(pack.rfpFiles),
     packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+    packer_assignments: Array.isArray(pack.assignedPackerIds)
+      ? pack.assignedPackerIds.map((id) => ({ packer_id: id }))
+      : [],
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
   };
@@ -576,17 +678,30 @@ function NewPackFormPageInner() {
   const { siteId: activeSiteId, site } = useSite();
   const { dock, verticalExpanded } = useNavDock();
   const mode = searchParams.get("mode") === "edit" ? "edit" : "add";
-  const editId = Number(searchParams.get("id"));
+  const editId = searchParams.get("id") || "";
   const requestedTab = searchParams.get("tab");
-  const currentSite = Number(activeSiteId) || 1;
-  const [vesselDepartures, setVesselDepartures] = useState([]);
+  const currentSite = activeSiteId || null;
   const [fumigants] = useState(() => loadFumigants());
   const [methodologies] = useState(() => loadMethodologies());
   const [certificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates] = useState(() => loadRecordTemplates());
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [commodityOptions, setCommodityOptions] = useState([]);
+  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
+  const [shippingLineOptions, setShippingLineOptions] = useState([]);
+  const [containerParkOptions, setContainerParkOptions] = useState([]);
+  const [transporterOptions, setTransporterOptions] = useState([]);
+  const [containerCodeOptions, setContainerCodeOptions] = useState([]);
+  const [packerOptions, setPackerOptions] = useState([]);
+  const [terminalOptions, setTerminalOptions] = useState([]);
+  const [vesselVoyageOptions, setVesselVoyageOptions] = useState([]);
+  const [countryOptions, setCountryOptions] = useState([]);
+  const [portOptions, setPortOptions] = useState([]);
+  const [releaseOptions, setReleaseOptions] = useState([]);
+  const [quickVesselOpen, setQuickVesselOpen] = useState(false);
   const packerNames = useMemo(
-    () => (PACK_FORM_LOOKUPS.packers || []).filter((row) => String(row.status).toLowerCase() === "active").map((row) => row.name),
-    []
+    () => packerOptions.filter((row) => String(row.status ?? "active").toLowerCase() === "active").map((row) => row.name),
+    [packerOptions]
   );
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
@@ -602,6 +717,7 @@ function NewPackFormPageInner() {
   const [activeSampleIndex, setActiveSampleIndex] = useState(0);
   const prevSampleCountRef = useRef(0);
 
+  const [saveError, setSaveError] = useState("");
   const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
   const [quickReleaseDraft, setQuickReleaseDraft] = useState(() => blankRelease());
   const [quickReleaseError, setQuickReleaseError] = useState("");
@@ -616,36 +732,55 @@ function NewPackFormPageInner() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
-      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : "";
-      const headers = {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const fetchList = async (path) => {
-        try {
-          const res = await fetch(`${apiBase}${path}?per_page=500`, { headers });
-          if (!res.ok) return [];
-          const json = await res.json().catch(() => null);
-          const payload = json?.data;
-          return Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-        } catch {
-          return [];
-        }
-      };
-      const [parks, transporters, codes] = await Promise.all([
-        fetchList("/reference-data/container-parks"),
-        fetchList("/contacts/transporters"),
-        fetchList("/reference-data/container-codes"),
-      ]);
-      if (cancelled) return;
-      setQuickReleaseLookups({
-        containerParks: parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
-        transporters: transporters.map((t) => ({ id: t.id, name: t.name ?? "" })),
-        containerCodes: codes,
-        loading: false,
-      });
+      try {
+        const data = await getPackFormData();
+        if (cancelled) return;
+        const customers = Array.isArray(data?.customers) ? data.customers : [];
+        const commodities = Array.isArray(data?.commodities) ? data.commodities.filter((c) => c.status !== "Inactive") : [];
+        const commodityTypes = Array.isArray(data?.commodityTypes) ? data.commodityTypes : [];
+        const shLines = Array.isArray(data?.shippingLines) ? data.shippingLines : [];
+        const parks = Array.isArray(data?.containerParks) ? data.containerParks : [];
+        const trs = Array.isArray(data?.transporters) ? data.transporters : [];
+        const codes = Array.isArray(data?.containerCodes) ? data.containerCodes : [];
+        const packers = Array.isArray(data?.packers) ? data.packers : [];
+        const terminals = Array.isArray(data?.terminals) ? data.terminals : [];
+        const voyages = Array.isArray(data?.vesselVoyages) ? data.vesselVoyages : [];
+        const countries = Array.isArray(data?.countries) ? data.countries : [];
+        const ports = Array.isArray(data?.ports) ? data.ports : [];
+        const releases = Array.isArray(data?.releases) ? data.releases : [];
+        setCountryOptions(
+          countries.map((c) => ({ id: c.id, name: c.country_name ?? c.countryName ?? "", code: c.country_code ?? c.countryCode ?? "" }))
+        );
+        setPortOptions(
+          ports.map((p) => ({ id: p.id, countryId: p.country_id ?? p.countryId ?? "", name: p.name ?? "", code: p.code ?? "" }))
+        );
+        // Releases currently live in localStorage (the Releases screen isn't on the
+        // DB yet); merge those with any DB releases so both sources are selectable.
+        const dbReleases = releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber);
+        const localReleases = loadReleases().map(normalizeReleaseOption).filter((r) => r.releaseNumber);
+        const seenReleaseNumbers = new Set(localReleases.map((r) => r.releaseNumber));
+        setReleaseOptions([...localReleases, ...dbReleases.filter((r) => !seenReleaseNumbers.has(r.releaseNumber))]);
+        setCustomerOptions(customers);
+        setCommodityOptions(commodities);
+        setCommodityTypeOptions(commodityTypes);
+        setShippingLineOptions(shLines.map((s) => ({ id: s.id, name: s.shipping_line_name ?? s.name ?? "", code: s.shipping_line_code ?? s.code ?? "" })));
+        setContainerParkOptions(parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })));
+        setTransporterOptions(trs.map((t) => ({ id: t.id, name: t.name ?? "" })));
+        setContainerCodeOptions(codes);
+        setPackerOptions(packers);
+        setTerminalOptions(terminals);
+        setVesselVoyageOptions(voyages);
+        setQuickReleaseLookups({
+          containerParks: parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
+          transporters: trs.map((t) => ({ id: t.id, name: t.name ?? "" })),
+          containerCodes: codes,
+          loading: false,
+        });
+      } catch {
+        if (cancelled) return;
+        setReleaseOptions(loadReleases().map(normalizeReleaseOption).filter((r) => r.releaseNumber));
+        setQuickReleaseLookups((prev) => ({ ...prev, loading: false }));
+      }
     })();
     return () => {
       cancelled = true;
@@ -745,6 +880,10 @@ function NewPackFormPageInner() {
         "",
     };
     saveReleases([newRelease, ...existing]);
+    setReleaseOptions((prev) => {
+      const normalized = normalizeReleaseOption(newRelease);
+      return [normalized, ...prev.filter((r) => r.releaseNumber !== normalized.releaseNumber)];
+    });
 
     const firstPark = cleanedParks[0];
     const firstTransporterId = firstPark.transporterIds[0] ?? "";
@@ -770,8 +909,23 @@ function NewPackFormPageInner() {
     closeQuickAddRelease();
   }
 
+  function handleQuickVesselCreated(option) {
+    if (!option?.id) return;
+    setVesselVoyageOptions((prev) => [option, ...prev.filter((v) => String(v.id) !== String(option.id))]);
+    setPack((prev) => ({
+      ...prev,
+      vesselDepartureId: option.id,
+      vesselName: vesselDisplayName(option),
+      voyageNumber: option.voyage_number ?? prev.voyageNumber,
+      lloydId: option.vessel?.lloyds_number ?? prev.lloydId,
+      vesselCutoffDate: toDateInputValue(option.vessel_cutoff_date) || prev.vesselCutoffDate,
+      etd: toDateInputValue(option.vessel_etd) || prev.etd,
+    }));
+  }
+
   useEffect(() => {
     if (!["general", "fumigation", "accounting", "pems"].includes(requestedTab || "")) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTab(requestedTab);
   }, [requestedTab]);
   function addFiles(key, files) {
@@ -792,14 +946,13 @@ function NewPackFormPageInner() {
       ? pack.fumigationDetail
       : blankFumigationDetail();
   const fumigationMethodologyOptions = useMemo(() => {
-    const fumigantId = pack.fumigantId ? Number(pack.fumigantId) : null;
-    if (!fumigantId) return [];
-    return methodologies.filter((item) => Number(item.fumigantId) === fumigantId);
+    if (!pack.fumigantId) return [];
+    return methodologies.filter((item) => String(item.fumigantId) === String(pack.fumigantId));
   }, [pack.fumigantId, methodologies]);
   const selectedFumigationMethodology = useMemo(() => {
-    const methodologyId = pack.methodologyId ? Number(pack.methodologyId) : null;
+    const methodologyId = pack.methodologyId || null;
     if (!methodologyId) return null;
-    return methodologies.find((item) => Number(item.id) === methodologyId) || null;
+    return methodologies.find((item) => String(item.id) === String(methodologyId)) || null;
   }, [pack.methodologyId, methodologies]);
 
   /** Match a temperature value against the methodology's dosage bands (half-open [min, max)). */
@@ -867,10 +1020,21 @@ function NewPackFormPageInner() {
 
   // ── Derived values: volume, tonnage, calculated dose, amount applied ──────
   const matchedContainerCode = useMemo(() => {
-    const code = String(pack.containerCode || "").trim().toUpperCase();
+    const code = String(pack.containerCode || "").trim();
     if (!code) return null;
-    return REFERENCE_CONTAINER_CODE_ROWS.find((row) => String(row.containerSize || "").toUpperCase() === code) ?? null;
-  }, [pack.containerCode]);
+    const dbMatch = containerCodeOptions.find(
+      (row) => String(row.iso_code ?? row.isoCode ?? "").toUpperCase() === code.toUpperCase()
+    );
+    if (dbMatch) {
+      return {
+        cubicMeters: Number(dbMatch.cubic_meters ?? dbMatch.cubicMeters ?? 0),
+        containerSize: dbMatch.container_size ?? dbMatch.containerSize ?? "",
+      };
+    }
+    return REFERENCE_CONTAINER_CODE_ROWS.find(
+      (row) => String(row.containerSize || "").toUpperCase() === code.toUpperCase()
+    ) ?? null;
+  }, [pack.containerCode, containerCodeOptions]);
 
   const derivedVolumeM3 = useMemo(() => {
     const containers = Number(pack.containersRequired || 0);
@@ -1040,8 +1204,8 @@ function NewPackFormPageInner() {
       const packForPayload = {
         ...pack,
         id: pack.id || editingRow?.id || "draft",
-        commodity: commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description || "",
-        exporter: customerOptions.find((c) => c.id === Number(pack.exporter))?.name || "",
+        commodity: commodityOptions.find((row) => String(row.id) === String(pack.commodityId))?.description || "",
+        exporter: customerOptions.find((c) => String(c.id) === String(pack.exporter))?.name || "",
       };
       const payload = buildPemsInspectionPayload({
         pack: packForPayload,
@@ -1111,13 +1275,10 @@ function NewPackFormPageInner() {
               : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
           }),
         };
-        const packId = nextPack.id || editingRow?.id;
+        const packId = nextPack.id ?? editingRow?.id;
         if (packId) {
-          const rows = loadPackScheduleRows();
-          const existingRow = rows.find((row) => Number(row.id) === Number(packId)) || editingRow;
-          if (existingRow) {
-            savePackScheduleRows(rows.map((row) => (Number(row.id) === Number(packId) ? packToScheduleRow(nextPack, existingRow) : row)));
-          }
+          const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
+          savePack({ ...rowToSave, id: packId }).catch(() => {});
         }
         return nextPack;
       });
@@ -1130,9 +1291,18 @@ function NewPackFormPageInner() {
 
   const selectedVessel = useMemo(() => {
     if (!pack.vesselDepartureId) return null;
-    return vesselDepartures.find((v) => v.id === Number(pack.vesselDepartureId)) || null;
-  }, [pack.vesselDepartureId, vesselDepartures]);
+    return vesselVoyageOptions.find((v) => String(v.id) === String(pack.vesselDepartureId)) || null;
+  }, [pack.vesselDepartureId, vesselVoyageOptions]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const destinationCountryId = useMemo(() => {
+    const name = String(pack.destinationCountry || "").trim();
+    if (!name) return "";
+    return countryOptions.find((c) => c.name === name)?.id || "";
+  }, [pack.destinationCountry, countryOptions]);
+  const destinationPortOptions = useMemo(
+    () => (destinationCountryId ? portOptions.filter((p) => String(p.countryId) === String(destinationCountryId)) : portOptions),
+    [portOptions, destinationCountryId]
+  );
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
   const filteredPemsPackContainers = useMemo(() => {
     const q = pemsContainerSearch.trim().toLowerCase();
@@ -1149,7 +1319,7 @@ function NewPackFormPageInner() {
   const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
   const siteRows = useMemo(() => readSiteRows(), []);
   const selectedPackSite = useMemo(() => {
-    const byId = siteRows.find((row) => Number(row.id) === Number(pack.siteId));
+    const byId = siteRows.find((row) => String(row.id) === String(pack.siteId));
     return byId || siteRows[0] || null;
   }, [siteRows, pack.siteId]);
 
@@ -1158,6 +1328,7 @@ function NewPackFormPageInner() {
     const site = selectedPackSite;
     if (!site?.treatmentProviderId) return;
     if (String(pack.treatmentProviderId ?? "").trim()) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPack((prev) => ({ ...prev, treatmentProviderId: site.treatmentProviderId }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPackSite?.id]);
@@ -1245,7 +1416,7 @@ function NewPackFormPageInner() {
       : "Pending";
   const packRfpText = String(pack.rfp || "").trim();
   const packPemsCommodityLabel = useMemo(
-    () => safeValue(commodityOptions.find((row) => Number(row.id) === Number(pack.commodityId))?.description),
+    () => safeValue(commodityOptions.find((row) => String(row.id) === String(pack.commodityId))?.description),
     [pack.commodityId]
   );
   const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
@@ -1265,16 +1436,16 @@ function NewPackFormPageInner() {
   }, [pack.containersRequired, pack.quantityPerContainer]);
 
   const stickySummary = useMemo(() => {
-    const customerName = customerOptions.find((c) => c.id === Number(pack.customerId))?.name;
-    const commodityName = commodityOptions.find((c) => c.id === Number(pack.commodityId))?.description;
+    const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name;
+    const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description;
     const releaseLines = releaseRows
       .filter((row) => row.releaseRef || row.emptyContainerParkId || row.transporterId)
       .map((row) => {
         const parts = [];
         if (row.releaseRef) parts.push(row.releaseRef);
-        const park = containerParks.find((p) => p.id === Number(row.emptyContainerParkId))?.name;
+        const park = containerParkOptions.find((p) => String(p.id) === String(row.emptyContainerParkId))?.name;
         if (park) parts.push(park);
-        const tr = transporters.find((t) => t.id === Number(row.transporterId))?.name;
+        const tr = transporterOptions.find((t) => String(t.id) === String(row.transporterId))?.name;
         if (tr) parts.push(tr);
         return parts.length ? parts.join(" · ") : null;
       })
@@ -1294,7 +1465,7 @@ function NewPackFormPageInner() {
         pack.containersRequired === "" || pack.containersRequired == null ? "" : String(pack.containersRequired),
       containerCode: String(pack.containerCode || "").trim() || "",
       mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : "",
-      vessel: selectedVessel?.vessel?.trim() || "",
+      vessel: vesselDisplayName(selectedVessel).trim() || "",
       etd: String(pack.etd || "").trim() || "",
       transshipment: String(pack.transshipmentPort || "").trim() || "",
       rfp: String(pack.rfp || "").trim() || "",
@@ -1318,36 +1489,64 @@ function NewPackFormPageInner() {
     pack.releaseDetails,
     pack.vesselDepartureId,
     selectedVessel,
+    customerOptions,
+    commodityOptions,
+    containerParkOptions,
+    transporterOptions,
   ]);
 
   useEffect(() => {
-    if (mode !== "edit" || Number.isNaN(editId)) return;
-    const rows = loadPackScheduleRows();
-    const row = rows.find((r) => Number(r.id) === editId);
-    if (!row) return;
-    setEditingRow(row);
-    setPack(rowToPack(row, currentSite));
-  }, [mode, editId, currentSite]);
+    if (mode !== "edit" || !editId) return;
+    let cancelled = false;
+    import("@/lib/api/packing").then(({ getPack }) => getPack(editId)).then((row) => {
+      if (cancelled || !row) return;
+      setEditingRow(row);
+      setPack(rowToPack(row, currentSite, customerOptions, commodityOptions));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [mode, editId, currentSite, customerOptions, commodityOptions]);
 
   useEffect(() => {
     if (mode !== "add") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPack((prev) => ({ ...prev, siteId: currentSite }));
   }, [currentSite, mode]);
 
   useEffect(() => {
     if (!pack.fumigationRequired && activeTab === "fumigation") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("general");
     }
   }, [pack.fumigationRequired, activeTab]);
 
   useEffect(() => {
     if (!selectedVessel) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPack((prev) => {
-      const nextVoyage = selectedVessel.voyageNumber || "";
-      const nextCutoff = selectedVessel.vesselCutoffDate || "";
-      const nextVesselName = selectedVessel.vessel || "";
-      if (prev.voyageNumber === nextVoyage && prev.vesselCutoffDate === nextCutoff && prev.vesselName === nextVesselName) return prev;
-      return { ...prev, vesselName: nextVesselName, voyageNumber: nextVoyage, vesselCutoffDate: nextCutoff };
+      const nextVoyage = selectedVessel.voyage_number ?? selectedVessel.voyageNumber ?? "";
+      const nextCutoff = toDateInputValue(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate);
+      const nextEtd = toDateInputValue(selectedVessel.vessel_etd ?? selectedVessel.vesselEtd ?? selectedVessel.etd);
+      const nextVesselName = vesselDisplayName(selectedVessel);
+      const nextLloyd = selectedVessel.vessel?.lloyds_number ?? selectedVessel.vessel?.lloydsNumber ?? prev.lloydId;
+      const nextCutoffValue = nextCutoff || prev.vesselCutoffDate;
+      const nextEtdValue = nextEtd || prev.etd;
+      if (
+        prev.voyageNumber === nextVoyage &&
+        prev.vesselCutoffDate === nextCutoffValue &&
+        prev.vesselName === nextVesselName &&
+        prev.etd === nextEtdValue &&
+        prev.lloydId === nextLloyd
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        vesselName: nextVesselName,
+        voyageNumber: nextVoyage,
+        lloydId: nextLloyd,
+        vesselCutoffDate: nextCutoffValue,
+        etd: nextEtdValue,
+      };
     });
   }, [selectedVessel]);
 
@@ -1359,6 +1558,7 @@ function NewPackFormPageInner() {
     if (count > prevSampleCountRef.current) {
       setActiveSampleIndex(count - 1);
     } else if (count > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveSampleIndex((prev) => (prev >= count ? count - 1 : prev));
     } else {
       setActiveSampleIndex(0);
@@ -1366,43 +1566,25 @@ function NewPackFormPageInner() {
     prevSampleCountRef.current = count;
   }, [sampleEntries.length]);
 
-  const save = () => {
+  const save = async () => {
     const normalized = {
       ...pack,
-      customerId: pack.customerId ? Number(pack.customerId) : null,
-      commodityId: pack.commodityId ? Number(pack.commodityId) : null,
-      commodityTypeId: pack.commodityId
-        ? commodityOptions.find((c) => c.id === Number(pack.commodityId))?.commodityTypeId ?? null
-        : null,
-      siteId: Number(pack.siteId || currentSite),
+      customerId: pack.customerId || null,
+      commodityId: pack.commodityId || null,
+      commodityTypeId: pack.commodityTypeId || null,
+      siteId: pack.siteId || currentSite || null,
       containersRequired: pack.containersRequired === "" ? null : Number(pack.containersRequired),
       quantityPerContainer: pack.quantityPerContainer === "" ? null : Number(pack.quantityPerContainer),
       maxQtyPerContainer: pack.maxQtyPerContainer === "" ? null : Number(pack.maxQtyPerContainer),
       mtTotal: computedMtTotal != null && Number.isFinite(computedMtTotal) ? Number(computedMtTotal) : null,
-      shippingLineId: pack.shippingLineId ? Number(pack.shippingLineId) : null,
-      vesselDepartureId: pack.vesselDepartureId ? Number(pack.vesselDepartureId) : null,
-      exporter: pack.exporter ? Number(pack.exporter) : null,
+      shippingLineId: pack.shippingLineId || null,
+      vesselDepartureId: pack.vesselDepartureId || null,
+      exporter: pack.exporter || null,
       fumigationRequired: Boolean(pack.fumigationRequired),
-      fumigantId:
-        pack.fumigantId !== null && pack.fumigantId !== undefined && pack.fumigantId !== ""
-          ? Number(pack.fumigantId)
-          : null,
-      methodologyId:
-        pack.methodologyId !== null && pack.methodologyId !== undefined && pack.methodologyId !== ""
-          ? Number(pack.methodologyId)
-          : null,
-      certificateTemplateId:
-        pack.certificateTemplateId !== null &&
-          pack.certificateTemplateId !== undefined &&
-          pack.certificateTemplateId !== ""
-          ? Number(pack.certificateTemplateId)
-          : null,
-      recordTemplateId:
-        pack.recordTemplateId !== null &&
-          pack.recordTemplateId !== undefined &&
-          pack.recordTemplateId !== ""
-          ? Number(pack.recordTemplateId)
-          : null,
+      fumigantId: pack.fumigantId != null && pack.fumigantId !== "" ? pack.fumigantId : null,
+      methodologyId: pack.methodologyId != null && pack.methodologyId !== "" ? pack.methodologyId : null,
+      certificateTemplateId: pack.certificateTemplateId != null && pack.certificateTemplateId !== "" ? pack.certificateTemplateId : null,
+      recordTemplateId: pack.recordTemplateId != null && pack.recordTemplateId !== "" ? pack.recordTemplateId : null,
       fumigationDetail:
         pack.fumigationDetail && typeof pack.fumigationDetail === "object"
           ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
@@ -1422,17 +1604,19 @@ function NewPackFormPageInner() {
       rfpFiles: normalizeFileItems(pack.rfpFiles),
       packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
     };
-    const rows = loadPackScheduleRows();
-    if (mode === "edit" && editingRow) {
-      const updated = packToScheduleRow(normalized, editingRow);
-      savePackScheduleRows(rows.map((row) => (row.id === editingRow.id ? updated : row)));
-    } else {
-      const created = packToScheduleRow(normalized, null);
-      created.id = nextPackId(rows);
-      created.containers = buildPackContainers({ ...normalized, id: created.id }, created);
-      savePackScheduleRows([created, ...rows]);
+    setSaveError("");
+    try {
+      if (mode === "edit" && editingRow) {
+        const updated = packToScheduleRow(normalized, editingRow);
+        await savePack({ ...updated, id: editingRow.id });
+      } else {
+        const created = packToScheduleRow(normalized, null);
+        await savePack(created);
+      }
+      router.push("/packing-schedule");
+    } catch (err) {
+      setSaveError(err?.message || "Failed to save pack.");
     }
-    router.push("/packing-schedule");
   };
 
   const summaryFields = [
@@ -1800,7 +1984,7 @@ function NewPackFormPageInner() {
                       setPack((prev) => ({
                         ...prev,
                         commodityId: id,
-                        commodityTypeId: row?.commodityTypeId != null ? String(row.commodityTypeId) : "",
+                        commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
                       }));
                     }}
                   >
@@ -1817,6 +2001,35 @@ function NewPackFormPageInner() {
                 </FormRow>
                 <FormRow label="Packing start date">
                   <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
+                </FormRow>
+                <FormRow label="Assigned packers">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                    {packerOptions.filter((p) => String(p.status ?? "active").toLowerCase() === "active").length === 0 ? (
+                      <span className="text-xs text-slate-400">No packers available</span>
+                    ) : (
+                      packerOptions
+                        .filter((p) => String(p.status ?? "active").toLowerCase() === "active")
+                        .map((p) => {
+                          const checked = Array.isArray(pack.assignedPackerIds) && pack.assignedPackerIds.includes(String(p.id));
+                          return (
+                            <label key={p.id} className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                className="size-3.5 border-slate-300 accent-brand"
+                                onChange={() => {
+                                  const currentIds = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
+                                  const id = String(p.id);
+                                  const nextIds = currentIds.includes(id) ? currentIds.filter((x) => x !== id) : [...currentIds, id];
+                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds }));
+                                }}
+                              />
+                              {p.name}
+                            </label>
+                          );
+                        })
+                    )}
+                  </div>
                 </FormRow>
                 <div className={spanFullClass}>
                   <div className={cn("grid gap-2", pack.fumigationRequired ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-1")}>
@@ -1851,7 +2064,7 @@ function NewPackFormPageInner() {
                             const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
                             setPack((prev) => ({
                               ...prev,
-                              fumigantId: matched ? Number(matched.id) : prev.fumigantId,
+                              fumigantId: matched ? matched.id : prev.fumigantId,
                               fumigation: value,
                               fumigationDetail: {
                                 ...(prev.fumigationDetail || blankFumigationDetail()),
@@ -1939,13 +2152,24 @@ function NewPackFormPageInner() {
                       <input className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
                     </FormRow>
                     <FormRow label="Container Code">
-                      <select className={inputClass} value={pack.containerCode || ""} onChange={(e) => set("containerCode", e.target.value)}>
-                        <option value="">Find items</option>
-                        {DEFAULT_CONTAINER_SIZES.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
+                      <select className={inputClass} value={pack.containerCode || ""} onChange={(e) => {
+                          const iso = e.target.value;
+                          const matched = containerCodeOptions.find((r) => (r.iso_code ?? r.isoCode ?? "") === iso);
+                          setPack((prev) => ({ ...prev, containerCode: iso, containerCodeId: matched?.id ?? "" }));
+                        }}>
+                        <option value="">- Select container code -</option>
+                        {containerCodeOptions.map((row) => {
+                          const iso = row.iso_code ?? row.isoCode ?? "";
+                          const size = row.container_size ?? row.containerSize ?? "";
+                          const desc = row.description ?? "";
+                          return (
+                            <option key={row.id ?? iso} value={iso}>
+                              {iso}
+                              {size ? ` · ${size}` : ""}
+                              {desc ? ` — ${desc}` : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </FormRow>
                   </div>
@@ -1990,29 +2214,56 @@ function NewPackFormPageInner() {
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                       Release number <span className="font-normal normal-case text-slate-400">· Release lines: {releaseRows.length}</span>
                     </p>
-                    {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => (
+                    {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => {
+                      const baseRows = releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }];
+                      const isKnownRelease = releaseOptions.some((r) => r.releaseNumber === entry.releaseRef);
+                      return (
                       <div key={`release-row-${index}`} className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]">
-                        <input
+                        <select
                           className={inputClass}
                           value={entry.releaseRef || ""}
                           onChange={(e) => {
-                            const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                            next[index] = { ...next[index], releaseRef: e.target.value };
+                            const num = e.target.value;
+                            const rel = releaseOptions.find((r) => r.releaseNumber === num);
+                            const firstPark = rel?.parks?.[0];
+                            const next = baseRows.map((row, idx) =>
+                              idx === index
+                                ? {
+                                    ...row,
+                                    releaseRef: num,
+                                    emptyContainerParkId: firstPark?.containerParkId || row.emptyContainerParkId || "",
+                                    transporterId: firstPark?.transporterIds?.[0] || row.transporterId || "",
+                                  }
+                                : row
+                            );
+                            // Keep a trailing blank row so more releases can be added without a separate button.
+                            if (num && index === baseRows.length - 1) {
+                              next.push({ releaseRef: "", emptyContainerParkId: "", transporterId: "" });
+                            }
                             set("releaseDetails", next);
                           }}
-                          placeholder="Enter Release Number"
-                        />
+                        >
+                          <option value="">- Select release -</option>
+                          {!isKnownRelease && entry.releaseRef ? (
+                            <option value={entry.releaseRef}>{entry.releaseRef}</option>
+                          ) : null}
+                          {releaseOptions.map((r) => (
+                            <option key={r.id} value={r.releaseNumber}>
+                              {r.releaseNumber}
+                              {r.status ? ` (${r.status})` : ""}
+                            </option>
+                          ))}
+                        </select>
                         <select
                           className={inputClass}
                           value={entry.emptyContainerParkId ?? ""}
                           onChange={(e) => {
-                            const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                            next[index] = { ...next[index], emptyContainerParkId: e.target.value ? Number(e.target.value) : "" };
+                            const next = baseRows.map((row, idx) => (idx === index ? { ...row, emptyContainerParkId: e.target.value || "" } : row));
                             set("releaseDetails", next);
                           }}
                         >
                           <option value="">Empty Container Park</option>
-                          {containerParks.map((park) => (
+                          {containerParkOptions.map((park) => (
                             <option key={park.id} value={park.id}>
                               {park.name}
                             </option>
@@ -2022,13 +2273,12 @@ function NewPackFormPageInner() {
                           className={inputClass}
                           value={entry.transporterId ?? ""}
                           onChange={(e) => {
-                            const next = [...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }])];
-                            next[index] = { ...next[index], transporterId: e.target.value ? Number(e.target.value) : "" };
+                            const next = baseRows.map((row, idx) => (idx === index ? { ...row, transporterId: e.target.value || "" } : row));
                             set("releaseDetails", next);
                           }}
                         >
                           <option value="">Select Transporter</option>
-                          {transporters.map((transporter) => (
+                          {transporterOptions.map((transporter) => (
                             <option key={transporter.id} value={transporter.id}>
                               {transporter.name}
                             </option>
@@ -2038,29 +2288,17 @@ function NewPackFormPageInner() {
                           variant="destructive"
                           type="button"
                           onClick={() => {
-                            const next = (releaseRows.length ? releaseRows : []).filter((_, idx) => idx !== index);
+                            const next = baseRows.filter((_, idx) => idx !== index);
                             set("releaseDetails", next);
                           }}
                         >
                           Remove
                         </Button>
                       </div>
-                    ))}
+                      );
+                    })}
 
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        type="button"
-                        onClick={() =>
-                          set("releaseDetails", [
-                            ...(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]),
-                            { releaseRef: "", emptyContainerParkId: "", transporterId: "" },
-                          ])
-                        }
-                      >
-                        Add Release
-                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -2082,19 +2320,30 @@ function NewPackFormPageInner() {
                       <select className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
                         <option value="">- Select country -</option>
                         {countryOptions.map((country) => (
-                          <option key={country} value={country}>
-                            {country}
+                          <option key={country.id} value={country.name}>
+                            {country.name}
                           </option>
                         ))}
                       </select>
                     </FormRow>
                     <FormRow label="Destination port">
-                      <input className={inputClass} value={pack.destinationPort} onChange={(e) => set("destinationPort", e.target.value)} placeholder="Port" />
+                      <select className={inputClass} value={pack.destinationPort || ""} onChange={(e) => set("destinationPort", e.target.value)}>
+                        <option value="">{destinationCountryId ? "- Select port -" : "- Select country first -"}</option>
+                        {pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort) ? (
+                          <option value={pack.destinationPort}>{pack.destinationPort}</option>
+                        ) : null}
+                        {destinationPortOptions.map((port) => (
+                          <option key={port.id} value={port.name}>
+                            {port.name}
+                            {port.code ? ` (${port.code})` : ""}
+                          </option>
+                        ))}
+                      </select>
                     </FormRow>
                     <FormRow label="Shipping line">
                       <select className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
                         <option value="">- Select -</option>
-                        {shippingLines.map((l) => (
+                        {shippingLineOptions.map((l) => (
                           <option key={l.id} value={l.id}>
                             {l.name} ({l.code})
                           </option>
@@ -2106,98 +2355,105 @@ function NewPackFormPageInner() {
                         className={inputClass}
                         value={pack.terminalId ?? ""}
                         onChange={(e) => {
-                          const terminalId = e.target.value ? Number(e.target.value) : "";
-                          const matched = terminalId ? REFERENCE_TERMINAL_ROWS.find((t) => Number(t.id) === Number(terminalId)) : null;
+                          const terminalId = e.target.value || "";
+                          const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
                           setPack((prev) => ({
                             ...prev,
                             terminalId,
-                            // Auto-fill port of loading from terminal's portOfLoading, unless user already set one.
                             portOfLoading:
-                              matched?.portOfLoading && !String(prev.portOfLoading ?? "").trim()
-                                ? matched.portOfLoading
+                              (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
+                                ? (matched.port_of_loading ?? matched.portOfLoading)
                                 : prev.portOfLoading,
                           }));
                         }}
                       >
                         <option value="">- Select -</option>
-                        {REFERENCE_TERMINAL_ROWS.map((t) => (
+                        {terminalOptions.map((t) => (
                           <option key={t.id} value={t.id}>
-                            {t.terminalName} ({t.terminalCode})
+                            {t.terminal_name ?? t.terminalName ?? t.name} {(t.terminal_code ?? t.terminalCode) ? `(${t.terminal_code ?? t.terminalCode})` : ""}
                           </option>
                         ))}
                       </select>
                     </FormRow>
                     <FormRow label="Transshipment port">
-                      <input className={inputClass} value={pack.transshipmentPort} onChange={(e) => set("transshipmentPort", e.target.value)} placeholder="Port" />
+                      <select
+                        className={inputClass}
+                        value={pack.transshipmentPort || ""}
+                        onChange={(e) => {
+                          const name = e.target.value;
+                          const matched = portOptions.find((p) => p.name === name);
+                          setPack((prev) => ({
+                            ...prev,
+                            transshipmentPort: name,
+                            transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
+                          }));
+                        }}
+                      >
+                        <option value="">- Select port -</option>
+                        {pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort) ? (
+                          <option value={pack.transshipmentPort}>{pack.transshipmentPort}</option>
+                        ) : null}
+                        {portOptions.map((port) => (
+                          <option key={port.id} value={port.name}>
+                            {port.name}
+                            {port.code ? ` (${port.code})` : ""}
+                          </option>
+                        ))}
+                      </select>
                     </FormRow>
                     <FormRow label="Transshipment port code">
                       <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
                     </FormRow>
                     <FormRow label="Vessel departure">
-                      <select
-                        className={inputClass}
-                        value={pack.vesselDepartureId ?? ""}
-                        onChange={(e) => {
-                          const nextId = e.target.value ? Number(e.target.value) : null;
-                          const nextVessel = nextId ? vesselDepartures.find((vd) => vd.id === nextId) : null;
-                          setPack((prev) => ({
-                            ...prev,
-                            vesselDepartureId: nextId,
-                            vesselName: nextVessel?.vessel || "",
-                            voyageNumber: nextVessel?.voyageNumber || "",
-                            vesselCutoffDate: nextVessel?.vesselCutoffDate || "",
-                          }));
-                        }}
-                      >
-                        <option value="">- Select vessel -</option>
-                        {vesselDepartures.map((vd) => (
-                          <option key={vd.id} value={vd.id}>
-                            {vd.vessel} {vd.voyageNumber ? `(${vd.voyageNumber})` : ""}
-                            {vd.vesselCutoffDate ? ` - Cut-off ${vd.vesselCutoffDate}` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          className={inputClass}
+                          value={pack.vesselDepartureId ?? ""}
+                          onChange={(e) => {
+                            const nextId = e.target.value || null;
+                            const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
+                            setPack((prev) => ({
+                              ...prev,
+                              vesselDepartureId: nextId,
+                              vesselName: vesselDisplayName(voyage),
+                              voyageNumber: voyage?.voyage_number ?? voyage?.voyageNumber ?? prev.voyageNumber,
+                              lloydId: voyage?.vessel?.lloyds_number ?? voyage?.vessel?.lloydsNumber ?? prev.lloydId,
+                              vesselCutoffDate: toDateInputValue(voyage?.vessel_cutoff_date ?? voyage?.vesselCutoffDate) || prev.vesselCutoffDate,
+                              etd: toDateInputValue(voyage?.vessel_etd ?? voyage?.vesselEtd ?? voyage?.etd) || prev.etd,
+                            }));
+                          }}
+                        >
+                          <option value="">- Select vessel -</option>
+                          {vesselVoyageOptions.map((vd) => {
+                            const name = vesselDisplayName(vd);
+                            const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
+                            const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
+                            return (
+                              <option key={vd.id} value={vd.id}>
+                                {name}
+                                {voyageNo ? ` (${voyageNo})` : ""}
+                                {cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 whitespace-nowrap"
+                          onClick={() => setQuickVesselOpen(true)}
+                          title="Create a new vessel and voyage"
+                        >
+                          + Quick add
+                        </Button>
+                      </div>
                     </FormRow>
                     <FormRow label="Voyage number">
                       <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
                     </FormRow>
                     <FormRow label="Lloyd ID">
                       <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
-                    </FormRow>
-                    <FormRow label="Add from CSV schedule">
-                      <select
-                        className={inputClass}
-                        value=""
-                        onChange={(e) => {
-                          const idx = e.target.value;
-                          if (idx === "") return;
-                          const row = vesselSchedule[Number(idx)];
-                          if (!row) return;
-                          const key = `${(row.shipName || "").trim()}|${(row.voyageOut || "").trim()}`;
-                          const existing = vesselDepartures.find((v) => `${v.vessel}|${v.voyageNumber}` === key);
-                          if (existing) {
-                            set("vesselDepartureId", existing.id);
-                          } else {
-                            const id = Date.now();
-                            const newDeparture = {
-                              id,
-                              vessel: row.shipName?.trim() || "",
-                              voyageNumber: row.voyageOut || "",
-                              vesselCutoffDate: row.cargoCutoffDate || "",
-                            };
-                            setVesselDepartures((prev) => [...prev, newDeparture]);
-                            set("vesselDepartureId", id);
-                          }
-                          e.target.value = "";
-                        }}
-                      >
-                        <option value="">- Import from uploaded CSV -</option>
-                        {vesselSchedule.map((row, idx) => (
-                          <option key={idx} value={idx}>
-                            {row.shipName} {row.voyageOut ? `(${row.voyageOut})` : ""} - Cut-off {row.cargoCutoffDate || "-"}
-                          </option>
-                        ))}
-                      </select>
                     </FormRow>
                     <FormRow label="Cut-off">
                       <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
@@ -2209,8 +2465,11 @@ function NewPackFormPageInner() {
                   {selectedVessel ? (
                     <p className="shrink-0 text-[10px] leading-snug text-slate-500">
                       <span className="font-semibold text-slate-700">Vessel schedule:</span>{" "}
-                      {selectedVessel.vessel} {selectedVessel.voyageNumber ? `(${selectedVessel.voyageNumber})` : ""}
-                      {selectedVessel.vesselCutoffDate ? ` · Cut-off ${selectedVessel.vesselCutoffDate}` : ""}
+                      {vesselDisplayName(selectedVessel)}{" "}
+                      {(selectedVessel.voyage_number ?? selectedVessel.voyageNumber) ? `(${selectedVessel.voyage_number ?? selectedVessel.voyageNumber})` : ""}
+                      {(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)
+                        ? ` · Cut-off ${formatDateDisplay(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)}`
+                        : ""}
                     </p>
                   ) : null}
                 </div>
@@ -2700,8 +2959,8 @@ function NewPackFormPageInner() {
                             >
                               <option value="">- Select country -</option>
                               {countryOptions.map((country) => (
-                                <option key={country} value={country}>
-                                  {country}
+                                <option key={country.id} value={country.name}>
+                                  {country.name}
                                 </option>
                               ))}
                             </select>
@@ -3910,13 +4169,16 @@ function NewPackFormPageInner() {
                 ))}
               </dl>
             </div>
-            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
-              <Button variant="outline" size="sm" type="button" onClick={() => router.push("/packing-schedule")}>
-                Cancel
-              </Button>
-              <Button size="sm" type="button" onClick={save}>
-                {mode === "edit" ? "Save changes" : "Create pack"}
-              </Button>
+            <div className="flex shrink-0 flex-col items-end gap-1.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
+              {saveError ? <p className="text-[11px] text-red-600">{saveError}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" type="button" onClick={() => router.push("/packing-schedule")}>
+                  Cancel
+                </Button>
+                <Button size="sm" type="button" onClick={save}>
+                  {mode === "edit" ? "Save changes" : "Create pack"}
+                </Button>
+              </div>
             </div>
           </div>
         </footer>
@@ -3933,6 +4195,15 @@ function NewPackFormPageInner() {
           onAddPark={addQuickReleasePark}
           onRemovePark={removeQuickReleasePark}
           onToggleTransporter={toggleQuickReleaseTransporter}
+        />
+
+        <QuickAddVesselModal
+          open={quickVesselOpen}
+          onClose={() => setQuickVesselOpen(false)}
+          onCreated={handleQuickVesselCreated}
+          shippingLineOptions={shippingLineOptions}
+          terminalOptions={terminalOptions}
+          portOptions={portOptions}
         />
       </>
       );

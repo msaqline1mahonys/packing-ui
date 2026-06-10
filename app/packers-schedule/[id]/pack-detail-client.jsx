@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Eye, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { CUSTOMER_CONTACT_ROWS, PACK_FORM_LOOKUPS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
+import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { filterAuthorisedOfficers } from "@/lib/user-classifications";
 import {
@@ -38,7 +38,8 @@ import {
   containerInspectionRemarkPatch,
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
-import { loadPackScheduleRows, savePackScheduleRows } from "@/lib/pack-schedule-store";
+import { fetchPack, savePack } from "@/lib/pack-schedule-store";
+import { getPackFormData } from "@/lib/api/packing";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
@@ -292,22 +293,19 @@ function resolveExporterCustomerId(packRow) {
 export default function PackDetailClient({ packId }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("Packing");
-  const [packRow, setPackRow] = useState(() => loadPackScheduleRows().find((row) => Number(row.id) === Number(packId)) || null);
-  const [workByPack, setWorkByPack] = useState(() => {
-    const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId));
-    if (!row) return {};
-    return syncWorkDrafts([row], loadWorkDrafts());
-  });
+  const [packRow, setPackRow] = useState(null);
+  const [workByPack, setWorkByPack] = useState({});
   const [selectedContainerId, setSelectedContainerId] = useState(null);
   const [containerSearch, setContainerSearch] = useState("");
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [filePreview, setFilePreview] = useState(null);
+  const [lookups, setLookups] = useState({});
   const previewRevokeRef = useRef(null);
 
   const packerNames = useMemo(
-    () => (PACK_FORM_LOOKUPS.packers || []).filter((p) => String(p.status).toLowerCase() === "active").map((p) => p.name),
-    []
+    () => (lookups.packers || []).filter((p) => String(p.status ?? "active").toLowerCase() === "active").map((p) => p.name),
+    [lookups]
   );
   const contactUsers = useMemo(() => loadContactUsers(), []);
   const authorisedOfficers = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
@@ -323,9 +321,12 @@ export default function PackDetailClient({ packId }) {
   const aoNameOptions = useMemo(() => authorisedOfficers.map((u) => u.name).filter(Boolean), [authorisedOfficers]);
 
   useEffect(() => {
-    const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId)) || null;
-    setPackRow(row);
-    if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }));
+    if (!packId) return;
+    Promise.all([fetchPack(packId), getPackFormData().catch(() => ({}))]).then(([row, fd]) => {
+      setLookups(fd || {});
+      setPackRow(row || null);
+      if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, fd || {}));
+    }).catch(() => {});
   }, [packId]);
 
   useEffect(() => {
@@ -334,10 +335,7 @@ export default function PackDetailClient({ packId }) {
     const draft = workByPack[packRow.id];
     const containers = (draft.containers || []).map((container) => packContainerFromWorkContainer(container, packRow));
     const pemsSubmissions = Array.isArray(draft.pemsSubmissions) ? draft.pemsSubmissions : [];
-    const rows = loadPackScheduleRows();
-    savePackScheduleRows(
-      rows.map((row) => (Number(row.id) === Number(packRow.id) ? { ...row, containers, pemsSubmissions } : row))
-    );
+    savePack({ ...packRow, containers, pemsSubmissions }).catch(() => {});
   }, [workByPack, packRow]);
 
   const selectedPackDraft = packRow ? workByPack[packRow.id] : null;
@@ -427,8 +425,7 @@ export default function PackDetailClient({ packId }) {
 
   function persistPackRowToStore(nextRow, workDraft) {
     const containers = (workDraft?.containers || []).map((container) => packContainerFromWorkContainer(container, nextRow));
-    const rows = loadPackScheduleRows();
-    savePackScheduleRows(rows.map((row) => (Number(row.id) === Number(nextRow.id) ? { ...nextRow, containers } : row)));
+    savePack({ ...nextRow, containers }).catch(() => {});
   }
 
   function updatePackRow(patch) {
@@ -684,9 +681,10 @@ export default function PackDetailClient({ packId }) {
   }
 
   function refreshPack() {
-    const row = loadPackScheduleRows().find((item) => Number(item.id) === Number(packId)) || null;
-    setPackRow(row);
-    if (row) setWorkByPack((prev) => syncWorkDrafts([row], prev));
+    fetchPack(packId).then((row) => {
+      setPackRow(row || null);
+      if (row) setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
+    }).catch(() => {});
   }
 
   if (!packRow) {

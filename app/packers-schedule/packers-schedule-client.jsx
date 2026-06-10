@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
-import { PACK_FORM_LOOKUPS } from "@/lib/Data";
 import { getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
-import { loadPackScheduleRows } from "@/lib/pack-schedule-store";
+import { fetchPackRows } from "@/lib/pack-schedule-store";
+import { getPackFormData } from "@/lib/api/packing";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -47,7 +47,7 @@ function emptyParkRaw(row, parkIdToName) {
   for (const r of details) {
     const id = r.emptyContainerParkId;
     if (!id) continue;
-    const name = parkIdToName.get(Number(id));
+    const name = parkIdToName.get(String(id));
     if (name && !seen.has(name)) {
       seen.add(name);
       names.push(name);
@@ -63,14 +63,21 @@ function emptyParkDisplay(row, parkIdToName) {
 
 export default function PackersScheduleClient() {
   const router = useRouter();
-  const [rows, setRows] = useState(() => loadPackScheduleRows().filter((row) => row.status === "Inprogress"));
+  const [rows, setRows] = useState([]);
   const [importExportFilter, setImportExportFilter] = useState("all");
   const [searchByDate, setSearchByDate] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [selectedId, setSelectedId] = useState(null);
+  const [lookups, setLookups] = useState({});
 
   useEffect(() => {
-    setRows(loadPackScheduleRows().filter((row) => row.status === "Inprogress"));
+    fetchPackRows({ status: "Inprogress" }).then(({ rows: data }) => {
+      setRows(Array.isArray(data) ? data.filter((row) => row.status === "Inprogress") : []);
+    }).catch(() => setRows([]));
+  }, []);
+
+  useEffect(() => {
+    getPackFormData().then((data) => setLookups(data || {})).catch(() => setLookups({}));
   }, []);
 
   const filtered = useMemo(() => {
@@ -87,13 +94,14 @@ export default function PackersScheduleClient() {
 
   const parkIdToName = useMemo(() => {
     const m = new Map();
-    for (const p of PACK_FORM_LOOKUPS.containerParks) {
-      m.set(p.id, p.name);
+    for (const p of lookups.containerParks || []) {
+      if (p?.id == null) continue;
+      m.set(String(p.id), p.name);
     }
     return m;
-  }, []);
+  }, [lookups]);
 
-  const workByPack = useMemo(() => syncWorkDrafts(rows, loadWorkDrafts()), [rows]);
+  const workByPack = useMemo(() => syncWorkDrafts(rows, loadWorkDrafts(), lookups), [rows, lookups]);
 
   const rowsWithProgress = useMemo(
     () =>
@@ -138,7 +146,9 @@ export default function PackersScheduleClient() {
   }
 
   function refreshRows() {
-    setRows(loadPackScheduleRows().filter((row) => row.status === "Inprogress"));
+    fetchPackRows({ status: "Inprogress" }).then(({ rows: data }) => {
+      setRows(Array.isArray(data) ? data.filter((row) => row.status === "Inprogress") : []);
+    }).catch(() => {});
   }
 
   return (

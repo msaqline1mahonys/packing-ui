@@ -32,7 +32,7 @@ export default function PacksReadyToInvoicePage() {
   const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
-    setInvoicePacks(loadPacksReadyToInvoice());
+    loadPacksReadyToInvoice().then(setInvoicePacks);
   }, []);
 
   const packsWithBreakdown = useMemo(

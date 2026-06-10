@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 import {
@@ -18,8 +18,15 @@ export default function PackInvoiceBreakdownPage() {
   const params = useParams();
   const packId = decodeURIComponent(String(params?.packId || ""));
 
-  const selectedPack = useMemo(() => findPackReadyToInvoice(packId), [packId]);
-  const [lineItems, setLineItems] = useState(() => (selectedPack ? calculateInitialLineItems(selectedPack) : []));
+  const [selectedPack, setSelectedPack] = useState(null);
+  const [lineItems, setLineItems] = useState([]);
+
+  useEffect(() => {
+    findPackReadyToInvoice(packId).then((pack) => {
+      setSelectedPack(pack || null);
+      setLineItems(pack ? calculateInitialLineItems(pack) : []);
+    });
+  }, [packId]);
   const [selectedChargeId, setSelectedChargeId] = useState("");
 
   const availableCharges = useMemo(

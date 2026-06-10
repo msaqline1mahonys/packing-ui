@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
 import { resolveFumigationRecord } from "@/lib/fumigation-record-print";
+import { getPack } from "@/lib/api/packing";
 import {
   loadFumigationRecordSnapshot,
   loadRecordIssue,
@@ -15,30 +16,38 @@ export default function FumigationRecordPrintClient({ packId }) {
   const autoPrint = searchParams.get("print") === "1";
   const issuedAt = searchParams.get("issuedAt") || null;
   const [hydrated, setHydrated] = useState(false);
+  const [fetchedModel, setFetchedModel] = useState(null);
 
   useEffect(() => {
     setHydrated(true);
   }, []);
 
-  const model = useMemo(() => {
-    if (!hydrated) {
-      // SSR / pre-hydration: resolve fresh from pack data (no storage access)
-      return resolveFumigationRecord(packId);
-    }
-
-    // Historical reprint: load from issued copies audit trail
+  // Stored copy: issued audit-trail entry first, else current session snapshot
+  const storedModel = useMemo(() => {
+    if (!hydrated) return null;
     if (issuedAt) {
       const issued = loadRecordIssue(packId, issuedAt);
       if (issued) return issued;
     }
-
-    // Current session snapshot (draft / just-issued)
-    const snapshot = loadFumigationRecordSnapshot(packId);
-    if (snapshot) return snapshot;
-
-    // Fallback: resolve fresh from pack data
-    return resolveFumigationRecord(packId);
+    return loadFumigationRecordSnapshot(packId);
   }, [hydrated, packId, issuedAt]);
+
+  // No stored copy — resolve fresh from the backend pack
+  useEffect(() => {
+    if (!hydrated || storedModel) return;
+    let cancelled = false;
+    getPack(packId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        setFetchedModel(resolveFumigationRecord(packId, row));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, storedModel, packId]);
+
+  const model = storedModel ?? fetchedModel;
 
   useEffect(() => {
     if (!autoPrint || !model) return;

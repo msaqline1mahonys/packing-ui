@@ -649,6 +649,7 @@ const stagingGrid6Class = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 
 const stagingGrid3Class = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
 const fumigationGridClass = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
 const fumigationInnerClass = "flex h-full min-h-0 flex-col min-w-0 rounded-md border border-slate-200 bg-slate-50/40 p-2.5";
+const fumigationTopGridClass = "grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3";
 const GPPIR_WEIGHT_UNIT = "M/TONS";
 const gppirTableCompactCol = "w-12 min-w-[3rem] max-w-[4rem] px-1 py-1.5 whitespace-nowrap text-center";
 const gppirTableNarrowCol = "w-16 min-w-[3.5rem] px-1 py-1.5 whitespace-nowrap";
@@ -3188,10 +3189,10 @@ function NewPackFormPageInner() {
                 </p>
                 <div className="space-y-2">
 
-                  <div className={sectionColumnsClass}>
+                  <div className={cn(sectionColumnsClass, "gap-3 xl:gap-4")}>
                     {/* ─── Section A — Fumigator in charge ─── */}
                     <div className={fumigationInnerClass} aria-label="Section A — Fumigator in charge">
-                      <div className={fumigationGridClass}>
+                      <div className={fumigationTopGridClass}>
                         <FormRow label="Fumigant">
                           <select
                             className={inputClass}
@@ -3250,7 +3251,7 @@ function NewPackFormPageInner() {
                           </select>
                         </FormRow>
                       </div>
-                      <div className={cn("mt-2", fumigationGridClass)}>
+                      <div className={cn("mt-2", fumigationTopGridClass)}>
                         <FormRow label="Fumigator name">
                           <select
                             className={inputClass}
@@ -3306,9 +3307,9 @@ function NewPackFormPageInner() {
 
                     {/* ─── Section B — Job & consignment details ─── */}
                     <div className={fumigationInnerClass} aria-label="Section B — Job and consignment details">
-                      <div className={fumigationGridClass}>
+                      <div className={fumigationTopGridClass}>
                         <PemsStagingField label="Job identification" value={pack.jobReference || "—"} />
-                        <PemsStagingField label="Client (from pack)" value={pack.customer || "—"} />
+                        <PemsStagingField label="Client (from pack)" value={stickySummary.customer || pack.customer || "—"} />
                         <PemsStagingField label="Destination country (from pack)" value={pack.destinationCountry || "—"} />
                         <FormRow label="Port of loading">
                           <input

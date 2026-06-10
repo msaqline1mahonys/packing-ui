@@ -6,8 +6,8 @@ export const metadata = { title: "Certificate of Fumigation | Packing ERP" };
 
 export default async function Page({ params }) {
   const { packId } = await params;
-  const id = Number(packId);
-  if (!Number.isFinite(id) || id <= 0) notFound();
+  const id = String(packId ?? "").trim();
+  if (!id) notFound();
   return (
     <Suspense
       fallback={

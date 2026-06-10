@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
 import {
@@ -17,6 +17,7 @@ import {
   saveCertificateIssue as issueCertificate,
 } from "@/lib/fumigation-cert-storage";
 import { resolveFumigationCertificate } from "@/lib/fumigation-cert-print";
+import { getPack } from "@/lib/api/packing";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 
 // ─── cert-number helper ────────────────────────────────────────────────────────
@@ -114,51 +115,73 @@ function normalizeCert(m) {
 
 export default function FumigationCertificateEditorClient({ packId }) {
   const router = useRouter();
-  const numericPackId = Number(packId);
 
-  const fromPack = useMemo(
-    () => resolveFumigationCertificate(numericPackId),
-    [numericPackId]
-  );
+  // Packs live on the backend now (UUID ids) — fetch the row, then resolve.
+  const [packRow, setPackRow] = useState(null);
+  const [packLoading, setPackLoading] = useState(true);
 
-  const [cert, setCert] = useState(() => {
-    const snap = loadCertSnapshot(numericPackId);
-    return normalizeCert(snap ?? fromPack);
-  });
+  const [cert, setCert] = useState(() => normalizeCert(loadCertSnapshot(packId)));
+
+  useEffect(() => {
+    let cancelled = false;
+    setPackLoading(true);
+    getPack(packId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        setPackRow(row);
+        setCert((prev) => prev ?? normalizeCert(resolveFumigationCertificate(packId, row)));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPackLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [packId]);
 
   // Auto-save snapshot on change
   useEffect(() => {
-    if (cert) saveCertSnapshot(numericPackId, cert);
-  }, [cert, numericPackId]);
+    if (cert) saveCertSnapshot(packId, cert);
+  }, [cert, packId]);
 
   const set = useCallback((field, value) => {
     setCert((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const refreshFromPack = useCallback(() => {
-    const fresh = resolveFumigationCertificate(numericPackId);
+    if (!packRow) return;
+    const fresh = resolveFumigationCertificate(packId, packRow);
     if (fresh) {
       setCert(normalizeCert({ ...fresh, certificateNumber: cert?.certificateNumber ?? "" }));
     }
-  }, [numericPackId, cert?.certificateNumber]);
+  }, [packId, packRow, cert?.certificateNumber]);
 
   const handleSaveAndPrint = useCallback(() => {
-    const number = cert?.certificateNumber || nextCertNumber(numericPackId);
+    const number = cert?.certificateNumber || nextCertNumber(packId);
     const issued = cert?.issuedDate || new Date().toLocaleDateString("en-AU");
     const final = { ...cert, certificateNumber: number, issuedDate: issued };
     setCert(final);
-    issueCertificate(numericPackId, final);
+    issueCertificate(packId, final);
     router.push(`/fumigation/certificates/${packId}/print`);
-  }, [cert, numericPackId, packId, router]);
+  }, [cert, packId, router]);
 
   const handleDiscard = useCallback(() => {
-    const fresh = resolveFumigationCertificate(numericPackId);
+    if (!packRow) return;
+    const fresh = resolveFumigationCertificate(packId, packRow);
     if (fresh) {
       setCert(normalizeCert(fresh));
     }
-  }, [numericPackId]);
+  }, [packId, packRow]);
 
   if (!cert) {
+    if (packLoading) {
+      return (
+        <div className="px-4 py-16 text-center text-sm text-slate-600">
+          Loading pack…
+        </div>
+      );
+    }
     return (
       <div className="px-4 py-16 text-center text-sm text-slate-600">
         No pack found for ID {packId}.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
@@ -18,6 +18,7 @@ import {
   saveRecordIssue as issueRecord,
 } from "@/lib/fumigation-record-storage";
 import { resolveFumigationRecord } from "@/lib/fumigation-record-print";
+import { getPack } from "@/lib/api/packing";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 
 // ─── Default concentration readings grid ─────────────────────────────────────
@@ -121,30 +122,44 @@ function normalizeRecord(m) {
 
 export default function FumigationRecordEditorClient({ packId }) {
   const router = useRouter();
-  const numericPackId = Number(packId);
 
-  const fromPack = useMemo(
-    () => resolveFumigationRecord(numericPackId),
-    [numericPackId]
-  );
+  // Packs live on the backend now (UUID ids) — fetch the row, then resolve.
+  const [packRow, setPackRow] = useState(null);
+  const [packLoading, setPackLoading] = useState(true);
 
-  const [rec, setRec] = useState(() => {
-    const snap = loadRecordSnapshot(numericPackId);
-    return normalizeRecord(snap ?? fromPack);
-  });
+  const [rec, setRec] = useState(() => normalizeRecord(loadRecordSnapshot(packId)));
 
   useEffect(() => {
-    if (rec) saveRecordSnapshot(numericPackId, rec);
-  }, [rec, numericPackId]);
+    let cancelled = false;
+    setPackLoading(true);
+    getPack(packId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        setPackRow(row);
+        setRec((prev) => prev ?? normalizeRecord(resolveFumigationRecord(packId, row)));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPackLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [packId]);
+
+  useEffect(() => {
+    if (rec) saveRecordSnapshot(packId, rec);
+  }, [rec, packId]);
 
   const set = useCallback((field, value) => {
     setRec((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const refreshFromPack = useCallback(() => {
-    const fresh = resolveFumigationRecord(numericPackId);
+    if (!packRow) return;
+    const fresh = resolveFumigationRecord(packId, packRow);
     if (fresh) setRec(normalizeRecord(fresh));
-  }, [numericPackId]);
+  }, [packId, packRow]);
 
   // Concentration reading helpers
   const updateReading = useCallback((rowId, col, value) => {
@@ -203,16 +218,24 @@ export default function FumigationRecordEditorClient({ packId }) {
   const handleSaveAndPrint = useCallback(() => {
     const final = { ...rec, issuedDate: rec.issuedDate || new Date().toLocaleDateString("en-AU") };
     setRec(final);
-    issueRecord(numericPackId, final);
+    issueRecord(packId, final);
     router.push(`/fumigation/records/${packId}/print`);
-  }, [rec, numericPackId, packId, router]);
+  }, [rec, packId, router]);
 
   const handleDiscard = useCallback(() => {
-    const fresh = resolveFumigationRecord(numericPackId);
+    if (!packRow) return;
+    const fresh = resolveFumigationRecord(packId, packRow);
     if (fresh) setRec(normalizeRecord(fresh));
-  }, [numericPackId]);
+  }, [packId, packRow]);
 
   if (!rec) {
+    if (packLoading) {
+      return (
+        <div className="px-4 py-16 text-center text-sm text-slate-600">
+          Loading pack…
+        </div>
+      );
+    }
     return (
       <div className="px-4 py-16 text-center text-sm text-slate-600">
         No pack found for ID {packId}.

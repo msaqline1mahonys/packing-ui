@@ -9,8 +9,8 @@ export const metadata = {
 
 export default async function FumigationCertificatePrintPage({ params }) {
   const { packId } = await params;
-  const id = Number(packId);
-  if (!Number.isFinite(id) || id <= 0) notFound();
+  const id = String(packId ?? "").trim();
+  if (!id) notFound();
 
   return (
     <Suspense

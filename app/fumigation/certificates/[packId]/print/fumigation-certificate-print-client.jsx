@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
 import { resolveFumigationCertificate } from "@/lib/fumigation-cert-print";
+import { getPack } from "@/lib/api/packing";
 import {
   loadFumigationCertSnapshot,
   loadCertificateIssue,
@@ -15,29 +16,38 @@ export default function FumigationCertificatePrintClient({ packId }) {
   const autoPrint = searchParams.get("print") === "1";
   const issuedAt = searchParams.get("issuedAt") || null;
   const [hydrated, setHydrated] = useState(false);
+  const [fetchedModel, setFetchedModel] = useState(null);
 
   useEffect(() => {
     setHydrated(true);
   }, []);
 
-  const model = useMemo(() => {
-    if (!hydrated) {
-      // SSR / pre-hydration: resolve from pack rows only (no session/localStorage)
-      return resolveFumigationCertificate(packId);
-    }
-
-    // If viewing a specific issued copy:
+  // Stored copy: issued audit-trail entry first, else current draft snapshot
+  const storedModel = useMemo(() => {
+    if (!hydrated) return null;
     if (issuedAt) {
       const issued = loadCertificateIssue(packId, issuedAt);
       if (issued) return issued;
     }
-
-    // Otherwise load the draft snapshot, falling back to a fresh resolve
-    const snapshot = loadFumigationCertSnapshot(packId);
-    if (snapshot) return snapshot;
-
-    return resolveFumigationCertificate(packId);
+    return loadFumigationCertSnapshot(packId);
   }, [hydrated, packId, issuedAt]);
+
+  // No stored copy — resolve fresh from the backend pack
+  useEffect(() => {
+    if (!hydrated || storedModel) return;
+    let cancelled = false;
+    getPack(packId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        setFetchedModel(resolveFumigationCertificate(packId, row));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, storedModel, packId]);
+
+  const model = storedModel ?? fetchedModel;
 
   useEffect(() => {
     if (!autoPrint || !model) return;

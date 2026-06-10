@@ -5,7 +5,7 @@ const cards = [
   { title: "Packers schedule", href: "/packers-schedule", detail: "Shifts & station coverage" },
   { title: "Ticketing", href: "/ticketing", detail: "Incidents & resolution trail" },
   { title: "Packing", href: "/packing", detail: "Packing details" },
-  { title: "Transactions", href: "/transactions", detail: "Legs, status, reconciliation" },
+  { title: "Transactions", href: "/stock-management/all-transactions", detail: "Legs, status, reconciliation" },
   { title: "Fumigation", href: "/fumigation", detail: "Lots, compliance, completions" },
 ];
 

@@ -15,7 +15,6 @@ import {
   Ticket,
   Users,
   Warehouse,
-  Waypoints,
 } from "lucide-react";
 import { DEFAULT_SITE_OPTIONS } from "@/lib/site-data";
 
@@ -65,11 +64,6 @@ export const PACKING_NAV_MODULES = [
     name: "Ticketing",
     href: "/ticketing",
     icon: <Ticket className="size-5" strokeWidth={1.5} />,
-  },
-  {
-    name: "Transactions",
-    href: "/transactions",
-    icon: <Waypoints className="size-5" strokeWidth={1.5} />,
   },
   {
     name: "Reports",

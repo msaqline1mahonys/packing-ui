@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -156,33 +156,6 @@ export default function AllTransactionsPage() {
             </dl>
           )}
         </aside>
-      </div>
-
-      <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-bold text-slate-900">Grain Bank System</h3>
-        <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-          <p>
-            <strong>Incoming Tickets:</strong> 3 transactions: (1) deposit net weight to customer, (2) deduct shrinkage from customer, (3) add shrinkage to shrink account.
-          </p>
-          <p>
-            <strong>Outgoing Tickets:</strong> 1 transaction: withdraw net weight from customer account. No shrinkage.
-          </p>
-          <p>
-            <strong>Deposit:</strong> Stock added to customer account (positive quantity)
-          </p>
-          <p>
-            <strong>Withdrawal:</strong> Stock removed from customer account (negative quantity)
-          </p>
-          <p>
-            <strong>Shrinkage:</strong> Handling loss on incoming tickets only, calculated as % of net weight
-          </p>
-          <p>
-            <strong>Active:</strong> Current valid transaction entries
-          </p>
-          <p>
-            <strong>Reversed:</strong> Cancelled when a completed ticket is overridden
-          </p>
-        </div>
       </div>
     </div>
   );

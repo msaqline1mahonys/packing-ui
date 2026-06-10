@@ -19,7 +19,7 @@ import {
   ticketTypeToDirection,
 } from "@/lib/ticketing-api";
 import { DEMO_TESTS } from "@/lib/demo-in-ticket-data";
-import { fetchTransactions } from "@/lib/transactions-api";
+import { fetchLocationUtilization, fetchTransactions } from "@/lib/transactions-api";
 import {
   displayFromStorageKg,
   formatWeightFromStorageKg,
@@ -85,6 +85,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [cmos, setCmos] = useState([]);
   const [trucks, setTrucks] = useState([]);
   const [completedTickets, setCompletedTickets] = useState([]);
+  const [locationUtilization, setLocationUtilization] = useState([]);
 
   const [ticket, setTicket] = useState(() => buildBlankTicket(ticketType));
 
@@ -129,6 +130,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const set = (key, val) => setTicket((prev) => ({ ...prev, [key]: val }));
   const setTest = (name, val) => setTicket((prev) => ({ ...prev, tests: { ...prev.tests, [name]: val } }));
   const locationValue = ticket[locationField] ?? "";
+
+  const utilizationByLocation = useMemo(() => {
+    const map = {};
+    locationUtilization.forEach((u) => { map[u.locationId] = u; });
+    return map;
+  }, [locationUtilization]);
 
   const buildPrintSnapshot = () => {
     const cmoObj = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
@@ -242,7 +249,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       setLoading(true);
       setError("");
       try {
-        const formData = await fetchTicketFormData(cmoDirection);
+        const [formData, utilData] = await Promise.all([
+          fetchTicketFormData(cmoDirection),
+          fetchLocationUtilization().catch(() => []),
+        ]);
         if (cancelled) return;
         setCmos(formData.cmos);
         setCustomers(formData.customers);
@@ -253,6 +263,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         setStockLocations(formData.stockLocations);
         setUsers(formData.users);
         setCompletedTickets(formData.completedTickets);
+        setLocationUtilization(utilData);
 
         if (mode === "edit" && routeTicketId) {
           const loaded = await fetchTicket(routeTicketId);
@@ -836,12 +847,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   .filter((loc) => (loc.status ?? "active").toLowerCase() === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
-                    const stockItems = getLocationStock(loc.id);
-                    const stockInfo =
-                      stockItems.length > 0 ? ` - ${stockItems.map((item) => item.commodityTypeName).join(", ")}` : " (empty)";
+                    const util = utilizationByLocation[loc.id];
+                    let suffix;
+                    if (util) {
+                      suffix = util.utilizationPct != null
+                        ? ` — ${Math.round(util.utilizationPct)}% used`
+                        : " (empty)";
+                    } else {
+                      const stockItems = getLocationStock(loc.id);
+                      suffix = stockItems.length > 0 ? " — in use" : " (empty)";
+                    }
                     return (
                       <option key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.locationType}){stockInfo}
+                        {loc.name} ({loc.locationType}){suffix}
                       </option>
                     );
                   })}
@@ -853,6 +871,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 </div>
               ) : null}
             </FormRow>
+
+            {locationValue ? (
+              <LocationSnapshotPanel
+                locationName={stockLocations.find((l) => l.id === locationValue)?.name}
+                locationType={stockLocations.find((l) => l.id === locationValue)?.locationType}
+                util={utilizationByLocation[locationValue]}
+              />
+            ) : null}
+
             <FormRow label="Notes">
               <textarea
                 className={cn(inputClass, "min-h-[60px] resize-y")}
@@ -1510,6 +1537,91 @@ function Modal({ open, title, wide, onClose, children }) {
   );
 }
 
+function LocationSnapshotPanel({ locationName, locationType, util }) {
+  if (!locationName) return null;
+
+  const capacity = Number(util?.capacity ?? 0);
+  const totalStock = Number(util?.totalStock ?? 0);
+  const utilizationPct =
+    util?.utilizationPct != null
+      ? util.utilizationPct
+      : capacity > 0
+        ? parseFloat(((totalStock / capacity) * 100).toFixed(2))
+        : null;
+  const commodities = util?.commodities ?? [];
+
+  const barColor =
+    utilizationPct == null ? "bg-slate-300"
+      : utilizationPct >= 90 ? "bg-red-500"
+        : utilizationPct >= 70 ? "bg-amber-400"
+          : "bg-emerald-500";
+  const textColor =
+    utilizationPct == null ? "text-slate-400"
+      : utilizationPct >= 90 ? "text-red-600"
+        : utilizationPct >= 70 ? "text-amber-600"
+          : "text-emerald-600";
+
+  const remaining = capacity > 0 ? capacity - totalStock : null;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className={cn("shrink-0 text-sm font-bold tabular-nums text-brand")}>
+          {totalStock.toFixed(2)}
+          <span className="ml-0.5 text-[10px] font-medium text-slate-400">MT</span>
+        </span>
+
+        {capacity > 0 && utilizationPct != null && (
+          <>
+            <div className="min-w-0 flex-1">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={cn("h-full transition-all duration-300", barColor)}
+                  style={{ width: `${Math.min(utilizationPct, 100)}%` }}
+                />
+              </div>
+            </div>
+            <span className={cn("shrink-0 text-[11px] font-bold tabular-nums", textColor)}>
+              {Math.round(utilizationPct)}%
+            </span>
+          </>
+        )}
+      </div>
+
+      {remaining != null && (
+        <p className="mt-1 text-[10px] text-slate-400">
+          {remaining > 0 ? `${remaining.toFixed(1)} T remaining` : "At capacity"}
+        </p>
+      )}
+
+      {/* Commodity pills */}
+      {commodities.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {commodities.slice(0, 3).map((item, idx) => (
+            <span
+              key={idx}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+            >
+              {item.commodityName}
+              <span className="font-semibold text-brand">{Number(item.total).toFixed(1)}</span>
+              <span className="text-[9px] text-slate-400">MT</span>
+            </span>
+          ))}
+          {commodities.length > 3 && (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-400">
+              +{commodities.length - 3} more
+            </span>
+          )}
+        </div>
+      )}
+
+      {commodities.length === 0 && (
+        <p className="mt-1 text-[11px] italic text-slate-400">No stock currently stored</p>
+      )}
+    </div>
+  );
+}
+
 function TransactionInfo({ ticketId, ticketStatus }) {
   const router = useRouter();
   const [rows, setRows] = useState([]);
@@ -1557,7 +1669,7 @@ function TransactionInfo({ ticketId, ticketStatus }) {
         <span>
           {activeTransactions.length} active transaction{activeTransactions.length !== 1 ? "s" : ""}
         </span>
-        <button type="button" className="font-semibold text-brand underline" onClick={() => router.push("/transactions")}>
+        <button type="button" className="font-semibold text-brand underline" onClick={() => router.push("/stock-management/all-transactions")}>
           View All
         </button>
       </div>

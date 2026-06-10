@@ -7,10 +7,10 @@ import { SectionRouteDropdown } from "@/components/section-route-dropdown";
 import { cn } from "@/lib/utils";
 
 const STOCK_NAV = [
-  { slug: "stock-transfer", label: "Stock Transfer" },
-  { slug: "all-transactions", label: "All Transactions" },
   { slug: "account-balance", label: "Account Balance" },
+  { slug: "all-transactions", label: "All Transactions" },
   { slug: "stock-locations", label: "Stock Locations" },
+  { slug: "stock-transfer", label: "Stock Transfers" },
 ];
 
 const STOCK_ITEMS = STOCK_NAV.map(({ slug, label }) => ({

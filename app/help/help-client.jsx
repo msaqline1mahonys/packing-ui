@@ -16,7 +16,7 @@ const TOPICS = [
   {
     area: "Transaction ledger",
     summary: "Deposit/withdraw/shrinkage reconciliation.",
-    doc: "Mahonys `/transactions`",
+    doc: "Mahonys `/stock-management/all-transactions`",
   },
   {
     area: "Packing schedule",

@@ -6,69 +6,19 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
 import { RECORD_SECTIONS } from "@/lib/fumigation-fields";
+import {
+  getTenantPayload,
+  listRecordTemplates,
+  createRecordTemplate,
+  updateRecordTemplate,
+  deleteRecordTemplate,
+} from "@/lib/api/fumigation";
 import { cn } from "@/lib/utils";
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
-const RECORD_TEMPLATES_ENDPOINT = `${API_BASE_URL}/fumigation/record-templates`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const ALL_SECTION_KEYS = RECORD_SECTIONS.map((s) => s.key);
-
-function readAuthPayload() {
-  try {
-    return JSON.parse(localStorage.getItem("authPayload") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("authToken");
-  return {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-function getTenantPayload() {
-  const authPayload = readAuthPayload();
-  return {
-    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
-    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
-  };
-}
-
-function extractApiError(result, fallback) {
-  if (result?.errors) {
-    return Object.values(result.errors).flat().join(", ");
-  }
-  return result?.message || fallback;
-}
-
-async function recordTemplateRequest(path = "", options = {}) {
-  const response = await fetch(`${RECORD_TEMPLATES_ENDPOINT}${path}`, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...(options.headers || {}),
-    },
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok || result?.success === false) {
-    throw new Error(extractApiError(result, "Record template request failed."));
-  }
-  return result;
-}
-
-function parseList(result) {
-  const pager = result?.data;
-  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
-}
 
 function fromApiRecordTemplate(row) {
   if (!row) return null;
@@ -87,9 +37,7 @@ function fromApiRecordTemplate(row) {
 }
 
 function toApiPayload(draft) {
-  const tenant = getTenantPayload();
   return {
-    ...tenant,
     name: String(draft.name ?? "").trim(),
     header_text: String(draft.headerText ?? "").trim() || null,
     footer_text: String(draft.footerText ?? "").trim() || null,
@@ -230,19 +178,14 @@ export default function FumigationRecordTemplatesPage() {
     setIsLoading(true);
     setError("");
     try {
-      const tenant = getTenantPayload();
-      const params = new URLSearchParams({ per_page: "500" });
-      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
-      if (tenant.site_id) params.set("site_id", tenant.site_id);
-
-      const result = await recordTemplateRequest(`?${params.toString()}`);
-      setRows(parseList(result).map(fromApiRecordTemplate).filter(Boolean));
+      const raw = await listRecordTemplates({ search });
+      setRows(raw.map(fromApiRecordTemplate).filter(Boolean));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load record templates.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [search]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -363,10 +306,7 @@ export default function FumigationRecordTemplatesPage() {
       const body = toApiPayload({ ...draft, name: draft.name.trim() });
 
       if (modalMode === "add") {
-        const result = await recordTemplateRequest("", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
+        const result = await createRecordTemplate(body);
         const nextRow = fromApiRecordTemplate(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => [nextRow, ...prev]);
@@ -377,10 +317,7 @@ export default function FumigationRecordTemplatesPage() {
       }
 
       if (modalMode === "edit" && selected) {
-        const result = await recordTemplateRequest(`/${selected.id}`, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        });
+        const result = await updateRecordTemplate(selected.id, body);
         const nextRow = fromApiRecordTemplate(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
@@ -403,7 +340,7 @@ export default function FumigationRecordTemplatesPage() {
     setNotice("");
 
     try {
-      const result = await recordTemplateRequest(`/${selected.id}`, { method: "DELETE" });
+      const result = await deleteRecordTemplate(selected.id);
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Record template deleted successfully.");

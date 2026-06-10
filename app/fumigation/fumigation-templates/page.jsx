@@ -6,71 +6,21 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
 import { CERTIFICATE_SECTIONS } from "@/lib/fumigation-fields";
+import {
+  getTenantPayload,
+  listCertificateTemplates,
+  createCertificateTemplate,
+  updateCertificateTemplate,
+  deleteCertificateTemplate,
+} from "@/lib/api/fumigation";
 import { cn } from "@/lib/utils";
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
-const CERTIFICATE_TEMPLATES_ENDPOINT = `${API_BASE_URL}/fumigation/certificate-templates`;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const ALL_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
 
-function readAuthPayload() {
-  try {
-    return JSON.parse(localStorage.getItem("authPayload") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("authToken");
-  return {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-function getTenantPayload() {
-  const authPayload = readAuthPayload();
-  return {
-    ...(authPayload.organization?.id ? { organization_id: authPayload.organization.id } : {}),
-    ...(authPayload.current_site?.id ? { site_id: authPayload.current_site.id } : {}),
-  };
-}
-
-function extractApiError(result, fallback) {
-  if (result?.errors) {
-    return Object.values(result.errors).flat().join(", ");
-  }
-  return result?.message || fallback;
-}
-
-async function certificateTemplateRequest(path = "", options = {}) {
-  const response = await fetch(`${CERTIFICATE_TEMPLATES_ENDPOINT}${path}`, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...(options.headers || {}),
-    },
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok || result?.success === false) {
-    throw new Error(extractApiError(result, "Certificate template request failed."));
-  }
-  return result;
-}
-
-function parseList(result) {
-  const pager = result?.data;
-  return Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
-}
-
-function fromApiCertificateTemplate(row) {
+function fromApiRow(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -87,9 +37,7 @@ function fromApiCertificateTemplate(row) {
 }
 
 function toApiPayload(draft) {
-  const tenant = getTenantPayload();
   return {
-    ...tenant,
     name: String(draft.name ?? "").trim(),
     header_text: String(draft.headerText ?? "").trim() || null,
     footer_text: String(draft.footerText ?? "").trim() || null,
@@ -114,7 +62,6 @@ function buildDraft(row) {
   };
 }
 
-/** Read a file as a base64 data URL */
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     if (!file) {
@@ -128,7 +75,6 @@ function fileToDataUrl(file) {
   });
 }
 
-/** Build a placeholder model for the live preview. */
 function buildPreviewModel(draft) {
   return {
     packId: 0,
@@ -232,19 +178,14 @@ export default function FumigationTemplatesPage() {
     setIsLoading(true);
     setError("");
     try {
-      const tenant = getTenantPayload();
-      const params = new URLSearchParams({ per_page: "500" });
-      if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
-      if (tenant.site_id) params.set("site_id", tenant.site_id);
-
-      const result = await certificateTemplateRequest(`?${params.toString()}`);
-      setRows(parseList(result).map(fromApiCertificateTemplate).filter(Boolean));
+      const raw = await listCertificateTemplates({ search: search.trim() || undefined });
+      setRows(raw.map(fromApiRow).filter(Boolean));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load certificate templates.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [search]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -365,11 +306,8 @@ export default function FumigationTemplatesPage() {
       const body = toApiPayload({ ...draft, name: draft.name.trim() });
 
       if (modalMode === "add") {
-        const result = await certificateTemplateRequest("", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        const nextRow = fromApiCertificateTemplate(result.data);
+        const result = await createCertificateTemplate(body);
+        const nextRow = fromApiRow(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
@@ -379,11 +317,8 @@ export default function FumigationTemplatesPage() {
       }
 
       if (modalMode === "edit" && selected) {
-        const result = await certificateTemplateRequest(`/${selected.id}`, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        });
-        const nextRow = fromApiCertificateTemplate(result.data);
+        const result = await updateCertificateTemplate(selected.id, body);
+        const nextRow = fromApiRow(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice(result.message || "Certificate template updated successfully.");
@@ -405,7 +340,7 @@ export default function FumigationTemplatesPage() {
     setNotice("");
 
     try {
-      const result = await certificateTemplateRequest(`/${selected.id}`, { method: "DELETE" });
+      const result = await deleteCertificateTemplate(selected.id);
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Certificate template deleted successfully.");

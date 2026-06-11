@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +72,28 @@ const gridColumns = config.columns.map((col) => ({
   filterable: true,
   resizable: true,
 }));
+
+const DATE_FILTER_FIELDS = [
+  { key: "vesselEta", label: "ETA" },
+  { key: "vesselEtd", label: "ETD" },
+  { key: "vesselCutoffDate", label: "Cargo Cut-off" },
+  { key: "vesselReceivalsOpenDate", label: "Receivals Open" },
+  { key: "actualArrivalDate", label: "Actual Arrival" },
+  { key: "actualDepartDate", label: "Actual Depart" },
+  { key: "firstFreeImportDate", label: "First Free Import" },
+  { key: "lastIngestedAt", label: "Last Ingested" },
+];
+
+function getDateOnlyValue(rawValue) {
+  if (rawValue == null) return "";
+  const value = String(rawValue).trim();
+  if (!value) return "";
+  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
 
 function buildDraft(row) {
   const next = {};
@@ -207,6 +231,9 @@ export default function VesselVoyagePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [dateField, setDateField] = useState("vesselEtd");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -267,6 +294,33 @@ export default function VesselVoyagePage() {
   // Live refresh: poll every 60s (paused when the tab is hidden or while an
   // add/edit modal is open so in-progress edits aren't disrupted).
   usePolling(loadData, { intervalMs: 60000, isBusy: () => modalMode != null });
+
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+  const filteredRows = useMemo(() => {
+    if (!hasDateFilter) return rows;
+    return rows.filter((row) => {
+      const value = getDateOnlyValue(row[dateField]);
+      if (!value) return false;
+      if (dateFrom && value < dateFrom) return false;
+      if (dateTo && value > dateTo) return false;
+      return true;
+    });
+  }, [rows, dateField, dateFrom, dateTo, hasDateFilter]);
+
+  const dateRangeValue = useMemo(
+    () => [dateFrom ? dayjs(dateFrom) : null, dateTo ? dayjs(dateTo) : null],
+    [dateFrom, dateTo]
+  );
+
+  const handleDateRangeChange = useCallback(([start, end]) => {
+    setDateFrom(start && start.isValid() ? start.format("YYYY-MM-DD") : "");
+    setDateTo(end && end.isValid() ? end.format("YYYY-MM-DD") : "");
+  }, []);
+
+  const clearDateFilter = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
 
@@ -377,17 +431,48 @@ export default function VesselVoyagePage() {
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
       ) : null}
 
+      <div className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date Field</label>
+            <select
+              suppressHydrationWarning
+              className={cn(inputClass, "w-44")}
+              value={dateField}
+              onChange={(e) => setDateField(e.target.value)}
+              aria-label="Date field to filter by"
+            >
+              {DATE_FILTER_FIELDS.map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date Range</label>
+            <div className="w-72">
+              <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
+            </div>
+          </div>
+          {hasDateFilter ? (
+            <Button type="button" variant="outline" size="sm" onClick={clearDateFilter}>Clear</Button>
+          ) : null}
+          <span className="ml-auto text-xs text-slate-500">
+            {hasDateFilter ? `${filteredRows.length} of ${rows.length} voyage(s)` : `${rows.length} voyage(s)`}
+          </span>
+        </div>
+      </div>
+
       <div className="overflow-hidden rounded-xl bg-white shadow-sm">
         <Grid
           columns={gridColumns}
-          rows={rows}
+          rows={filteredRows}
           getRowId={(row) => row.id}
           theme="light"
           density="standard"
           fileName={config.title}
           visibleRows={15}
           loading={isLoading}
-          emptyMessage={isLoading ? "Loading voyages..." : "No voyages found."}
+          emptyMessage={isLoading ? "Loading voyages..." : hasDateFilter ? "No voyages match the selected date range." : "No voyages found."}
           onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
           onPersistedRowActivate={(row) => setSelectedId(row.id)}
           toolbarActions={

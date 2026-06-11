@@ -8,11 +8,10 @@ import {
   RELEASE_STATUSES,
   blankRelease,
   computeReleaseExpiry,
-  loadReleases,
-  nextReleaseId,
   normalizeRelease,
-  saveReleases,
 } from "@/lib/releases-store";
+import { deleteRelease, fetchReleases, saveRelease } from "@/lib/releases-api";
+import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -124,7 +123,7 @@ function decorate(row, containerParks, transporters) {
 }
 
 export default function ReleasesPage() {
-  const [rows, setRows] = useState(() => loadReleases());
+  const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
   const [draft, setDraft] = useState(() => blankRelease());
@@ -132,6 +131,8 @@ export default function ReleasesPage() {
   const [showGoToTop, setShowGoToTop] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [containerParkOptions, setContainerParkOptions] = useState([]);
   const [transporterOptions, setTransporterOptions] = useState([]);
   const [containerCodeOptions, setContainerCodeOptions] = useState([]);
@@ -185,10 +186,26 @@ export default function ReleasesPage() {
   const selected = selectedId != null ? decoratedRows.find((row) => row.id === selectedId) ?? null : null;
   const modalError = modalMode ? error : "";
 
-  const persistRows = useCallback((next) => {
-    setRows(next);
-    saveReleases(next);
+  const loadRows = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      setRows(await fetchReleases());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load releases.");
+      setRows([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadRows();
+  }, [loadRows]);
+
+  // Live refresh: poll every 60s (paused when the tab is hidden or while the
+  // add/edit modal is open so in-progress edits aren't disrupted).
+  usePolling(loadRows, { intervalMs: 60000, isBusy: () => modalMode != null });
 
   function openAddModal() {
     setError("");
@@ -211,7 +228,8 @@ export default function ReleasesPage() {
     setError("");
   }
 
-  function saveModal() {
+  async function saveModal() {
+    if (isSaving) return;
     if (!String(draft.releaseNumber || "").trim()) {
       setError("Release Number is required.");
       return;
@@ -236,31 +254,33 @@ export default function ReleasesPage() {
         computeReleaseExpiry(draft.releaseAvailableAt, draft.freeDays) || draft.releaseExpiryAt || "",
     };
 
-    if (modalMode === "add") {
-      const id = nextReleaseId(rows);
-      const next = [{ ...payload, id }, ...rows];
-      persistRows(next);
-      setSelectedId(id);
-      setNotice("Release created successfully.");
+    const isAdd = modalMode === "add";
+    setIsSaving(true);
+    setError("");
+    try {
+      const saved = await saveRelease(payload);
+      await loadRows();
+      setSelectedId(saved?.id ?? null);
+      setNotice(isAdd ? "Release created successfully." : "Release updated successfully.");
       setModalMode(null);
-      return;
-    }
-
-    if (modalMode === "edit" && selected) {
-      const next = rows.map((row) => (row.id === selected.id ? { ...payload, id: row.id } : row));
-      persistRows(next);
-      setNotice("Release updated successfully.");
-      setModalMode(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save release.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function removeSelected() {
+  async function removeSelected() {
     if (!selected) return;
     if (!window.confirm(`Delete release "${selected.releaseNumber}" permanently?`)) return;
-    const next = rows.filter((row) => row.id !== selected.id);
-    persistRows(next);
-    setSelectedId(null);
-    setNotice("Release deleted successfully.");
+    try {
+      await deleteRelease(selected.id);
+      await loadRows();
+      setSelectedId(null);
+      setNotice("Release deleted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete release.");
+    }
   }
 
   function setField(key, value) {
@@ -412,7 +432,7 @@ export default function ReleasesPage() {
               density="standard"
               fileName="Releases"
               visibleRows={12}
-              emptyMessage="No releases found."
+              emptyMessage={isLoading ? "Loading releases…" : "No releases found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}
@@ -668,11 +688,11 @@ export default function ReleasesPage() {
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={closeModal}>
+          <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={saveModal}>
-            {modalMode === "edit" ? "Save changes" : "Create"}
+          <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
+            {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
       </Modal>

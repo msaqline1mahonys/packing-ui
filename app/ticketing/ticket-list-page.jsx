@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
+import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
 import { deleteTicket, fetchTickets } from "@/lib/ticketing-api";
+import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -57,6 +59,7 @@ export default function TicketListPage({
   const [searchByDate, setSearchByDate] = useState(false);
   const [filterDate, setFilterDate] = useState("");
   const [selectedId, setSelectedId] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -78,6 +81,10 @@ export default function TicketListPage({
   useEffect(() => {
     loadRows();
   }, [loadRows]);
+
+  // Live refresh: poll every 60s (paused when the tab is hidden or while the
+  // history drawer is open).
+  usePolling(loadRows, { intervalMs: 60000, isBusy: () => historyOpen });
 
   const toggleStatus = (key) => {
     setStatusFilter((prev) => {
@@ -230,6 +237,9 @@ export default function TicketListPage({
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => selected && router.push(`${editPathBase}/${selected.id}`)}>
                   Edit
                 </Button>
+                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => setHistoryOpen(true)}>
+                  History
+                </Button>
                 <Button type="button" size="sm" variant="destructive" disabled={!selected || selected?.status === "completed"} className="h-7 px-2.5 text-[11px]" onClick={handleDelete}>
                   Delete
                 </Button>
@@ -259,6 +269,14 @@ export default function TicketListPage({
           )}
         </div>
       </div>
+
+      <HistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        subjectType="ticket"
+        subjectId={selected?.id}
+        title={selected ? `Ticket ${selected.ticketReference || String(selected.id).slice(0, 8)}` : "History"}
+      />
     </div>
   );
 }

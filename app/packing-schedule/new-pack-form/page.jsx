@@ -39,10 +39,8 @@ import {
   RELEASE_STATUSES,
   blankRelease,
   computeReleaseExpiry,
-  loadReleases,
-  nextReleaseId,
-  saveReleases,
 } from "@/lib/releases-store";
+import { saveRelease } from "@/lib/releases-api";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
 import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
@@ -725,6 +723,7 @@ function NewPackFormPageInner() {
   const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
   const [quickReleaseDraft, setQuickReleaseDraft] = useState(() => blankRelease());
   const [quickReleaseError, setQuickReleaseError] = useState("");
+  const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
   const [quickReleaseLookups, setQuickReleaseLookups] = useState({
     containerParks: [],
@@ -758,12 +757,9 @@ function NewPackFormPageInner() {
         setPortOptions(
           ports.map((p) => ({ id: p.id, countryId: p.country_id ?? p.countryId ?? "", name: p.name ?? "", code: p.code ?? "" }))
         );
-        // Releases currently live in localStorage (the Releases screen isn't on the
-        // DB yet); merge those with any DB releases so both sources are selectable.
-        const dbReleases = releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber);
-        const localReleases = loadReleases().map(normalizeReleaseOption).filter((r) => r.releaseNumber);
-        const seenReleaseNumbers = new Set(localReleases.map((r) => r.releaseNumber));
-        setReleaseOptions([...localReleases, ...dbReleases.filter((r) => !seenReleaseNumbers.has(r.releaseNumber))]);
+        // Releases are stored in the database (Modules/ReferenceData ReleaseController);
+        // the pack form-data endpoint returns them under `releases`.
+        setReleaseOptions(releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber));
         setCustomerOptions(customers);
         setCommodityOptions(commodities);
         setCommodityTypeOptions(commodityTypes);
@@ -782,7 +778,7 @@ function NewPackFormPageInner() {
         });
       } catch {
         if (cancelled) return;
-        setReleaseOptions(loadReleases().map(normalizeReleaseOption).filter((r) => r.releaseNumber));
+        setReleaseOptions([]);
         setQuickReleaseLookups((prev) => ({ ...prev, loading: false }));
       }
     })();
@@ -854,7 +850,8 @@ function NewPackFormPageInner() {
     }));
   }
 
-  function saveQuickAddRelease() {
+  async function saveQuickAddRelease() {
+    if (quickReleaseSaving) return;
     const releaseRef = String(quickReleaseDraft.releaseNumber || "").trim();
     if (!releaseRef) {
       setQuickReleaseError("Release Number is required.");
@@ -871,19 +868,27 @@ function NewPackFormPageInner() {
       return;
     }
 
-    const existing = loadReleases();
-    const id = nextReleaseId(existing);
-    const newRelease = {
-      ...quickReleaseDraft,
-      id,
-      releaseNumber: releaseRef,
-      parks: cleanedParks,
-      releaseExpiryAt:
-        computeReleaseExpiry(quickReleaseDraft.releaseAvailableAt, quickReleaseDraft.freeDays) ||
-        quickReleaseDraft.releaseExpiryAt ||
-        "",
-    };
-    saveReleases([newRelease, ...existing]);
+    // Persist the release to the database (Modules/ReferenceData ReleaseController).
+    let newRelease;
+    setQuickReleaseSaving(true);
+    setQuickReleaseError("");
+    try {
+      newRelease = await saveRelease({
+        ...quickReleaseDraft,
+        releaseNumber: releaseRef,
+        parks: cleanedParks,
+        releaseExpiryAt:
+          computeReleaseExpiry(quickReleaseDraft.releaseAvailableAt, quickReleaseDraft.freeDays) ||
+          quickReleaseDraft.releaseExpiryAt ||
+          "",
+      });
+    } catch (err) {
+      setQuickReleaseError(err instanceof Error ? err.message : "Failed to save release.");
+      return;
+    } finally {
+      setQuickReleaseSaving(false);
+    }
+
     setReleaseOptions((prev) => {
       const normalized = normalizeReleaseOption(newRelease);
       return [normalized, ...prev.filter((r) => r.releaseNumber !== normalized.releaseNumber)];

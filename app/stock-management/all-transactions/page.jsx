@@ -9,6 +9,7 @@ import {
   formatTransactionRow,
 } from "@/lib/transactions-api";
 import { TRANSACTION_DETAIL_COLUMNS, TRANSACTION_GRID_COLUMNS } from "@/lib/transactions-grid";
+import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -43,6 +44,9 @@ export default function AllTransactionsPage() {
   useEffect(() => {
     loadRows();
   }, [loadRows]);
+
+  // Live refresh: poll every 60s (paused when the tab is hidden).
+  usePolling(loadRows, { intervalMs: 60000 });
 
   const baseFiltered = useMemo(() => rows, [rows]);
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -262,6 +263,10 @@ export default function VesselVoyagePage() {
     });
     return () => cancelAnimationFrame(frame);
   }, [loadData]);
+
+  // Live refresh: poll every 60s (paused when the tab is hidden or while an
+  // add/edit modal is open so in-progress edits aren't disrupted).
+  usePolling(loadData, { intervalMs: 60000, isBusy: () => modalMode != null });
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
 

@@ -10,6 +10,8 @@ import { ChevronDown, LogOut } from "lucide-react";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { cn } from "@/lib/utils";
 
+import { NotificationBell } from "@/components/notifications/notification-bell";
+
 import { pathnameMatchesHref } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
@@ -365,6 +367,9 @@ export function ErpVerticalRail({ edge }) {
       </div>
 
       <div className="shrink-0 space-y-1.5 border-t border-slate-200/90 px-2 py-2 md:space-y-2 md:py-3">
+        <div className={cn("flex", expanded ? "justify-end pr-1" : "justify-center")}>
+          <NotificationBell />
+        </div>
         {sites?.length && expanded ? (
           <SiteSelect
             selectId="erp-site-v-footer"

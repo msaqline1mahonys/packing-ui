@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { Grid } from "@/components/clutch-table";
 import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
+import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
+import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -153,6 +155,7 @@ export default function PackingSchedulePage() {
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
   const [selectedId, setSelectedId] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const tableRef = useRef(null);
   const detailsRef = useRef(null);
 
@@ -200,6 +203,10 @@ export default function PackingSchedulePage() {
     loadRows();
     // eslint-disable-next-line react-hooks/set-state-in-effect
   }, [loadRows]);
+
+  // Live refresh: poll every 60s (paused when the tab is hidden or the history
+  // drawer is open, so the underlying list doesn't churn while it's being read).
+  usePolling(loadRows, { intervalMs: 60000, isBusy: () => historyOpen });
 
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.length > 0 && selectedStatuses.includes(p.status))
@@ -530,6 +537,9 @@ export default function PackingSchedulePage() {
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={openEditPage}>
                   Edit
                 </Button>
+                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => setHistoryOpen(true)}>
+                  History
+                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -585,6 +595,13 @@ export default function PackingSchedulePage() {
         ) : null}
       </div>
 
+      <HistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        subjectType="pack"
+        subjectId={selected?.id}
+        title={selected ? `Pack ${selected.job_reference ?? selected.jobReference ?? selected.id}` : "History"}
+      />
     </div>
   );
 }

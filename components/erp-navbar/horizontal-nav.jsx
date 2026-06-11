@@ -10,6 +10,8 @@ import { ChevronDown, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 
+import { NotificationBell } from "@/components/notifications/notification-bell";
+
 import { AccountDropdownHeader } from "./account-dropdown-header";
 import { pathnameMatchesHref } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
@@ -77,6 +79,7 @@ export function ErpHorizontalNav({ edge }) {
         })}
 
         <div className="ml-0.5 flex min-w-0 shrink-0 items-center gap-1 md:ml-1 md:gap-2">
+          <NotificationBell />
           {sites?.length ? (
             <div className="hidden min-w-0 sm:block">
               <SiteSelect selectId="erp-site-h-bar" className="hover:bg-slate-50/80" />

@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { getPackFormData } from "@/lib/api/packing";
@@ -74,8 +76,9 @@ export default function PackersScheduleClient() {
   const router = useRouter();
   const [rows, setRows] = useState([]);
   const [importExportFilter, setImportExportFilter] = useState("all");
-  const [searchByDate, setSearchByDate] = useState(false);
+  const [dateFilterMode, setDateFilterMode] = useState("all");
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
   const [lookups, setLookups] = useState({});
 
@@ -92,8 +95,19 @@ export default function PackersScheduleClient() {
   const filtered = useMemo(() => {
     return rows
       .filter((row) => (importExportFilter === "all" ? true : (row.import_export ?? row.importExport) === importExportFilter))
-      .filter((row) => (searchByDate ? row.date === selectedDate : true));
-  }, [rows, importExportFilter, searchByDate, selectedDate]);
+      .filter((row) => {
+        if (dateFilterMode === "all") return true;
+        if (dateFilterMode === "specific") return row.date === selectedDate;
+        const [fromDate, toDate] = dateRange;
+        if (!fromDate && !toDate) return true;
+        if (!row.date) return false;
+        const d = dayjs(row.date);
+        if (!d.isValid()) return false;
+        if (fromDate && d.isBefore(fromDate, "day")) return false;
+        if (toDate && d.isAfter(toDate, "day")) return false;
+        return true;
+      });
+  }, [rows, importExportFilter, dateFilterMode, selectedDate, dateRange]);
 
   const selected = useMemo(() => filtered.find((row) => row.id === selectedId) || null, [filtered, selectedId]);
 
@@ -214,31 +228,55 @@ export default function PackersScheduleClient() {
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name="date-filter-mode-packers" checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
+                <input suppressHydrationWarning type="radio" name="date-filter-mode-packers" checked={dateFilterMode === "all"} onChange={() => setDateFilterMode("all")} className="sr-only" />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    !searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                    dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
                   )}
                 >
                   All Dates
                 </span>
               </label>
-              <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name="date-filter-mode-packers" checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
+              {/* <label className="cursor-pointer">
+                <input suppressHydrationWarning type="radio" name="date-filter-mode-packers" checked={dateFilterMode === "specific"} onChange={() => setDateFilterMode("specific")} className="sr-only" />
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                    searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                    dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
                   )}
                 >
                   By Date
                 </span>
+              </label> */}
+              <label className="cursor-pointer">
+                <input suppressHydrationWarning type="radio" name="date-filter-mode-packers" checked={dateFilterMode === "range"} onChange={() => setDateFilterMode("range")} className="sr-only" />
+                <span
+                  className={cn(
+                    "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                    dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  Date Range
+                </span>
               </label>
             </div>
-            {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /> : null}
           </div>
         </div>
+        {dateFilterMode === "specific" || dateFilterMode === "range" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
+            </span>
+            {dateFilterMode === "specific" ? (
+              <input suppressHydrationWarning className={`${inputClass} w-[160px]`} type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} aria-label="Specific date" />
+            ) : (
+              <div className="w-72">
+                <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
+              </div>
+            )}
+          </div>
+        ) : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="inline-flex h-7 items-center rounded-md border border-brand/30 bg-brand/15 px-2.5 text-[11px] font-medium text-brand-ink shadow-sm">
             Inprogress only

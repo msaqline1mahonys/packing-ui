@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dayjs from "dayjs";
 
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   calculateLineItemAmount,
   formatCurrency,
@@ -79,6 +81,16 @@ export default function PacksReadyToInvoicePage() {
     }
   }, [filteredPacks, selectedPackId]);
 
+  const dateRangeValue = useMemo(
+    () => [dateFrom ? dayjs(dateFrom) : null, dateTo ? dayjs(dateTo) : null],
+    [dateFrom, dateTo]
+  );
+
+  const handleDateRangeChange = useCallback(([start, end]) => {
+    setDateFrom(start && start.isValid() ? start.format("YYYY-MM-DD") : "");
+    setDateTo(end && end.isValid() ? end.format("YYYY-MM-DD") : "");
+  }, []);
+
   const hasActiveFilters = customerFilter !== "all" || commodityFilter !== "all" || dateFilterMode !== "all";
 
   function clearFilters() {
@@ -148,28 +160,12 @@ export default function PacksReadyToInvoicePage() {
             </div>
           ) : null}
           {dateFilterMode === "range" ? (
-            <>
-              <div className="min-w-[155px]">
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</label>
-                <input
-                  className={`${inputClass} w-full`}
-                  aria-label="Packing start date from"
-                  type="date"
-                  value={dateFrom}
-                  onChange={(event) => setDateFrom(event.target.value)}
-                />
+            <div className="min-w-[288px]">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Date Range</label>
+              <div className="w-72">
+                <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
               </div>
-              <div className="min-w-[155px]">
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</label>
-                <input
-                  className={`${inputClass} w-full`}
-                  aria-label="Packing start date to"
-                  type="date"
-                  value={dateTo}
-                  onChange={(event) => setDateTo(event.target.value)}
-                />
-              </div>
-            </>
+            </div>
           ) : null}
           {hasActiveFilters ? (
             <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={clearFilters}>

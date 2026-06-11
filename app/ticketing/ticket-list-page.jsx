@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
 import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { deleteTicket, fetchTickets } from "@/lib/ticketing-api";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
@@ -56,8 +58,9 @@ export default function TicketListPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState(() => new Set(STATUS_OPTIONS.map((s) => s.key)));
-  const [searchByDate, setSearchByDate] = useState(false);
+  const [dateFilterMode, setDateFilterMode] = useState("all");
   const [filterDate, setFilterDate] = useState("");
+  const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -67,7 +70,7 @@ export default function TicketListPage({
     try {
       const data = await fetchTickets({
         type: ticketType,
-        ...(searchByDate && filterDate ? { date: filterDate } : {}),
+        ...(dateFilterMode === "specific" && filterDate ? { date: filterDate } : {}),
       });
       setRows(data);
     } catch (err) {
@@ -76,7 +79,7 @@ export default function TicketListPage({
     } finally {
       setLoading(false);
     }
-  }, [ticketType, searchByDate, filterDate]);
+  }, [ticketType, dateFilterMode, filterDate]);
 
   useEffect(() => {
     loadRows();
@@ -96,12 +99,21 @@ export default function TicketListPage({
   };
 
   const filteredRows = useMemo(() => {
+    const [fromDate, toDate] = dateRange;
+    const rangeActive = dateFilterMode === "range" && (fromDate || toDate);
     return rows.filter((row) => {
       if (statusFilter.size === 0) return false;
       if (!statusFilter.has(row.status)) return false;
+      if (rangeActive) {
+        if (!row.date) return false;
+        const d = dayjs(row.date);
+        if (!d.isValid()) return false;
+        if (fromDate && d.isBefore(fromDate, "day")) return false;
+        if (toDate && d.isAfter(toDate, "day")) return false;
+      }
       return true;
     });
-  }, [rows, statusFilter]);
+  }, [rows, statusFilter, dateFilterMode, dateRange]);
 
   useEffect(() => {
     if (selectedId != null && !filteredRows.some((r) => r.id === selectedId)) {
@@ -192,24 +204,43 @@ export default function TicketListPage({
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name={dateFilterName} checked={!searchByDate} onChange={() => setSearchByDate(false)} className="sr-only" />
-                <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", !searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
+                <input suppressHydrationWarning type="radio" name={dateFilterName} checked={dateFilterMode === "all"} onChange={() => setDateFilterMode("all")} className="sr-only" />
+                <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
                   All dates
                 </span>
               </label>
-              <label className="cursor-pointer">
-                <input suppressHydrationWarning type="radio" name={dateFilterName} checked={searchByDate} onChange={() => setSearchByDate(true)} className="sr-only" />
-                <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", searchByDate ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
+              {/* <label className="cursor-pointer">
+                <input suppressHydrationWarning type="radio" name={dateFilterName} checked={dateFilterMode === "specific"} onChange={() => setDateFilterMode("specific")} className="sr-only" />
+                <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
                   By date
+                </span>
+              </label> */}
+              <label className="cursor-pointer">
+                <input suppressHydrationWarning type="radio" name={dateFilterName} checked={dateFilterMode === "range"} onChange={() => setDateFilterMode("range")} className="sr-only" />
+                <span className={cn("inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors", dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700")}>
+                  By Date
                 </span>
               </label>
             </div>
-            {searchByDate ? <input suppressHydrationWarning className={`${inputClass} w-[140px]`} type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} /> : null}
             <Button type="button" variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" onClick={loadRows} disabled={loading}>
               Refresh
             </Button>
           </div>
         </div>
+        {dateFilterMode === "specific" || dateFilterMode === "range" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {dateFilterMode === "range" ? "Filter by date range" : "Filter by date"}
+            </span>
+            {dateFilterMode === "specific" ? (
+              <input suppressHydrationWarning className={`${inputClass} w-[160px]`} type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} aria-label="Specific date" />
+            ) : (
+              <div className="w-72">
+                <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] xl:items-start">

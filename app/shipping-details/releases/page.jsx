@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -70,6 +72,12 @@ const gridColumns = columns.map((col) => ({
   filterable: true,
   resizable: true,
 }));
+
+const DATE_FILTER_FIELDS = [
+  { key: "releaseAvailableAt", label: "Available" },
+  { key: "releaseExpiryAt", label: "Expiry" },
+  { key: "pickupBy", label: "Pickup By" },
+];
 
 function lookupName(list, id) {
   if (id === "" || id == null) return "";
@@ -138,6 +146,8 @@ export default function ReleasesPage() {
   const [containerCodeOptions, setContainerCodeOptions] = useState([]);
   const [lookupsLoading, setLookupsLoading] = useState(true);
   const [lookupsError, setLookupsError] = useState("");
+  const [dateField, setDateField] = useState("releaseAvailableAt");
+  const [dateRange, setDateRange] = useState([null, null]);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,6 +193,22 @@ export default function ReleasesPage() {
     () => rows.map((row) => decorate(row, containerParkOptions, transporterOptions)),
     [rows, containerParkOptions, transporterOptions],
   );
+
+  const hasDateFilter = Boolean(dateRange[0] || dateRange[1]);
+  const filteredRows = useMemo(() => {
+    const [fromDate, toDate] = dateRange;
+    if (!fromDate && !toDate) return decoratedRows;
+    return decoratedRows.filter((row) => {
+      const raw = row[dateField];
+      if (!raw) return false;
+      const d = dayjs(raw);
+      if (!d.isValid()) return false;
+      if (fromDate && d.isBefore(fromDate, "day")) return false;
+      if (toDate && d.isAfter(toDate, "day")) return false;
+      return true;
+    });
+  }, [decoratedRows, dateField, dateRange]);
+
   const selected = selectedId != null ? decoratedRows.find((row) => row.id === selectedId) ?? null : null;
   const modalError = modalMode ? error : "";
 
@@ -407,6 +433,34 @@ export default function ReleasesPage() {
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
       ) : null}
 
+      <div className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date Field</label>
+            <select
+              suppressHydrationWarning
+              className={cn(inputClass, "w-44")}
+              value={dateField}
+              onChange={(e) => setDateField(e.target.value)}
+              aria-label="Date field to filter by"
+            >
+              {DATE_FILTER_FIELDS.map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date Range</label>
+            <div className="w-72">
+              <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
+            </div>
+          </div>
+          <span className="ml-auto text-xs text-slate-500">
+            {hasDateFilter ? `${filteredRows.length} of ${decoratedRows.length} release(s)` : `${decoratedRows.length} release(s)`}
+          </span>
+        </div>
+      </div>
+
       <div
         className={cn(
           "grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] xl:items-start",
@@ -418,7 +472,7 @@ export default function ReleasesPage() {
             <>
               <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
               <MobileList
-                rows={decoratedRows}
+                rows={filteredRows}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
@@ -426,13 +480,13 @@ export default function ReleasesPage() {
           ) : (
             <Grid
               columns={gridColumns}
-              rows={decoratedRows}
+              rows={filteredRows}
               getRowId={(row) => row.id}
               theme="light"
               density="standard"
               fileName="Releases"
               visibleRows={12}
-              emptyMessage={isLoading ? "Loading releases…" : "No releases found."}
+              emptyMessage={isLoading ? "Loading releases…" : hasDateFilter ? "No releases match the selected date range." : "No releases found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
               toolbarActions={toolbarActions}

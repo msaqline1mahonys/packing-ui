@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
 import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
 import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
 import { usePolling } from "@/lib/use-polling";
@@ -229,6 +231,16 @@ export default function PackingSchedulePage() {
   }, [rows, importExportFilter, selectedStatuses, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
   const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
+
+  const dateRangeValue = useMemo(
+    () => [dateFrom ? dayjs(dateFrom) : null, dateTo ? dayjs(dateTo) : null],
+    [dateFrom, dateTo]
+  );
+
+  const handleDateRangeChange = useCallback(([start, end]) => {
+    setDateFrom(start && start.isValid() ? start.format("YYYY-MM-DD") : "");
+    setDateTo(end && end.isValid() ? end.format("YYYY-MM-DD") : "");
+  }, []);
 
   const gridColumns = useMemo(() => {
     return TABLE_COLUMNS.map((column) => {
@@ -465,34 +477,61 @@ export default function PackingSchedulePage() {
                   By Date
                 </span>
               </label>
-            </div>
-            {dateFilterMode === "specific" ? (
-              <>
-                <select
-                  suppressHydrationWarning
-                  className={`${inputClass} w-[120px]`}
-                  value={dateFilterField}
-                  onChange={(e) => setDateFilterField(e.target.value)}
-                  aria-label="Select date filter field"
-                >
-                  {DATE_FILTER_OPTIONS.map((opt) => (
-                    <option key={opt.key} value={opt.key}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+              <label className="cursor-pointer">
                 <input
                   suppressHydrationWarning
-                  className={`${inputClass} w-[140px]`}
-                  type="date"
-                  value={specificDate}
-                  onChange={(e) => setSpecificDate(e.target.value)}
-                  aria-label="Specific date"
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "range"}
+                  onChange={() => setDateFilterMode("range")}
+                  className="sr-only"
                 />
-              </>
-            ) : null}
+                <span
+                  className={cn(
+                    "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                    dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  Date Range
+                </span>
+              </label>
+            </div>
           </div>
         </div>
+        {dateFilterMode === "specific" || dateFilterMode === "range" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
+            </span>
+            <select
+              suppressHydrationWarning
+              className={`${inputClass} w-[150px]`}
+              value={dateFilterField}
+              onChange={(e) => setDateFilterField(e.target.value)}
+              aria-label="Select date filter field"
+            >
+              {DATE_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {dateFilterMode === "specific" ? (
+              <input
+                suppressHydrationWarning
+                className={`${inputClass} w-[160px]`}
+                type="date"
+                value={specificDate}
+                onChange={(e) => setSpecificDate(e.target.value)}
+                aria-label="Specific date"
+              />
+            ) : (
+              <div className="w-72">
+                <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
+              </div>
+            )}
+          </div>
+        ) : null}
         <StatusFilterBar
           label="Filter by Status"
           statuses={PACK_STATUSES}

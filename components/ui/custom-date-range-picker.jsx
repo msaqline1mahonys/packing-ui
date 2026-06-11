@@ -58,13 +58,29 @@ const CustomDateRangePicker = ({
 
   // Update popover position when open (for portal - fixed positioning)
   const updatePopoverPosition = () => {
-    if (inputRef.current) {
-      const rect = inputRef.current.getBoundingClientRect();
-      setPopoverPosition({
-        top: rect.bottom + 8,
-        left: rect.left,
-      });
+    if (!inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    const margin = 8;
+    const popoverWidth = popoverRef.current?.offsetWidth || 0;
+    const popoverHeight = popoverRef.current?.offsetHeight || 0;
+
+    let left = rect.left;
+    if (popoverWidth) {
+      const maxLeft = window.innerWidth - popoverWidth - margin;
+      if (left > maxLeft) left = Math.max(margin, maxLeft);
     }
+
+    let top = rect.bottom + margin;
+    if (popoverHeight) {
+      const maxTop = window.innerHeight - popoverHeight - margin;
+      // If it would overflow the bottom, open above the input instead.
+      if (top > maxTop) {
+        const above = rect.top - popoverHeight - margin;
+        top = above >= margin ? above : Math.max(margin, maxTop);
+      }
+    }
+
+    setPopoverPosition({ top, left });
   };
 
   useLayoutEffect(() => {

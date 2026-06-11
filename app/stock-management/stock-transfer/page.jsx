@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { cn } from "@/lib/utils";
 import {
   fetchStockTransferFormData,
@@ -51,6 +53,7 @@ export default function StockTransferPage() {
   const [activeType, setActiveType] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
+  const [dateRange, setDateRange] = useState([null, null]);
 
   const loadFormData = useCallback(async () => {
     setFormLoading(true);
@@ -110,6 +113,20 @@ export default function StockTransferPage() {
       })),
     [transfers]
   );
+
+  const hasDateFilter = Boolean(dateRange[0] || dateRange[1]);
+  const filteredRows = useMemo(() => {
+    const [fromDate, toDate] = dateRange;
+    if (!fromDate && !toDate) return displayRows;
+    return displayRows.filter((row) => {
+      if (!row.transferDate) return false;
+      const d = dayjs(row.transferDate);
+      if (!d.isValid()) return false;
+      if (fromDate && d.isBefore(fromDate, "day")) return false;
+      if (toDate && d.isAfter(toDate, "day")) return false;
+      return true;
+    });
+  }, [displayRows, dateRange]);
 
   const sharedProps = { sites, locations, customers, commodities, defaultSiteId, submitting, onSubmit: handleSubmit };
 
@@ -176,18 +193,26 @@ export default function StockTransferPage() {
         </aside>
 
         <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-4 py-2.5">
-            <span className="text-sm font-semibold text-slate-700">Transfer History ({transfers.length})</span>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5">
+            <span className="text-sm font-semibold text-slate-700">
+              Transfer History ({hasDateFilter ? `${filteredRows.length} of ${transfers.length}` : transfers.length})
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Transfer Date</span>
+              <div className="w-72">
+                <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
+              </div>
+            </div>
           </div>
           <Grid
             columns={gridColumns}
-            rows={displayRows}
+            rows={filteredRows}
             getRowId={(row) => row.id}
             theme="light"
             density="standard"
             fileName="Stock Transfers"
             visibleRows={14}
-            emptyMessage="No transfers recorded yet."
+            emptyMessage={hasDateFilter ? "No transfers match the selected date range." : "No transfers recorded yet."}
           />
         </div>
       </div>

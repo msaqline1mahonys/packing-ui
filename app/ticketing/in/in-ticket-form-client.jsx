@@ -30,6 +30,59 @@ import {
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500";
 
+// Commodity test thresholds arrive from the API as
+// { test, min, max, parent_group_id, is_group_root }. Older demo fixtures use
+// { testName, testId, min, max }. Normalise both into one internal shape.
+function normalizeTestThreshold(th) {
+  return {
+    name: th?.test ?? th?.testName ?? "",
+    min: th?.min,
+    max: th?.max,
+    parentGroupId: th?.parentGroupId ?? th?.parent_group_id ?? null,
+    isGroupRoot: Boolean(th?.isGroupRoot ?? th?.is_group_root ?? false),
+    testId: th?.testId ?? th?.test_id ?? null,
+  };
+}
+
+function getCommodityThresholds(comm) {
+  const raw = comm?.testThresholds ?? comm?.test_thresholds ?? [];
+  return (Array.isArray(raw) ? raw : []).map(normalizeTestThreshold).filter((t) => t.name);
+}
+
+function buildTestsByName(tests) {
+  const map = new Map();
+  (Array.isArray(tests) ? tests : []).forEach((t) => {
+    const name = t?.name ?? t?.testName ?? t?.test_name;
+    if (name) map.set(name, t);
+  });
+  return map;
+}
+
+// A test shows on a given ticket surface ("Incoming Tickets" / "Outgoing Tickets")
+// only if its "Applies To" includes that surface. Tests we can't resolve metadata
+// for (e.g. legacy fixtures) are not hidden.
+function testAppliesToSurface(name, testsByName, surface) {
+  const meta = testsByName.get(name);
+  if (!meta) return true;
+  const appliesTo = Array.isArray(meta.appliesTo) ? meta.appliesTo : [];
+  return appliesTo.includes(surface);
+}
+
+// A Group test's value is the sum of its member (Count) test values.
+function sumGroupMembers(members, ticketTests) {
+  let total = 0;
+  let hasValue = false;
+  for (const m of members) {
+    const raw = ticketTests?.[m.name];
+    if (raw === "" || raw == null) continue;
+    const n = Number(raw);
+    if (Number.isNaN(n)) continue;
+    total += n;
+    hasValue = true;
+  }
+  return { total, hasValue };
+}
+
 function buildBlankTicket(direction) {
   return {
     type: direction,
@@ -71,6 +124,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const ticketSubtitle = isIncoming ? "Incoming weighbridge ticket" : "Outgoing weighbridge ticket";
   const cmoDirection = ticketTypeToDirection(isIncoming ? "in" : "out");
   const locationField = isIncoming ? "unloadedLocation" : "loadingLocation";
+  const testSurface = isIncoming ? "Incoming Tickets" : "Outgoing Tickets";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -78,7 +132,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [internalAccounts, setInternalAccounts] = useState([]);
   const [commodityTypes, setCommodityTypes] = useState([]);
   const [commodities, setCommodities] = useState([]);
-  const tests = DEMO_TESTS;
+  const [tests, setTests] = useState(DEMO_TESTS);
   const [users, setUsers] = useState([]);
   const [stockLocations, setStockLocations] = useState([]);
 
@@ -104,7 +158,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     customerId: "",
     commodityTypeId: "",
     commodityId: "",
-    status: "Active",
+    status: "Open",
     estimatedAmount: "",
     actualAmountDelivered: "",
     additionalReferences: [],
@@ -154,6 +208,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             commodityCode: commodityObj.commodityCode ?? commodityObj.commodity_code ?? "",
             description: commodityObj.description ?? "",
             unitType: commodityObj.unitType ?? commodityObj.unit_type ?? "MT",
+            // Carry the test/group structure so the printout can break group
+            // tests back out into their individual member tests + total.
+            testThresholds: getCommodityThresholds(commodityObj),
           }
         : null,
       commodityType: commodityTypeObj ? { id: commodityTypeObj.id, name: commodityTypeObj.name } : null,
@@ -259,6 +316,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         setInternalAccounts(formData.internalAccounts);
         setCommodityTypes(formData.commodityTypes);
         setCommodities(formData.commodities);
+        if (Array.isArray(formData.tests) && formData.tests.length > 0) setTests(formData.tests);
         setTrucks(formData.trucks);
         setStockLocations(formData.stockLocations);
         setUsers(formData.users);
@@ -328,16 +386,54 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const confirmCommodity = () => {
     if (!ticket.commodityTypeId) return;
+    const testsByName = buildTestsByName(tests);
     const sameCommodities = commodities.filter((c) => c.commodityTypeId === ticket.commodityTypeId && c.status === "active");
     const commodityAnalysis = sameCommodities.map((comm) => {
-      const testResults = (comm.testThresholds || []).map((threshold) => {
-        const testValue = Number(ticket.tests[threshold.testName]);
-        const min = Number(threshold.min);
-        const max = Number(threshold.max);
-        const hasValue = !Number.isNaN(testValue) && ticket.tests[threshold.testName] !== "";
-        const isWithinRange = hasValue && testValue >= min && testValue <= max;
-        return { testName: threshold.testName, value: testValue, min, max, hasValue, pass: isWithinRange };
+      const thresholds = getCommodityThresholds(comm);
+      const groupedNames = new Set();
+      thresholds.filter((t) => t.parentGroupId).forEach((t) => groupedNames.add(t.name));
+      const testResults = [];
+
+      // Standalone (non-group) tests are validated against their own range, but
+      // only when the test applies to this ticket surface and isn't part of a group.
+      thresholds
+        .filter(
+          (t) =>
+            !t.parentGroupId &&
+            !groupedNames.has(t.name) &&
+            testAppliesToSurface(t.name, testsByName, testSurface)
+        )
+        .forEach((t) => {
+          const raw = ticket.tests[t.name];
+          const testValue = Number(raw);
+          const min = Number(t.min);
+          const max = Number(t.max);
+          const hasValue = raw !== "" && raw != null && !Number.isNaN(testValue);
+          const isWithinRange = hasValue && testValue >= min && testValue <= max;
+          testResults.push({ testName: t.name, value: testValue, min, max, hasValue, pass: isWithinRange });
+        });
+
+      // Group tests: the root row carries the range; the value is the sum of
+      // its member tests.
+      const groupMap = new Map();
+      thresholds
+        .filter((t) => t.parentGroupId)
+        .forEach((t) => {
+          if (!groupMap.has(t.parentGroupId)) groupMap.set(t.parentGroupId, { root: null, members: [] });
+          const g = groupMap.get(t.parentGroupId);
+          if (t.isGroupRoot) g.root = t;
+          else g.members.push(t);
+        });
+      groupMap.forEach(({ root, members }) => {
+        if (!root) return;
+        if (!testAppliesToSurface(root.name, testsByName, testSurface)) return;
+        const { total, hasValue } = sumGroupMembers(members, ticket.tests);
+        const min = Number(root.min);
+        const max = Number(root.max);
+        const isWithinRange = hasValue && total >= min && total <= max;
+        testResults.push({ testName: root.name, value: total, min, max, hasValue, pass: isWithinRange, isGroup: true });
       });
+
       const allTestsPass = testResults.length > 0 && testResults.every((r) => r.pass);
       return {
         commodityId: comm.id,
@@ -757,6 +853,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 commodityTypeId={ticket.commodityTypeId}
                 commodities={commodities}
                 tests={tests}
+                surface={testSurface}
                 ticketTests={ticket.tests}
                 isCompleted={isCompleted}
                 setTest={setTest}
@@ -1064,7 +1161,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   customerId: "",
                   commodityTypeId: "",
                   commodityId: "",
-                  status: "Active",
+                  status: "Open",
                   estimatedAmount: "",
                   actualAmountDelivered: "",
                   additionalReferences: [],
@@ -1176,70 +1273,201 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   );
 }
 
-function TestResultsGrid({ commodityTypeId, commodities, tests, ticketTests, isCompleted, setTest }) {
+function TestInputCard({ label, unit, value, isCompleted, onChange, state, helperText }) {
+  const isOk = state === "ok";
+  const isBad = state === "bad";
+  return (
+    <div
+      className={cn(
+        "rounded-md border p-2.5",
+        isBad ? "border-red-200 bg-red-50" : isOk ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white"
+      )}
+    >
+      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+        {label} {unit ? <span className="font-normal text-slate-400">({unit})</span> : null}
+      </label>
+      <input
+        className={cn(inputClass, "text-sm", isBad && "border-red-300", isOk && "border-emerald-300")}
+        type="number"
+        step="0.01"
+        disabled={isCompleted}
+        placeholder="0.00"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {helperText ? <div className="mt-1.5 text-[10px] font-semibold">{helperText}</div> : null}
+    </div>
+  );
+}
+
+function TestResultsGrid({ commodityTypeId, commodities, tests, surface, ticketTests, isCompleted, setTest }) {
   const sameCommodities = commodities.filter((c) => c.commodityTypeId === commodityTypeId && c.status === "active");
-  const allTests = new Map();
+  const testsByName = buildTestsByName(tests);
+  const applies = (name) => !surface || testAppliesToSurface(name, testsByName, surface);
+
+  const allThresholds = [];
   sameCommodities.forEach((comm) => {
-    (comm.testThresholds || []).forEach((threshold) => {
-      if (!allTests.has(threshold.testName)) {
-        allTests.set(threshold.testName, { testName: threshold.testName, testId: threshold.testId });
+    getCommodityThresholds(comm).forEach((th) => allThresholds.push(th));
+  });
+
+  // Any test that belongs to a group (as a member or the group root) is shown
+  // only inside that group — never as a duplicate standalone card.
+  const groupedNames = new Set();
+  allThresholds.filter((t) => t.parentGroupId).forEach((t) => groupedNames.add(t.name));
+
+  // Standalone (non-group) tests, deduped by name. Only tests whose "Applies To"
+  // includes this ticket surface are shown.
+  const standaloneTests = [];
+  const seenStandalone = new Set();
+  allThresholds
+    .filter((t) => !t.parentGroupId && !groupedNames.has(t.name) && applies(t.name))
+    .forEach((t) => {
+      if (seenStandalone.has(t.name)) return;
+      seenStandalone.add(t.name);
+      standaloneTests.push(t);
+    });
+
+  // Groups keyed by parentGroupId: the root row names the group + carries the
+  // total's range, member rows are the individual tests that sum into it.
+  const groupsMap = new Map();
+  allThresholds
+    .filter((t) => t.parentGroupId)
+    .forEach((t) => {
+      if (!groupsMap.has(t.parentGroupId)) {
+        groupsMap.set(t.parentGroupId, { groupId: t.parentGroupId, name: "", root: null, members: [], seen: new Set() });
+      }
+      const g = groupsMap.get(t.parentGroupId);
+      if (t.isGroupRoot) {
+        g.root = t;
+        g.name = t.name || g.name;
+      } else if (!g.seen.has(t.name)) {
+        g.seen.add(t.name);
+        g.members.push(t);
       }
     });
+
+  // A group with no members behaves like a standalone test (enter the value
+  // directly). Groups are shown only when the group test applies to this surface.
+  const groups = [];
+  groupsMap.forEach((g) => {
+    const groupName = g.name || g.root?.name || "";
+    if (!applies(groupName)) return;
+    if (g.members.length === 0 && g.root) {
+      if (!seenStandalone.has(g.root.name)) {
+        seenStandalone.add(g.root.name);
+        standaloneTests.push(g.root);
+      }
+    } else {
+      groups.push(g);
+    }
   });
-  const uniqueTests = Array.from(allTests.values());
+
+  const unitFor = (t) =>
+    testsByName.get(t.name)?.unit || tests.find((m) => m.id === t.testId)?.unit || "";
+
+  // A value is "valid" if it falls within the range on any commodity of this type.
+  const standaloneInRange = (name, value) => {
+    let inRange = false;
+    sameCommodities.forEach((comm) => {
+      getCommodityThresholds(comm)
+        .filter((x) => x.name === name && !(x.parentGroupId && !x.isGroupRoot))
+        .forEach((th) => {
+          const min = Number(th.min);
+          const max = Number(th.max);
+          if (value >= min && value <= max) inRange = true;
+        });
+    });
+    return inRange;
+  };
+
+  const groupInRange = (groupId, value) => {
+    let inRange = false;
+    sameCommodities.forEach((comm) => {
+      const th = getCommodityThresholds(comm).find((x) => x.parentGroupId === groupId && x.isGroupRoot);
+      if (th) {
+        const min = Number(th.min);
+        const max = Number(th.max);
+        if (value >= min && value <= max) inRange = true;
+      }
+    });
+    return inRange;
+  };
+
+  if (standaloneTests.length === 0 && groups.length === 0) {
+    return <p className="text-sm text-slate-400">No tests are configured for this commodity type.</p>;
+  }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
-      {uniqueTests.map(({ testName, testId }) => {
-        const test = tests.find((t) => t.id === testId);
-        const testValue = Number(ticketTests[testName]) || null;
-        const hasValue = testValue !== null && ticketTests[testName] !== "";
-        let isInRangeForAnyCommodity = false;
-        if (hasValue) {
-          sameCommodities.forEach((comm) => {
-            const threshold = (comm.testThresholds || []).find((t) => t.testName === testName);
-            if (threshold) {
-              const min = Number(threshold.min);
-              const max = Number(threshold.max);
-              if (testValue >= min && testValue <= max) isInRangeForAnyCommodity = true;
-            }
-          });
-        }
-        const isOutOfRange = hasValue && !isInRangeForAnyCommodity;
+    <div className="space-y-4">
+      {standaloneTests.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
+          {standaloneTests.map((t) => {
+            const raw = ticketTests[t.name];
+            const num = Number(raw);
+            const hasValue = raw !== "" && raw != null && !Number.isNaN(num);
+            const ok = hasValue && standaloneInRange(t.name, num);
+            const bad = hasValue && !ok;
+            return (
+              <TestInputCard
+                key={t.name}
+                label={t.name}
+                unit={unitFor(t)}
+                value={raw}
+                isCompleted={isCompleted}
+                onChange={(v) => setTest(t.name, v)}
+                state={ok ? "ok" : bad ? "bad" : "neutral"}
+                helperText={
+                  hasValue ? (
+                    ok ? (
+                      <span className="text-emerald-700">Valid for some commodities</span>
+                    ) : (
+                      <span className="text-red-700">Not valid for any commodity</span>
+                    )
+                  ) : null
+                }
+              />
+            );
+          })}
+        </div>
+      ) : null}
+
+      {groups.map((g) => {
+        const { total, hasValue } = sumGroupMembers(g.members, ticketTests);
+        const ok = hasValue && groupInRange(g.groupId, total);
+        const bad = hasValue && !ok;
         return (
-          <div
-            key={testName}
-            className={cn(
-              "rounded-md border p-2.5",
-              isOutOfRange ? "border-red-200 bg-red-50" : isInRangeForAnyCommodity ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white"
-            )}
-          >
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-              {testName} <span className="font-normal text-slate-400">({test?.unit || ""})</span>
-            </label>
-            <input
-              className={cn(
-                inputClass,
-                "text-sm",
-                isOutOfRange && "border-red-300",
-                isInRangeForAnyCommodity && "border-emerald-300"
-              )}
-              type="number"
-              step="0.01"
-              disabled={isCompleted}
-              placeholder="0.00"
-              value={ticketTests[testName] || ""}
-              onChange={(e) => setTest(testName, e.target.value)}
-            />
-            {hasValue ? (
-              <div className="mt-1.5 text-[10px] font-semibold">
-                {isInRangeForAnyCommodity ? (
-                  <span className="text-emerald-700">Valid for some commodities</span>
-                ) : (
-                  <span className="text-red-700">Not valid for any commodity</span>
-                )}
+          <div key={g.groupId} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                {g.name || "Group"}{" "}
+                <span className="font-normal normal-case text-slate-400">— sum of member tests</span>
               </div>
-            ) : null}
+              <div
+                className={cn(
+                  "rounded-md border px-3 py-1 text-sm font-semibold",
+                  bad
+                    ? "border-red-300 bg-red-50 text-red-700"
+                    : ok
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : "border-slate-300 bg-white text-slate-700"
+                )}
+              >
+                Total: {hasValue ? total : "—"}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
+              {g.members.map((m) => (
+                <TestInputCard
+                  key={m.name}
+                  label={m.name}
+                  unit={unitFor(m)}
+                  value={ticketTests[m.name]}
+                  isCompleted={isCompleted}
+                  onChange={(v) => setTest(m.name, v)}
+                  state="neutral"
+                />
+              ))}
+            </div>
           </div>
         );
       })}

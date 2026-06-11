@@ -58,8 +58,8 @@ function buildDraft(row) {
     description: row?.description ?? "",
     hsCode: row?.hsCode ?? "",
     pemsCode: row?.pemsCode ?? "",
-    status: row?.status ?? "",
-    unitType: row?.unitType ?? "",
+    status: row?.status ?? "Active",
+    unitType: row?.unitType ?? "t (Tonnes)",
     testThresholds: normaliseThresholds(row?.testThresholds),
     shrinkAmount: row?.shrinkAmount ?? "",
   };
@@ -341,8 +341,8 @@ export default function CommodityPage() {
   };
 
   const saveModal = async () => {
-    if (!String(draft.commodityCode ?? "").trim() || !String(draft.description ?? "").trim()) {
-      setError("Commodity Code and Description are required.");
+    if (!String(draft.commodityTypeId ?? "").trim() || !String(draft.commodityCode ?? "").trim() || !String(draft.description ?? "").trim()) {
+      setError("Commodity Type, Commodity Code, and Description are required.");
       return;
     }
 
@@ -505,7 +505,7 @@ export default function CommodityPage() {
           <FormField
             label="COMMODITY TYPE"
             wide={false}
-            required={false}
+            required
             disabled={isSaving}
             renderInput={() => (
               <select

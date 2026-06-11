@@ -31,6 +31,7 @@ function buildTestSlots(testRows) {
     key: row.name,
     code: toTestCode(row.name),
     value: `${row.value}${row.unit}`,
+    isGroupTotal: Boolean(row.isGroupTotal),
   }));
 }
 
@@ -149,10 +150,13 @@ function TicketCopy({ model }) {
                 className={cn(
                   "border-r border-slate-300 px-1 py-1 text-center",
                   index % 5 === 4 && "border-r-0",
-                  index >= 5 && "border-t border-slate-300"
+                  index >= 5 && "border-t border-slate-300",
+                  slot.isGroupTotal && "bg-slate-100"
                 )}
               >
-                <div className="text-[8px] font-bold uppercase text-slate-600">{slot.code}</div>
+                <div className="text-[8px] font-bold uppercase text-slate-600">
+                  {slot.isGroupTotal ? `Σ ${slot.code}` : slot.code}
+                </div>
                 <div className="text-[9.5px] font-semibold text-slate-900">{slot.value}</div>
               </div>
               ))}

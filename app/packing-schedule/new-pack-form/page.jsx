@@ -34,7 +34,7 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData } from "@/lib/api/packing";
+import { getPackFormData, fetchPackers, activePackerNames } from "@/lib/api/packing";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -279,15 +279,16 @@ function createDraftContainer(pack, index, existing = {}) {
     transporter: existing.transporter ?? "",
     emptyContainerParkId: existing.emptyContainerParkId ?? (hasExistingRelease ? "" : (firstRelease?.emptyContainerParkId ?? "")),
     transporterId: existing.transporterId ?? (hasExistingRelease ? "" : (firstRelease?.transporterId ?? "")),
-    startDate: existing.startDate ?? pack.packingStartDate ?? "",
+    startDate: existing.startDate ?? pack.packingStartDate ?? new Date().toISOString().slice(0, 10),
     startHour: existing.startHour ?? "",
     startMinute: existing.startMinute ?? "",
     grainLocation: existing.grainLocation ?? "",
     stockBayId: existing.stockBayId ?? "",
-    tare: existing.tare ?? "",
-    grossWeight: existing.grossWeight ?? "",
-    nettWeight: existing.nettWeight ?? "",
-    containerTareWeight: existing.containerTareWeight ?? "",
+    packer: existing.packer ?? "",
+    tare: existing.tare != null && existing.tare !== "" ? existing.tare : null,
+    grossWeight: existing.grossWeight != null && existing.grossWeight !== "" ? existing.grossWeight : null,
+    nettWeight: existing.nettWeight != null && existing.nettWeight !== "" ? existing.nettWeight : null,
+    containerTareWeight: existing.containerTareWeight != null && existing.containerTareWeight !== "" ? existing.containerTareWeight : null,
     emptyInspection: existing.emptyInspection ?? "Pending",
     grainInspection: existing.grainInspection ?? "Pending",
     packerSignoff: existing.packerSignoff ?? "",
@@ -373,6 +374,32 @@ function toFileEntries(fileList) {
     type: file.type,
     file,
   }));
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function resolveFileItemsForSave(items) {
+  const normalized = normalizePackAttachmentFiles(items);
+  return Promise.all(
+    normalized.map(async (item) => {
+      if (item.file instanceof File && !item.url) {
+        try {
+          const url = await readFileAsDataUrl(item.file);
+          return { ...item, url };
+        } catch {
+          return item;
+        }
+      }
+      return item;
+    })
+  );
 }
 
 function rowToPack(row, siteId, customerOpts, commodityOpts) {
@@ -702,9 +729,10 @@ function NewPackFormPageInner() {
   const [releaseOptions, setReleaseOptions] = useState([]);
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
   const packerNames = useMemo(
-    () => packerOptions.filter((row) => String(row.status ?? "active").toLowerCase() === "active").map((row) => row.name),
+    () => activePackerNames(packerOptions),
     [packerOptions]
   );
+  const packerSelectOptions = packerNames;
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
@@ -737,6 +765,7 @@ function NewPackFormPageInner() {
     (async () => {
       try {
         const data = await getPackFormData();
+        const referencePackers = await fetchPackers().catch(() => []);
         if (cancelled) return;
         const customers = Array.isArray(data?.customers) ? data.customers : [];
         const commodities = Array.isArray(data?.commodities) ? data.commodities.filter((c) => c.status !== "Inactive") : [];
@@ -745,7 +774,7 @@ function NewPackFormPageInner() {
         const parks = Array.isArray(data?.containerParks) ? data.containerParks : [];
         const trs = Array.isArray(data?.transporters) ? data.transporters : [];
         const codes = Array.isArray(data?.containerCodes) ? data.containerCodes : [];
-        const packers = Array.isArray(data?.packers) ? data.packers : [];
+        const packers = referencePackers.length ? referencePackers : Array.isArray(data?.packers) ? data.packers : [];
         const terminals = Array.isArray(data?.terminals) ? data.terminals : [];
         const voyages = Array.isArray(data?.vesselVoyages) ? data.vesselVoyages : [];
         const countries = Array.isArray(data?.countries) ? data.countries : [];
@@ -1581,6 +1610,18 @@ function NewPackFormPageInner() {
   }, [sampleEntries.length]);
 
   const save = async () => {
+    const [
+      resolvedImportPermitFiles,
+      resolvedAdditionalDeclarationFiles,
+      resolvedRfpFiles,
+      resolvedPackingInstructionFiles,
+    ] = await Promise.all([
+      resolveFileItemsForSave(pack.importPermitFiles),
+      resolveFileItemsForSave(pack.additionalDeclarationFiles),
+      resolveFileItemsForSave(pack.rfpFiles),
+      resolveFileItemsForSave(pack.packingInstructionFiles),
+    ]);
+
     const normalized = {
       ...pack,
       customerId: pack.customerId || null,
@@ -1613,10 +1654,10 @@ function NewPackFormPageInner() {
           notes: String(entry.notes || "").trim(),
         }))
         .filter((entry) => entry.sampleLocation || entry.sampleSentDate || entry.status || entry.notes),
-      importPermitFiles: normalizeFileItems(pack.importPermitFiles),
-      additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
-      rfpFiles: normalizeFileItems(pack.rfpFiles),
-      packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
+      importPermitFiles: resolvedImportPermitFiles,
+      additionalDeclarationFiles: resolvedAdditionalDeclarationFiles,
+      rfpFiles: resolvedRfpFiles,
+      packingInstructionFiles: resolvedPackingInstructionFiles,
     };
     setSaveError("");
     try {
@@ -4134,6 +4175,7 @@ function NewPackFormPageInner() {
                     container={selectedEditContainer}
                     onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
                     packerNames={packerNames}
+                    packerSelectOptions={packerSelectOptions}
                     yesNoOptions={YES_NO_OPTIONS}
                     inspectionOptions={INSPECTION_OPTIONS}
                     praTemplateOptions={PRA_TEMPLATE_OPTIONS}

@@ -39,7 +39,7 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData, updateContainer } from "@/lib/api/packing";
+import { getPackFormData, updateContainer, fetchUsersForSelect, fetchStockLocations, fetchPackers, activePackerNames } from "@/lib/api/packing";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
@@ -186,6 +186,7 @@ function attachmentCanQuickLook(item) {
   if (!u) return false;
   if (/^https?:\/\//i.test(u)) return true;
   if (u.startsWith("/")) return true;
+  if (u.startsWith("data:")) return true;
   return false;
 }
 
@@ -194,6 +195,7 @@ function resolvePackAttachmentViewUrl(item) {
   const u = typeof item?.url === "string" ? item.url.trim() : "";
   if (!u) return null;
   if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith("data:")) return u;
   if (typeof window !== "undefined" && u.startsWith("/")) {
     try {
       return new URL(u, window.location.origin).href;
@@ -258,7 +260,7 @@ function packContainerFromWorkContainer(container, packRow) {
     startHour: container.startHour || "",
     startMinute: container.startMinute || "",
     stockBayId: container.stockBayId || "",
-    grainLocation: container.grainLocation || "",
+    packer: container.packer || "",
     // Weights
     tare: container.tare ?? null,
     grossWeight: container.grossWeight ?? null,
@@ -323,10 +325,12 @@ export default function PackDetailClient({ packId }) {
   const [lookups, setLookups] = useState({});
   const previewRevokeRef = useRef(null);
 
-  const packerNames = useMemo(
-    () => (lookups.packers || []).filter((p) => String(p.status ?? "active").toLowerCase() === "active").map((p) => p.name),
-    [lookups]
-  );
+  const packerNames = useMemo(() => {
+    const fromUsers = (lookups.users || []).map((u) => u.name).filter(Boolean);
+    if (fromUsers.length) return fromUsers;
+    return activePackerNames(lookups.packers);
+  }, [lookups.users, lookups.packers]);
+  const packerSelectOptions = useMemo(() => activePackerNames(lookups.referencePackers), [lookups.referencePackers]);
   const packReleases = useMemo(
     () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -344,6 +348,14 @@ export default function PackDetailClient({ packId }) {
     () => (lookups.transporters || []).map((t) => ({ id: t.id, name: t.name ?? "" })),
     [lookups.transporters]
   );
+  const stockLocationNames = useMemo(
+    () => (lookups.stockLocations || []).map((s) => s.name).filter(Boolean),
+    [lookups.stockLocations]
+  );
+  const isoOptions = useMemo(
+    () => (lookups.containerCodes || []).map((c) => c.iso_code ?? c.isoCode).filter(Boolean),
+    [lookups.containerCodes]
+  );
   const contactUsers = useMemo(() => loadContactUsers(), []);
   const authorisedOfficers = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
   const aoNumberByName = useMemo(() => {
@@ -359,10 +371,17 @@ export default function PackDetailClient({ packId }) {
 
   useEffect(() => {
     if (!packId) return;
-    Promise.all([fetchPack(packId), getPackFormData().catch(() => ({}))]).then(([row, fd]) => {
-      setLookups(fd || {});
+    Promise.all([
+      fetchPack(packId),
+      getPackFormData().catch(() => ({})),
+      fetchUsersForSelect().catch(() => []),
+      fetchStockLocations().catch(() => []),
+      fetchPackers().catch(() => []),
+    ]).then(([row, fd, users, stockLocations, referencePackers]) => {
+      const mergedLookups = { ...(fd || {}), users, stockLocations, referencePackers };
+      setLookups(mergedLookups);
       setPackRow(row || null);
-      if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, fd || {}));
+      if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, mergedLookups));
     }).catch(() => {});
   }, [packId]);
 
@@ -469,9 +488,10 @@ export default function PackDetailClient({ packId }) {
       containers: current.containers.map((container) => {
         if (container.id !== containerId) return container;
         const next = typeof patch === "function" ? patch(container) : { ...container, ...patch };
-        const tare = toRoundedNumber(next.tare);
-        const grossWeight = toRoundedNumber(next.grossWeight);
-        const normalized = { ...next, tare, grossWeight, nettWeight: toRoundedNumber(Math.max(grossWeight - tare, 0)) };
+        const tare = next.tare != null && next.tare !== "" ? toRoundedNumber(next.tare) : null;
+        const grossWeight = next.grossWeight != null && next.grossWeight !== "" ? toRoundedNumber(next.grossWeight) : null;
+        const nettWeight = tare != null && grossWeight != null ? toRoundedNumber(Math.max(grossWeight - tare, 0)) : null;
+        const normalized = { ...next, tare, grossWeight, nettWeight };
         return { ...normalized, status: containerStage(normalized) };
       }),
     }));
@@ -784,6 +804,10 @@ export default function PackDetailClient({ packId }) {
   const permitDateLine = packRow.importPermitDate ? formatDateDisplay(packRow.importPermitDate) : "";
   const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
   const packingNoteText = String(packRow.jobNotes || packRow.packingNote || "").trim();
+  const packWarningText =
+    packRow.packWarningRequired && String(packRow.packWarning || "").trim()
+      ? String(packRow.packWarning).trim()
+      : "";
   const missingChecks = selectedContainer
     ? [
         selectedContainer.packerSignoff ? null : "Packer signoff",
@@ -840,6 +864,16 @@ export default function PackDetailClient({ packId }) {
           <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-amber-950">
             {safeValue(packRow.jobNotes || packRow.packingNote)}
           </p>
+          {packWarningText ? (
+            <>
+              <div className="border-t border-rose-300/70 bg-rose-100/60 px-3 py-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-rose-900">Pack warning</p>
+              </div>
+              <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-rose-950">
+                {packWarningText}
+              </p>
+            </>
+          ) : null}
         </div>
         <div
           id="pack-prepack-review"
@@ -1100,6 +1134,14 @@ export default function PackDetailClient({ packId }) {
                   </span>
                   <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-amber-950">{safeValue(packingNoteText)}</p>
                 </div>
+                {packWarningText ? (
+                  <div className="mt-2 flex flex-wrap items-start gap-2 border-t border-rose-300/60 pt-2">
+                    <span className="shrink-0 rounded-md bg-rose-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-950 ring-1 ring-rose-300/60">
+                      Pack warning
+                    </span>
+                    <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm font-medium leading-snug text-rose-950">{packWarningText}</p>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -1107,12 +1149,13 @@ export default function PackDetailClient({ packId }) {
               container={selectedContainer}
               onChange={updateSelectedContainer}
               packerNames={packerNames}
+              packerSelectOptions={packerSelectOptions}
               yesNoOptions={YES_NO_OPTIONS}
               inspectionOptions={INSPECTION_OPTIONS}
               praTemplateOptions={PRA_TEMPLATE_OPTIONS}
               praStatusOptions={PRA_STATUS_OPTIONS}
-              isoOptions={["22G1", "42G1", "45G1", "L5G1"]}
-              stockBayOptions={["Silo 1", "Silo 2", "Silo 3", "Bay 12", "Shed C"]}
+              isoOptions={isoOptions}
+              stockBayOptions={stockLocationNames}
               inputClass={inputClass}
               sectionCardClass={sectionCardClass}
               sectionHeaderClass={sectionHeaderClass}

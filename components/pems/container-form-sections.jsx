@@ -12,7 +12,7 @@ const defaultFieldNames = {
   startHour: "startHour",
   startMinute: "startMinute",
   stockBayId: "stockBayId",
-  grainLocation: "grainLocation",
+  packer: "packer",
   tare: "tare",
   grossWeight: "grossWeight",
   nettWeight: "nettWeight",
@@ -48,6 +48,7 @@ export default function ContainerFormSections({
   container,
   onChange,
   packerNames,
+  packerSelectOptions,
   yesNoOptions,
   inspectionOptions,
   inspectionLevelOptions = ["Consumable", "Standard"],
@@ -73,6 +74,7 @@ export default function ContainerFormSections({
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
   const submitted = Boolean(getValue(container, names, "praSubmitted", false));
+  const packerOptions = packerSelectOptions ?? packerNames ?? [];
 
   function handleReleaseSelect(releaseRef) {
     const release = packReleases.find((r) => r.releaseRef === releaseRef);
@@ -149,7 +151,7 @@ export default function ContainerFormSections({
             </div>
           </div>
           <PemsSelect label="Stock/Bay ID" value={getValue(container, names, "stockBayId")} options={stockBayOptions} onChange={(value) => setField("stockBayId", value)} inputClass={inputClass} />
-          <PemsInput label="Grain location" value={getValue(container, names, "grainLocation")} onChange={(value) => setField("grainLocation", value)} inputClass={inputClass} />
+          <PemsSelect label="Packer" value={getValue(container, names, "packer")} options={packerOptions} onChange={(value) => setField("packer", value)} inputClass={inputClass} />
         </div>
       </div>
 
@@ -193,46 +195,38 @@ export default function ContainerFormSections({
           ) : (
             <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} />
           )}
-          {containerParkOptions.length > 0 ? (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
-              <select
-                suppressHydrationWarning
-                className={cn(inputClass, "block w-full")}
-                value={String(container?.emptyContainerParkId ?? "")}
-                onChange={(e) => handleParkSelect(e.target.value)}
-              >
-                <option value="">- Select park -</option>
-                {containerParkOptions.map((park) => (
-                  <option key={park.id} value={park.id}>
-                    {park.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <PemsInput label="Container Park" value={getValue(container, names, "releasePark")} onChange={(value) => setField("releasePark", value)} inputClass={inputClass} />
-          )}
-          {transporterOptions.length > 0 ? (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-600">Transporter</label>
-              <select
-                suppressHydrationWarning
-                className={cn(inputClass, "block w-full")}
-                value={String(container?.transporterId ?? "")}
-                onChange={(e) => handleTransporterSelect(e.target.value)}
-              >
-                <option value="">- Select transporter -</option>
-                {transporterOptions.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <PemsInput label="Transporter" value={getValue(container, names, "transporter")} onChange={(value) => setField("transporter", value)} inputClass={inputClass} />
-          )}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
+            <select
+              suppressHydrationWarning
+              className={cn(inputClass, "block w-full")}
+              value={String(container?.emptyContainerParkId ?? "")}
+              onChange={(e) => handleParkSelect(e.target.value)}
+            >
+              <option value="">- Select park -</option>
+              {containerParkOptions.map((park) => (
+                <option key={park.id} value={park.id}>
+                  {park.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-600">Transporter</label>
+            <select
+              suppressHydrationWarning
+              className={cn(inputClass, "block w-full")}
+              value={String(container?.transporterId ?? "")}
+              onChange={(e) => handleTransporterSelect(e.target.value)}
+            >
+              <option value="">- Select transporter -</option>
+              {transporterOptions.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

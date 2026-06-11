@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ALL_SECTIONS, SECTION_LABELS, collectReportData, getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
+import { ALL_SECTIONS, SECTION_LABELS, collectReportData, fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
 import { Button } from "@/components/ui/button";
 import { CommodityMultiSelect } from "@/components/reports/commodity-multi-select";
 import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
@@ -19,11 +19,20 @@ const PRESETS = [
   { key: "last7", label: "Last 7 days" },
   { key: "monthToDate", label: "Month-to-date" },
   { key: "lastMonth", label: "Last month" },
+  { key: "lastQuarter", label: "Last quarter" },
+  { key: "yearToDate", label: "Year-to-date" },
+  { key: "lastYear", label: "Last year" },
+  { key: "allTime", label: "All time" },
 ];
 
 export function AdHocBuilder({ onRanComplete }) {
-  const customers = useMemo(() => getCustomerDirectory(), []);
-  const commodities = useMemo(() => getCommodityDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+  const [commodities, setCommodities] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+    fetchCommodityDirectory().then(setCommodities);
+  }, []);
 
   const [dateRange, setDateRange] = useState(() => adHocPreset("yesterday"));
   const [activePreset, setActivePreset] = useState("yesterday");

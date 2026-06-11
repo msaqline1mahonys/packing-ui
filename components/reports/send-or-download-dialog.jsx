@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RecipientPicker } from "@/components/reports/recipient-picker";
 import { appendHistory, getCurrentUserEmail } from "@/lib/reports-store";
 import { buildCustomerBundle, buildMultiBundle, downloadBlob } from "@/lib/reports-csv";
-import { collectReportData, getCustomerDirectory } from "@/lib/reports-data";
+import { collectReportData, fetchCustomerDirectory } from "@/lib/reports-data";
 
 function getAuthToken() {
   if (typeof window === "undefined") return null;
@@ -24,7 +24,11 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const replyTo = useMemo(() => getCurrentUserEmail(), []);
-  const customers = useMemo(() => getCustomerDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+  }, []);
 
   useEffect(() => {
     if (!open) {

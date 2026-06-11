@@ -3,13 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CADENCE_LABELS } from "@/lib/reports-windows";
-import { ALL_SECTIONS, SECTION_LABELS, getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
+import { ALL_SECTIONS, SECTION_LABELS, fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
 import { getHistoryEntry } from "@/lib/reports-store";
 
 export default function PreviewClient({ runId }) {
   const [entry, setEntry] = useState(undefined);
-  const customers = useMemo(() => getCustomerDirectory(), []);
-  const commodities = useMemo(() => getCommodityDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+  const [commodities, setCommodities] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+    fetchCommodityDirectory().then(setCommodities);
+  }, []);
 
   useEffect(() => {
     setEntry(getHistoryEntry(runId));

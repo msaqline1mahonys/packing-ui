@@ -3,15 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CADENCE_LABELS } from "@/lib/reports-windows";
-import { getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
+import { fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
 import { Button } from "@/components/ui/button";
 import { CommodityMultiSelect } from "@/components/reports/commodity-multi-select";
 import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
 import { RecipientPicker } from "@/components/reports/recipient-picker";
 
 export function SubscriptionForm({ open, cadence, initial, onCancel, onSave }) {
-  const customers = useMemo(() => getCustomerDirectory(), []);
-  const commodities = useMemo(() => getCommodityDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+  const [commodities, setCommodities] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+    fetchCommodityDirectory().then(setCommodities);
+  }, []);
 
   const allCustomerIds = useMemo(() => customers.map((c) => Number(c.id)), [customers]);
 

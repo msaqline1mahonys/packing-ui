@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { CADENCE_LABELS } from "@/lib/reports-windows";
-import { getCustomerDirectory } from "@/lib/reports-data";
+import { fetchCustomerDirectory } from "@/lib/reports-data";
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES = {
@@ -20,7 +20,12 @@ const DELIVERY_LABELS = {
 };
 
 export function HistoryTable({ rows }) {
-  const customers = useMemo(() => getCustomerDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+  }, []);
+
   const customerById = useMemo(() => new Map(customers.map((c) => [Number(c.id), c])), [customers]);
 
   if (!rows || rows.length === 0) {

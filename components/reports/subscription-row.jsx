@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { getCommodityDirectory, getCustomerDirectory } from "@/lib/reports-data";
+import { fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
 import { cn } from "@/lib/utils";
 
 export function SubscriptionRow({ subscription, onEdit, onDelete, onToggle }) {
-  const customers = useMemo(() => getCustomerDirectory(), []);
-  const commodities = useMemo(() => getCommodityDirectory(), []);
+  const [customers, setCustomers] = useState([]);
+  const [commodities, setCommodities] = useState([]);
+
+  useEffect(() => {
+    fetchCustomerDirectory().then(setCustomers);
+    fetchCommodityDirectory().then(setCommodities);
+  }, []);
 
   // Support both new customerIds[] and legacy single customerId
   const customerIds = useMemo(() => {

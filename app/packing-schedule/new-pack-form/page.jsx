@@ -260,6 +260,9 @@ function defaultIsoForContainerCode(containerCode) {
 
 function createDraftContainer(pack, index, existing = {}) {
   const order = index + 1;
+  // Pre-fill release details from the pack's first release when the container has none set
+  const firstRelease = Array.isArray(pack.releaseDetails) ? pack.releaseDetails[0] : null;
+  const hasExistingRelease = existing.releaseNumber || existing.emptyContainerParkId || existing.transporterId;
   return {
     id: existing.id || `container-${order}`,
     packId: existing.packId ?? pack.id ?? null,
@@ -273,11 +276,11 @@ function createDraftContainer(pack, index, existing = {}) {
       pack.containerCode ||
       "",
     sealNumber: existing.sealNumber ?? existing.sealNo ?? "",
-    releaseNumber: existing.releaseNumber ?? "",
+    releaseNumber: existing.releaseNumber ?? (hasExistingRelease ? "" : (firstRelease?.releaseRef ?? "")),
     releasePark: existing.releasePark ?? "",
     transporter: existing.transporter ?? "",
-    emptyContainerParkId: existing.emptyContainerParkId ?? "",
-    transporterId: existing.transporterId ?? "",
+    emptyContainerParkId: existing.emptyContainerParkId ?? (hasExistingRelease ? "" : (firstRelease?.emptyContainerParkId ?? "")),
+    transporterId: existing.transporterId ?? (hasExistingRelease ? "" : (firstRelease?.transporterId ?? "")),
     startDate: existing.startDate ?? pack.packingStartDate ?? "",
     startHour: existing.startHour ?? "",
     startMinute: existing.startMinute ?? "",
@@ -398,7 +401,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     row.customer_id ?? row.customerId ??
     customers.find((c) => c.name === row.customer)?.id ?? "";
   const resolvedExporterId =
-    row.exporter_id ??
+    row.exporter_id ?? row.exporterId ??
     (typeof row.exporter === "string" ? customers.find((c) => c.name === row.exporter)?.id ?? "" : row.exporter ?? "");
   const resolvedCommodityId =
     row.commodity_id ?? row.commodityId ??
@@ -407,7 +410,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     row.commodity_type_id ?? row.commodityTypeId ??
     commodities.find((c) => c.id === resolvedCommodityId)?.commodity_type_id ??
     commodities.find((c) => c.description === row.commodity)?.commodityTypeId ?? "";
-  const resolvedVesselVoyageId = row.vessel_voyage_id ?? row.vesselDepartureId ?? null;
+  const resolvedVesselVoyageId = row.vessel_voyage_id ?? row.vesselVoyageId ?? row.vesselDepartureId ?? null;
   const resolvedTerminalId = row.terminal_id ?? row.terminalId ?? "";
   const resolvedShippingLineId = row.shipping_line_id ?? row.shippingLineId ?? "";
   return {
@@ -459,7 +462,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     fumigatorAccreditationNumber: (row.fumigator_accreditation_number ?? row.fumigatorAccreditationNumber) || "",
     vesselDepartureId: resolvedVesselVoyageId,
     vesselName: row.vessel_voyage?.vessel?.vessel_name ?? row.vesselVoyage?.vessel?.vesselName ?? row.vessel ?? "",
-    packingStartDate: (row.packing_start_date ?? row.packingStartDate) || "",
+    packingStartDate: toDateInputValue(row.packing_start_date ?? row.packingStartDate),
     packConfirmed: Boolean(row.pack_confirmed ?? row.packConfirmed),
     voyageNumber: (row.voyage_number ?? row.voyageNumber) || "",
     lloydId: (row.lloyd_id ?? row.lloydId) || "",
@@ -1496,6 +1499,10 @@ function NewPackFormPageInner() {
     transporterOptions,
   ]);
 
+  // Fetch the pack once when entering edit mode. customerOptions/commodityOptions are intentionally
+  // excluded from deps — entity IDs are now preserved by normalizePack so the form does not need to
+  // re-derive them from name lookups when options finish loading (which would reset user edits).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (mode !== "edit" || !editId) return;
     let cancelled = false;
@@ -1505,7 +1512,8 @@ function NewPackFormPageInner() {
       setPack(rowToPack(row, currentSite, customerOptions, commodityOptions));
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [mode, editId, currentSite, customerOptions, commodityOptions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, editId, currentSite]);
 
   useEffect(() => {
     if (mode !== "add") return;
@@ -4135,6 +4143,9 @@ function NewPackFormPageInner() {
                       sealNo: "sealNumber",
                       isoCode: "containerIsoCode",
                     }}
+                    packReleases={Array.isArray(pack.releaseDetails) ? pack.releaseDetails : []}
+                    containerParkOptions={containerParkOptions}
+                    transporterOptions={transporterOptions}
                     onResetContainer={selectedEditContainerActions?.onResetContainer}
                     onMarkPacked={selectedEditContainerActions?.onMarkPacked}
                     onSubmitPra={selectedEditContainerActions?.onSubmitPra}

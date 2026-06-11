@@ -39,7 +39,7 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData } from "@/lib/api/packing";
+import { getPackFormData, updateContainer } from "@/lib/api/packing";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
@@ -247,37 +247,55 @@ function packContainerFromWorkContainer(container, packRow) {
     id: container.id,
     packId: packRow.id,
     order: container.order,
+    // Planning
     containerNumber: container.containerNo || "",
     containerCode: packRow.containerCode || "",
     containerIsoCode: container.isoCode || "",
     sealNumber: container.sealNo || "",
     releaseNumber: container.releaseNumber || "",
-    releasePark: container.releasePark || "",
-    transporter: container.transporter || "",
-    grainLocation: container.grainLocation || "",
-    stockBayId: container.stockBayId || "",
+    // Packing Order
     startDate: container.startDate || "",
     startHour: container.startHour || "",
     startMinute: container.startMinute || "",
+    stockBayId: container.stockBayId || "",
+    grainLocation: container.grainLocation || "",
+    // Weights
     tare: container.tare ?? null,
     grossWeight: container.grossWeight ?? null,
     nettWeight: container.nettWeight ?? null,
     containerTareWeight: container.containerTareWeight ?? null,
+    // Release Details — store both display names and FK IDs
+    emptyContainerParkId: container.emptyContainerParkId ?? null,
+    transporterId: container.transporterId ?? null,
+    releasePark: container.releasePark || "",
+    transporter: container.transporter || "",
+    // Signoff
     packerSignoff: container.packerSignoff || "",
     outLoaded: container.outLoaded || "No",
+    praSignoff: container.praSignoff || "",
+    praTemplate: container.praTemplate || "",
     praSubmitted: Boolean(container.praSubmitted),
+    // 1-Stop PRA Info
     praLastStatus: container.praLastStatus || "Pending",
+    praLastSubmittedTime: container.praLastSubmittedTime || "",
+    praLastError: container.praLastError || "",
+    // AO Inspection
     emptyInspection: container.emptyInspection || "Pending",
     grainInspection: container.grainInspection || "Pending",
+    inspectionLevelCode: container.inspectionLevelCode || "Consumable",
+    passedAfterRectification: container.passedAfterRectification || "N",
+    inspectionRemarkCode: container.inspectionRemarkCode || "",
     aoSignoff: container.aoSignoff || "",
+    aoInspectionRemark: getContainerInspectionRemark(container),
+    // Packers note
+    packerNotes: container.packerNotes || "",
+    // ECR / GPPIR tracking
     ecrSubmitted: Boolean(container.ecrSubmitted ?? container.pemsSubmitted),
     ecrLastSubmittedAt: container.ecrLastSubmittedAt || container.pemsLastSubmittedAt || "",
     ecrLastBatchId: container.ecrLastBatchId || container.pemsLastBatchId || "",
     gppirSubmitted: Boolean(container.gppirSubmitted),
     gppirLastSubmittedAt: container.gppirLastSubmittedAt || "",
     gppirLastBatchId: container.gppirLastBatchId || "",
-    aoInspectionRemark: getContainerInspectionRemark(container),
-    packerNotes: container.packerNotes || "",
     status: containerStage(container),
   };
 }
@@ -299,6 +317,8 @@ export default function PackDetailClient({ packId }) {
   const [containerSearch, setContainerSearch] = useState("");
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
+  const [isSavingContainer, setIsSavingContainer] = useState(false);
+  const [containerSaveStatus, setContainerSaveStatus] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [lookups, setLookups] = useState({});
   const previewRevokeRef = useRef(null);
@@ -306,6 +326,23 @@ export default function PackDetailClient({ packId }) {
   const packerNames = useMemo(
     () => (lookups.packers || []).filter((p) => String(p.status ?? "active").toLowerCase() === "active").map((p) => p.name),
     [lookups]
+  );
+  const packReleases = useMemo(
+    () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [packRow?.releaseDetails]
+  );
+  const containerParkOptions = useMemo(() => {
+    const allParks = (lookups.containerParks || []).map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" }));
+    // Limit to parks actually set on this pack's releases
+    const releaseParks = new Set(
+      packReleases.map((r) => String(r.emptyContainerParkId ?? "")).filter(Boolean)
+    );
+    return releaseParks.size > 0 ? allParks.filter((p) => releaseParks.has(String(p.id))) : allParks;
+  }, [lookups.containerParks, packReleases]);
+  const transporterLookupOptions = useMemo(
+    () => (lookups.transporters || []).map((t) => ({ id: t.id, name: t.name ?? "" })),
+    [lookups.transporters]
   );
   const contactUsers = useMemo(() => loadContactUsers(), []);
   const authorisedOfficers = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
@@ -331,12 +368,7 @@ export default function PackDetailClient({ packId }) {
 
   useEffect(() => {
     saveWorkDrafts(workByPack);
-    if (!packRow || !workByPack[packRow.id]) return;
-    const draft = workByPack[packRow.id];
-    const containers = (draft.containers || []).map((container) => packContainerFromWorkContainer(container, packRow));
-    const pemsSubmissions = Array.isArray(draft.pemsSubmissions) ? draft.pemsSubmissions : [];
-    savePack({ ...packRow, containers, pemsSubmissions }).catch(() => {});
-  }, [workByPack, packRow]);
+  }, [workByPack]);
 
   const selectedPackDraft = packRow ? workByPack[packRow.id] : null;
   const containerRows = selectedPackDraft?.containers || [];
@@ -392,6 +424,33 @@ export default function PackDetailClient({ packId }) {
     const complete = selectedPackDraft.containers.filter((container) => containerStage(container) === "Complete").length;
     return { total, submitted, complete };
   }, [packRow, selectedPackDraft]);
+
+  // These must be declared before any early return to satisfy Rules of Hooks
+  const packAttachments = useMemo(() => (packRow ? collectPackAttachments(packRow) : []), [packRow]);
+  const releaseRefsSummary = useMemo(() => {
+    const refs = Array.from(
+      new Set(
+        (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : [])
+          .map((release) => String(release?.releaseRef || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (!refs.length) return "—";
+    return refs.join(", ");
+  }, [packRow?.releaseDetails]);
+  const aggregateNettWeight = useMemo(() => {
+    const total = (selectedPackDraft?.containers || []).reduce((sum, container) => {
+      const nett = Number(container?.nettWeight);
+      return Number.isFinite(nett) ? sum + nett : sum;
+    }, 0);
+    return toRoundedNumber(total);
+  }, [selectedPackDraft?.containers]);
+  const weightPerContainer = useMemo(() => {
+    const total = Number(packRow?.mtTotal);
+    const count = Number(packRow?.containersRequired);
+    if (!Number.isFinite(total) || !Number.isFinite(count) || count <= 0) return null;
+    return toRoundedNumber(total / count);
+  }, [packRow?.mtTotal, packRow?.containersRequired]);
 
   function updateSelectedPack(updater) {
     if (!packRow) return;
@@ -687,6 +746,27 @@ export default function PackDetailClient({ packId }) {
     }).catch(() => {});
   }
 
+  async function saveSelectedContainer() {
+    if (!packRow || !selectedContainer) return;
+    setIsSavingContainer(true);
+    setContainerSaveStatus(null);
+    try {
+      // Strip id, packId, order — read-only on this endpoint
+      const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(selectedContainer, packRow);
+      const updated = await updateContainer(packRow.id, selectedContainer.id, payload);
+      // Merge server response (includes server-computed nettWeight) back into local state
+      if (updated?.id) {
+        updateContainerById(updated.id, updated);
+      }
+      setContainerSaveStatus("saved");
+    } catch (err) {
+      setContainerSaveStatus(err?.status === 404 ? "not-found" : "error");
+    } finally {
+      setIsSavingContainer(false);
+      setTimeout(() => setContainerSaveStatus(null), 3000);
+    }
+  }
+
   if (!packRow) {
     return (
       <div className="space-y-4">
@@ -700,35 +780,10 @@ export default function PackDetailClient({ packId }) {
     );
   }
 
-  const packAttachments = useMemo(() => collectPackAttachments(packRow), [packRow]);
   const permitNumberLine = String(packRow.importPermitNumber || "").trim();
   const permitDateLine = packRow.importPermitDate ? formatDateDisplay(packRow.importPermitDate) : "";
   const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
   const packingNoteText = String(packRow.jobNotes || packRow.packingNote || "").trim();
-  const releaseRefsSummary = useMemo(() => {
-    const refs = Array.from(
-      new Set(
-        (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : [])
-          .map((release) => String(release?.releaseRef || "").trim())
-          .filter(Boolean)
-      )
-    );
-    if (!refs.length) return "—";
-    return refs.join(", ");
-  }, [packRow?.releaseDetails]);
-  const aggregateNettWeight = useMemo(() => {
-    const total = (selectedPackDraft?.containers || []).reduce((sum, container) => {
-      const nett = Number(container?.nettWeight);
-      return Number.isFinite(nett) ? sum + nett : sum;
-    }, 0);
-    return toRoundedNumber(total);
-  }, [selectedPackDraft?.containers]);
-  const weightPerContainer = useMemo(() => {
-    const total = Number(packRow?.mtTotal);
-    const count = Number(packRow?.containersRequired);
-    if (!Number.isFinite(total) || !Number.isFinite(count) || count <= 0) return null;
-    return toRoundedNumber(total / count);
-  }, [packRow?.mtTotal, packRow?.containersRequired]);
   const missingChecks = selectedContainer
     ? [
         selectedContainer.packerSignoff ? null : "Packer signoff",
@@ -1062,10 +1117,32 @@ export default function PackDetailClient({ packId }) {
               sectionCardClass={sectionCardClass}
               sectionHeaderClass={sectionHeaderClass}
               showPackersNote
+              packReleases={packReleases}
+              containerParkOptions={containerParkOptions}
+              transporterOptions={transporterLookupOptions}
               onResetContainer={selectedContainerActions?.onResetContainer}
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                className="h-10 px-5 text-sm"
+                disabled={isSavingContainer}
+                onClick={saveSelectedContainer}
+              >
+                {isSavingContainer ? "Saving…" : "Save Container"}
+              </Button>
+              {containerSaveStatus === "saved" ? (
+                <span className="text-sm font-medium text-emerald-700">Container saved.</span>
+              ) : containerSaveStatus === "not-found" ? (
+                <span className="text-sm font-medium text-rose-700">Container not found — use Refresh to reload the pack.</span>
+              ) : containerSaveStatus === "error" ? (
+                <span className="text-sm font-medium text-rose-700">Save failed — check connection.</span>
+              ) : null}
+            </div>
 
             <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-rose-300 bg-rose-50 text-rose-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
               {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}

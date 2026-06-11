@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
+import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   computeTransactionTotals,
   fetchTransactions,
@@ -20,8 +22,8 @@ export default function AllTransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterType, setFilterType] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("active");
-  const [selectedDate, setSelectedDate] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
 
   const loadRows = useCallback(async () => {
@@ -30,7 +32,6 @@ export default function AllTransactionsPage() {
     try {
       const data = await fetchTransactions({
         ...(filterType !== "all" ? { type: filterType } : {}),
-        ...(selectedDate ? { date: selectedDate } : {}),
       });
       setRows(data);
     } catch (err) {
@@ -39,7 +40,7 @@ export default function AllTransactionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterType, selectedDate]);
+  }, [filterType]);
 
   useEffect(() => {
     loadRows();
@@ -48,7 +49,19 @@ export default function AllTransactionsPage() {
   // Live refresh: poll every 60s (paused when the tab is hidden).
   usePolling(loadRows, { intervalMs: 60000 });
 
-  const baseFiltered = useMemo(() => rows, [rows]);
+  const baseFiltered = useMemo(() => {
+    const [fromDate, toDate] = dateRange;
+    if (!fromDate && !toDate) return rows;
+    return rows.filter((t) => {
+      const raw = t.transactionDate ? String(t.transactionDate).slice(0, 10) : "";
+      if (!raw) return false;
+      const d = dayjs(raw, "YYYY-MM-DD");
+      if (!d.isValid()) return false;
+      if (fromDate && d.isBefore(fromDate, "day")) return false;
+      if (toDate && d.isAfter(toDate, "day")) return false;
+      return true;
+    });
+  }, [rows, dateRange]);
 
   const displayRows = useMemo(() => {
     return baseFiltered
@@ -100,12 +113,9 @@ export default function AllTransactionsPage() {
           <option value="adjusted">Adjusted</option>
           <option value="reversed">Reversed</option>
         </select>
-        <input suppressHydrationWarning type="date" className={cn(inputClass, "w-40")} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-        {selectedDate ? (
-          <button type="button" onClick={() => setSelectedDate("")} className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-200">
-            Clear Date
-          </button>
-        ) : null}
+        <div className="w-72">
+          <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
+        </div>
 
         <div className="ml-auto flex flex-wrap gap-4 text-xs">
           <span>

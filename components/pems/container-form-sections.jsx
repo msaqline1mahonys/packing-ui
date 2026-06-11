@@ -65,10 +65,55 @@ export default function ContainerFormSections({
   onMarkPacked,
   onSubmitPra,
   showPackersNote = false,
+  // Release Details dropdown options
+  packReleases = [],
+  containerParkOptions = [],
+  transporterOptions = [],
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
   const submitted = Boolean(getValue(container, names, "praSubmitted", false));
+
+  function handleReleaseSelect(releaseRef) {
+    const release = packReleases.find((r) => r.releaseRef === releaseRef);
+    if (release) {
+      const parkId = release.emptyContainerParkId ?? null;
+      const transId = release.transporterId ?? null;
+      const parkName =
+        containerParkOptions.find((p) => String(p.id) === String(parkId))?.name ||
+        release.emptyContainerPark?.name ||
+        "";
+      const transName =
+        transporterOptions.find((t) => String(t.id) === String(transId))?.name ||
+        release.transporter?.name ||
+        "";
+      onChange?.({
+        [names.releaseNumber || "releaseNumber"]: releaseRef,
+        emptyContainerParkId: parkId,
+        transporterId: transId,
+        [names.releasePark || "releasePark"]: parkName,
+        [names.transporter || "transporter"]: transName,
+      });
+    } else {
+      onChange?.({ [names.releaseNumber || "releaseNumber"]: releaseRef });
+    }
+  }
+
+  function handleParkSelect(parkId) {
+    const parkName = containerParkOptions.find((p) => String(p.id) === String(parkId))?.name || "";
+    onChange?.({
+      emptyContainerParkId: parkId || null,
+      [names.releasePark || "releasePark"]: parkName,
+    });
+  }
+
+  function handleTransporterSelect(transId) {
+    const transName = transporterOptions.find((t) => String(t.id) === String(transId))?.name || "";
+    onChange?.({
+      transporterId: transId || null,
+      [names.transporter || "transporter"]: transName,
+    });
+  }
 
   return (
     <>
@@ -128,9 +173,66 @@ export default function ContainerFormSections({
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Release Details</div>
         <div className="grid gap-3 p-3 md:grid-cols-3">
-          <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} />
-          <PemsInput label="Container Park" value={getValue(container, names, "releasePark")} onChange={(value) => setField("releasePark", value)} inputClass={inputClass} />
-          <PemsInput label="Transporter" value={getValue(container, names, "transporter")} onChange={(value) => setField("transporter", value)} inputClass={inputClass} />
+          {packReleases.length > 0 ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-600">Release Number</label>
+              <select
+                suppressHydrationWarning
+                className={cn(inputClass, "block w-full")}
+                value={getValue(container, names, "releaseNumber")}
+                onChange={(e) => handleReleaseSelect(e.target.value)}
+              >
+                <option value="">- Select release -</option>
+                {packReleases.map((r, idx) => (
+                  <option key={r.id ?? idx} value={r.releaseRef}>
+                    {r.releaseRef}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} />
+          )}
+          {containerParkOptions.length > 0 ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
+              <select
+                suppressHydrationWarning
+                className={cn(inputClass, "block w-full")}
+                value={String(container?.emptyContainerParkId ?? "")}
+                onChange={(e) => handleParkSelect(e.target.value)}
+              >
+                <option value="">- Select park -</option>
+                {containerParkOptions.map((park) => (
+                  <option key={park.id} value={park.id}>
+                    {park.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <PemsInput label="Container Park" value={getValue(container, names, "releasePark")} onChange={(value) => setField("releasePark", value)} inputClass={inputClass} />
+          )}
+          {transporterOptions.length > 0 ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-600">Transporter</label>
+              <select
+                suppressHydrationWarning
+                className={cn(inputClass, "block w-full")}
+                value={String(container?.transporterId ?? "")}
+                onChange={(e) => handleTransporterSelect(e.target.value)}
+              >
+                <option value="">- Select transporter -</option>
+                {transporterOptions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <PemsInput label="Transporter" value={getValue(container, names, "transporter")} onChange={(value) => setField("transporter", value)} inputClass={inputClass} />
+          )}
         </div>
       </div>
 

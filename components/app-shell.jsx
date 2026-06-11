@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
 import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
 
+import { SITE_CHANGED_EVENT } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
 
 const SHELL_BG =
@@ -21,7 +22,7 @@ function isPrintRoute(pathname) {
   );
 }
 
-function MainPanel({ children, compactTop = false }) {
+function MainPanel({ children, compactTop = false, contentKey = 0 }) {
   return (
     <main
       className={cn(
@@ -30,7 +31,9 @@ function MainPanel({ children, compactTop = false }) {
       )}
     >
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
-      <div className="relative">{children}</div>
+      <div key={contentKey} className="relative">
+        {children}
+      </div>
     </main>
   );
 }
@@ -41,6 +44,13 @@ function AppShellInner({ children }) {
   const authUser = useAuthNavUser();
   const { dock, isVertical, verticalExpanded } = useNavDock();
   const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
+  const [contentKey, setContentKey] = useState(0);
+
+  useEffect(() => {
+    const onSiteChanged = () => setContentKey((key) => key + 1);
+    window.addEventListener(SITE_CHANGED_EVENT, onSiteChanged);
+    return () => window.removeEventListener(SITE_CHANGED_EVENT, onSiteChanged);
+  }, []);
 
   useEffect(() => {
     const isAuthRoute = AUTH_ROUTES.some((r) => pathname.startsWith(r));
@@ -63,11 +73,15 @@ function AppShellInner({ children }) {
         {top ? (
           <>
             <ErpNavbar user={authUser ?? undefined} />
-            <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
+            <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+              {children}
+            </MainPanel>
           </>
         ) : (
           <>
-            <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
+            <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+              {children}
+            </MainPanel>
             <ErpNavbar user={authUser ?? undefined} />
           </>
         )}
@@ -84,7 +98,9 @@ function AppShellInner({ children }) {
             verticalExpanded ? "pe-14 md:pe-[17.25rem]" : "pe-14 md:pe-[4.5rem]"
           )}
         >
-          <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
+          <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+            {children}
+          </MainPanel>
         </div>
         <div className="fixed inset-y-0 right-0 z-40">
           <ErpNavbar user={authUser ?? undefined} />
@@ -101,7 +117,9 @@ function AppShellInner({ children }) {
           verticalExpanded ? "ps-14 md:ps-[17.25rem]" : "ps-14 md:ps-[4.5rem]"
         )}
       >
-        <MainPanel compactTop={compactMainTop}>{children}</MainPanel>
+        <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+          {children}
+        </MainPanel>
       </div>
       <div className="fixed inset-y-0 left-0 z-40">
         <ErpNavbar user={authUser ?? undefined} />

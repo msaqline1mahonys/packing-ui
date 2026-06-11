@@ -7,7 +7,6 @@
 import {
   CircleDollarSign,
   FileText,
-  FlaskConical,
   HelpCircle,
   LayoutDashboard,
   Package,
@@ -43,6 +42,7 @@ export const PACKING_NAV_MODULES = [
       { name: "Shipping details", href: "/shipping-details" },
       { name: "Contacts", href: "/contact" },
       { name: "Product settings", href: "/product-settings" },
+      { name: "Fumigation", href: "/fumigation" },
     ],
   },
   {
@@ -74,11 +74,6 @@ export const PACKING_NAV_MODULES = [
     name: "Accounting",
     href: "/accounting",
     icon: <CircleDollarSign className="size-5" strokeWidth={1.5} />,
-  },
-  {
-    name: "Fumigation",
-    href: "/fumigation",
-    icon: <FlaskConical className="size-5" strokeWidth={1.5} />,
   },
 ];
 

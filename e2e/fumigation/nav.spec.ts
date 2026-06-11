@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Fumigation navigation", () => {
-  test("fumigation overview page loads", async ({ page }) => {
+  test("fumigation landing page loads", async ({ page }) => {
     await page.goto("/fumigation");
     await expect(page).not.toHaveURL(/error/);
-    await expect(page.getByText(/fumigation/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/choose a category above/i)).toBeVisible({ timeout: 10_000 });
   });
 
   test("fumigants management page loads", async ({ page }) => {

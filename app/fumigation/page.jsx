@@ -1,13 +1,10 @@
-import FumigationClient from "./fumigation-client";
-
 export default function FumigationPage() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Fumigation</h1>
-        <p className="mt-2 max-w-xl text-sm text-slate-600">Treatments, holds, and compliance checkpoints.</p>
-      </div>
-      <FumigationClient />
+    <div className="rounded-2xl border border-slate-200/90 bg-white/85 px-5 py-8 sm:px-8">
+      <p className="text-center text-sm text-slate-600">
+        Choose a category above to manage fumigation—fumigants, methodologies, certificate templates, and record
+        templates.
+      </p>
     </div>
   );
 }

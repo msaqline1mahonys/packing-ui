@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { cn } from "@/lib/utils";
@@ -138,6 +138,7 @@ function fromApiCustomer(row) {
     website: row.website ?? "",
     notes: row.notes ?? "",
     invoicingContact: row.invoicing_contact ?? row.invoicingContact ?? "",
+    isShrink: Boolean(row.is_shrink ?? row.isShrink ?? false),
     contacts,
     warnings,
     emailsCount: pluralize(emails.length, "email"),
@@ -268,6 +269,11 @@ export default function ContactCustomersPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
+  const selectedLocked = Boolean(selected?.isShrink);
+  const gridRows = useMemo(
+    () => rows.map((row) => (row.isShrink ? { ...row, name: `${row.name} — System (Shrink)` } : row)),
+    [rows]
+  );
   const modalError = modalOpen ? error : "";
 
   function openCreateModal() {
@@ -279,7 +285,7 @@ export default function ContactCustomersPage() {
   }
 
   function openEditModal() {
-    if (!selected) return;
+    if (!selected || selected.isShrink) return;
     setError("");
     setNotice("");
     setEditMode(true);
@@ -347,7 +353,7 @@ export default function ContactCustomersPage() {
   }
 
   async function removeSelected() {
-    if (!selected || isDeleting) return;
+    if (!selected || isDeleting || selected.isShrink) return;
     if (!window.confirm(`Delete customer "${selected.name}" permanently?`)) return;
 
     setIsDeleting(true);
@@ -417,10 +423,10 @@ export default function ContactCustomersPage() {
       <BtnSecondary type="button" onClick={loadCustomers} disabled={isLoading}>
         Refresh
       </BtnSecondary>
-      <BtnSecondary type="button" disabled={!selected || isLoading} onClick={openEditModal}>
+      <BtnSecondary type="button" disabled={!selected || isLoading || selectedLocked} onClick={openEditModal}>
         Edit
       </BtnSecondary>
-      <BtnDanger type="button" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
+      <BtnDanger type="button" disabled={!selected || isLoading || isDeleting || selectedLocked} onClick={removeSelected}>
         {isDeleting ? "Deleting…" : "Delete"}
       </BtnDanger>
     </div>
@@ -449,12 +455,12 @@ export default function ContactCustomersPage() {
           {isMobile ? (
             <>
               <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">{toolbarActions}</div>
-              <MobileList rows={rows} selectedId={selectedId} onSelect={setSelectedId} search="" isLoading={isLoading} />
+              <MobileList rows={gridRows} selectedId={selectedId} onSelect={setSelectedId} search="" isLoading={isLoading} />
             </>
           ) : (
             <Grid
               columns={gridColumns}
-              rows={rows}
+              rows={gridRows}
               getRowId={(row) => row.id}
               theme="light"
               density="standard"

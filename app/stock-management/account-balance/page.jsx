@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { fetchAccountBalances } from "@/lib/transactions-api";
+import { fetchAccountBalances, fetchShrinkAccounts } from "@/lib/transactions-api";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
@@ -96,6 +96,7 @@ const qtyColor = (q) => (q < 0 ? "text-red-600" : "text-emerald-600");
 
 export default function AccountBalancePage() {
   const [stockRows, setStockRows] = useState([]);
+  const [shrinkAccounts, setShrinkAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
@@ -127,11 +128,22 @@ export default function AccountBalancePage() {
     loadBalances();
   }, [loadBalances]);
 
+  useEffect(() => {
+    fetchShrinkAccounts()
+      .then((accts) => setShrinkAccounts(accts))
+      .catch(() => setShrinkAccounts([]));
+  }, []);
+
   const accounts = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => map.set(r.accountKey, { key: r.accountKey, name: r.accountName }));
-    return Array.from(map.values());
-  }, [stockRows]);
+    // Always surface the Shrinkage account so its balance can be viewed even
+    // before any shrink transactions appear in the balance data.
+    shrinkAccounts.forEach((a) => {
+      if (!map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [stockRows, shrinkAccounts]);
   const commodities = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => map.set(r.commodityId, { id: r.commodityId, name: r.commodityName }));

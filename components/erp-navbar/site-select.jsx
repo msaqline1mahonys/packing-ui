@@ -7,11 +7,11 @@ import { cn } from "@/lib/utils";
 import { useSite } from "./site-context";
 
 /**
- * Current site / warehouse (persisted via SiteProvider / localStorage).
- * Omit from the tree or pass `sites={[]}` to hide.
+ * Active site selector — options come from login `allowed_sites`; switching
+ * calls the backend and refreshes tenant-scoped data.
  */
 export function SiteSelect({ selectId, className }) {
-  const { sites, siteId, setSiteId } = useSite();
+  const { sites, siteId, setSiteId, isSwitching } = useSite();
 
   if (!sites?.length) return null;
 
@@ -23,8 +23,9 @@ export function SiteSelect({ selectId, className }) {
       <select
         id={selectId ?? "erp-site"}
         value={siteId}
+        disabled={isSwitching}
         onChange={(e) => setSiteId(e.target.value)}
-        className="max-w-[11rem] cursor-pointer appearance-none rounded-md bg-transparent py-2 pl-2 pr-8 text-sm text-slate-800 outline-none sm:max-w-[13rem]"
+        className="max-w-[11rem] cursor-pointer appearance-none rounded-md bg-transparent py-2 pl-2 pr-8 text-sm text-slate-800 outline-none disabled:cursor-wait disabled:opacity-60 sm:max-w-[13rem]"
       >
         {sites.map((s) => (
           <option key={s.id} value={s.id}>

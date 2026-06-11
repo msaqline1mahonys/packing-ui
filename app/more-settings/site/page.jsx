@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import { refreshAuthPayload } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
 
 const API_BASE_URL = (
@@ -316,6 +318,12 @@ export default function SitePage() {
         setSelectedId(nextRow.id);
         setNotice(result.message || "Site created successfully.");
         setModalMode(null);
+        try {
+          await refreshAuthPayload();
+          notifyAuthSessionChanged();
+        } catch {
+          /* Navbar site list will catch up on next login. */
+        }
         return;
       }
 
@@ -350,6 +358,12 @@ export default function SitePage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Site deleted successfully.");
+      try {
+        await refreshAuthPayload();
+        notifyAuthSessionChanged();
+      } catch {
+        /* Navbar site list will catch up on next login. */
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete site.");
     } finally {

@@ -10,31 +10,37 @@ import {
   useState,
 } from "react";
 
-import { PACKING_SITES } from "./packing-defaults";
-import { readSiteOptions, SITES_UPDATED_EVENT } from "@/lib/site-data";
+import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import {
+  currentSiteIdFromAuth,
+  notifySiteChanged,
+  sitesFromAuthPayload,
+  switchActiveSite,
+} from "@/lib/site-switch";
 
 const SiteContext = createContext(null);
-
-const DEFAULT_STORAGE_KEY = "packing-erp-site";
-
-function parseStoredId(raw, sites) {
-  if (!raw || !sites?.length) return null;
-  return sites.some((s) => s.id === raw) ? raw : null;
-}
 
 export function SiteProvider({
   children,
   sites,
   /** First matching site id when nothing valid is stored. */
   defaultSiteId,
-  storageKey = DEFAULT_STORAGE_KEY,
 }) {
   const [resolvedSites, setResolvedSites] = useState(() => {
     if (sites?.length) return sites;
-    return PACKING_SITES;
+    return sitesFromAuthPayload();
   });
   const sitesRef = useRef(resolvedSites);
   sitesRef.current = resolvedSites;
+
+  const [siteId, setSiteIdState] = useState(() => {
+    const fromAuth = currentSiteIdFromAuth();
+    const list = sites?.length ? sites : sitesFromAuthPayload();
+    if (fromAuth && list.some((s) => s.id === fromAuth)) return fromAuth;
+    if (defaultSiteId && list.some((s) => s.id === defaultSiteId)) return defaultSiteId;
+    return list[0]?.id ?? "";
+  });
+  const [isSwitching, setIsSwitching] = useState(false);
 
   useEffect(() => {
     if (sites?.length) {
@@ -43,55 +49,63 @@ export function SiteProvider({
     }
 
     const syncSites = () => {
-      const next = readSiteOptions();
-      setResolvedSites(next.length ? next : PACKING_SITES);
+      const next = sitesFromAuthPayload();
+      setResolvedSites(next);
+
+      const current = currentSiteIdFromAuth();
+      if (current && next.some((s) => s.id === current)) {
+        setSiteIdState(current);
+        return;
+      }
+
+      const fallback =
+        (defaultSiteId && next.some((s) => s.id === defaultSiteId) ? defaultSiteId : next[0]?.id) ??
+        "";
+      setSiteIdState(fallback);
     };
 
     syncSites();
+    window.addEventListener("auth-session-changed", syncSites);
     window.addEventListener("storage", syncSites);
-    window.addEventListener(SITES_UPDATED_EVENT, syncSites);
     return () => {
+      window.removeEventListener("auth-session-changed", syncSites);
       window.removeEventListener("storage", syncSites);
-      window.removeEventListener(SITES_UPDATED_EVENT, syncSites);
     };
-  }, [sites]);
-
-  const initialId =
-    defaultSiteId && resolvedSites.some((s) => s.id === defaultSiteId)
-      ? defaultSiteId
-      : (resolvedSites[0]?.id ?? "");
-
-  const [siteId, setSiteIdState] = useState(initialId);
-
-  useEffect(() => {
-    const parsed = parseStoredId(localStorage.getItem(storageKey), sitesRef.current);
-    if (parsed) {
-      setSiteIdState(parsed);
-      return;
-    }
-    const fallback =
-      (defaultSiteId && sitesRef.current.some((s) => s.id === defaultSiteId)
-        ? defaultSiteId
-        : sitesRef.current[0]?.id) ?? "";
-    setSiteIdState(fallback);
-  }, [storageKey, defaultSiteId]);
+  }, [sites, defaultSiteId]);
 
   useEffect(() => {
     if (!siteId || !resolvedSites.length) return;
     if (!resolvedSites.some((s) => s.id === siteId)) {
       const next = resolvedSites[0]?.id ?? "";
       setSiteIdState(next);
-      if (next) localStorage.setItem(storageKey, next);
     }
-  }, [resolvedSites, siteId, storageKey]);
+  }, [resolvedSites, siteId]);
 
-  const storageKeyRef = useRef(storageKey);
-  storageKeyRef.current = storageKey;
+  const siteIdRef = useRef(siteId);
+  siteIdRef.current = siteId;
 
-  const setSiteId = useCallback((next) => {
-    if (!sitesRef.current.some((s) => s.id === next)) return;
-    setSiteIdState(next);
-    localStorage.setItem(storageKeyRef.current, next);
+  const setSiteId = useCallback(async (next) => {
+    const nextId = String(next ?? "").trim();
+    if (!sitesRef.current.some((s) => s.id === nextId)) return;
+    if (nextId === siteIdRef.current) return;
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    if (!token) {
+      setSiteIdState(nextId);
+      return;
+    }
+
+    setIsSwitching(true);
+    try {
+      await switchActiveSite(nextId);
+      setSiteIdState(nextId);
+      notifyAuthSessionChanged();
+      notifySiteChanged();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSwitching(false);
+    }
   }, []);
 
   const value = useMemo(() => {
@@ -101,8 +115,9 @@ export function SiteProvider({
       siteId: site?.id ?? "",
       site,
       setSiteId,
+      isSwitching,
     };
-  }, [resolvedSites, siteId, setSiteId]);
+  }, [resolvedSites, siteId, setSiteId, isSwitching]);
 
   return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>;
 }

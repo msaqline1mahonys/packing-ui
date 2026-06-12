@@ -862,68 +862,6 @@ function NewPackFormPageInner() {
   const [quickReleaseError, setQuickReleaseError] = useState("");
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
-  const [quickReleaseLookups, setQuickReleaseLookups] = useState({
-    containerParks: [],
-    transporters: [],
-    containerCodes: [],
-    loading: true,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getPackFormData();
-        const referencePackers = await fetchPackers().catch(() => []);
-        if (cancelled) return;
-        const customers = Array.isArray(data?.customers) ? data.customers : [];
-        const commodities = Array.isArray(data?.commodities) ? data.commodities.filter((c) => c.status !== "Inactive") : [];
-        const commodityTypes = Array.isArray(data?.commodityTypes) ? data.commodityTypes : [];
-        const shLines = Array.isArray(data?.shippingLines) ? data.shippingLines : [];
-        const parks = Array.isArray(data?.containerParks) ? data.containerParks : [];
-        const trs = Array.isArray(data?.transporters) ? data.transporters : [];
-        const codes = Array.isArray(data?.containerCodes) ? data.containerCodes : [];
-        const packers = referencePackers.length ? referencePackers : Array.isArray(data?.packers) ? data.packers : [];
-        const terminals = Array.isArray(data?.terminals) ? data.terminals : [];
-        const voyages = Array.isArray(data?.vesselVoyages) ? data.vesselVoyages : [];
-        const countries = Array.isArray(data?.countries) ? data.countries : [];
-        const ports = Array.isArray(data?.ports) ? data.ports : [];
-        const releases = Array.isArray(data?.releases) ? data.releases : [];
-        setCountryOptions(
-          countries.map((c) => ({ id: c.id, name: c.country_name ?? c.countryName ?? "", code: c.country_code ?? c.countryCode ?? "" }))
-        );
-        setPortOptions(
-          ports.map((p) => ({ id: p.id, countryId: p.country_id ?? p.countryId ?? "", name: p.name ?? "", code: p.code ?? "" }))
-        );
-        // Releases are stored in the database (Modules/ReferenceData ReleaseController);
-        // the pack form-data endpoint returns them under `releases`.
-        setReleaseOptions(releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber));
-        setCustomerOptions(customers);
-        setCommodityOptions(commodities);
-        setCommodityTypeOptions(commodityTypes);
-        setShippingLineOptions(shLines.map((s) => ({ id: s.id, name: s.shipping_line_name ?? s.name ?? "", code: s.shipping_line_code ?? s.code ?? "" })));
-        setContainerParkOptions(parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })));
-        setTransporterOptions(trs.map((t) => ({ id: t.id, name: t.name ?? "" })));
-        setContainerCodeOptions(codes);
-        setPackerOptions(packers);
-        setTerminalOptions(terminals);
-        setVesselVoyageOptions(voyages);
-        setQuickReleaseLookups({
-          containerParks: parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
-          transporters: trs.map((t) => ({ id: t.id, name: t.name ?? "" })),
-          containerCodes: codes,
-          loading: false,
-        });
-      } catch {
-        if (cancelled) return;
-        setReleaseOptions([]);
-        setQuickReleaseLookups((prev) => ({ ...prev, loading: false }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentSite]);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 

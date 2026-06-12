@@ -52,6 +52,7 @@ import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
+import { hasPermission } from "@/lib/use-user-permissions";
 
 const customerOptions = CUSTOMER_CONTACT_ROWS;
 const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
@@ -1363,6 +1364,7 @@ export default function PackDetailClient({ packId }) {
           aoNameOptions={aoNameOptions}
           submitError={pemsSubmitError}
           isSubmitting={isSubmittingPems}
+          canAoSignoff={hasPermission("packing.container.ao-signoff")}
           onUpdatePemsDraft={updatePemsDraft}
           onToggleStage={togglePemsContainer}
           onStageAll={() =>
@@ -1470,6 +1472,7 @@ function PemsTab({
   aoNameOptions = [],
   submitError,
   isSubmitting,
+  canAoSignoff = true,
   onUpdatePemsDraft,
   onToggleStage,
   onStageAll,
@@ -1716,14 +1719,20 @@ function PemsTab({
               ))}
             </div>
           </div>
-          <Button
-            type="button"
-            onClick={onSubmitBatch}
-            disabled={!stagedContainers.length || isSubmitting}
-            className="h-11 shrink-0 self-center sm:min-w-[200px]"
-          >
-            {isSubmitting ? "Submitting PEMs..." : `Submit ${stagedContainers.length} container(s)`}
-          </Button>
+          {canAoSignoff ? (
+            <Button
+              type="button"
+              onClick={onSubmitBatch}
+              disabled={!stagedContainers.length || isSubmitting}
+              className="h-11 shrink-0 self-center sm:min-w-[200px]"
+            >
+              {isSubmitting ? "Submitting PEMs..." : `Submit ${stagedContainers.length} container(s)`}
+            </Button>
+          ) : (
+            <div className="flex h-11 shrink-0 items-center self-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 sm:min-w-[200px]">
+              Requires Authorised Officer permission
+            </div>
+          )}
         </div>
         {submitError ? <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700">{submitError}</p> : null}
       </section>

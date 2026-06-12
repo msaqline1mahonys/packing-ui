@@ -36,44 +36,53 @@ export const PACKING_NAV_MODULES = [
     name: "Home",
     href: "/",
     icon: <LayoutDashboard className="size-5" strokeWidth={1.5} />,
+    // No permission — always visible
     children: [
       { name: "Overview", href: "/" },
-      { name: "Reference data", href: "/reference-data" },
+      // No permission — always visible
+      { name: "Reference data", href: "/reference-data", permission: "reference-data.view" },
       { name: "Shipping details", href: "/shipping-details" },
-      { name: "Contacts", href: "/contact" },
-      { name: "Product settings", href: "/product-settings" },
-      { name: "Fumigation", href: "/fumigation" },
+      // No permission — always visible
+      { name: "Contacts", href: "/contact", permission: "contacts.view" },
+      { name: "Product settings", href: "/product-settings", permission: "product-settings.view" },
+      { name: "Fumigation", href: "/fumigation", permission: "fumigation.records.view" },
     ],
   },
   {
     name: "Packing schedule",
     href: "/packing-schedule",
     icon: <Package className="size-5" strokeWidth={1.5} />,
+    permission: "packing.schedule.view",
   },
   {
     name: "Stock Management",
     href: "/stock-management",
     icon: <Warehouse className="size-5" strokeWidth={1.5} />,
+    permission: "stock.view",
   },
   {
     name: "Packers schedule",
     href: "/packers-schedule",
     icon: <Users className="size-5" strokeWidth={1.5} />,
+    permission: "packing.schedule.view",
   },
   {
     name: "Ticketing",
     href: "/ticketing",
     icon: <Ticket className="size-5" strokeWidth={1.5} />,
+    permission: "ticketing.tickets.view",
   },
   {
     name: "Reports",
     href: "/reports",
     icon: <FileText className="size-5" strokeWidth={1.5} />,
+    permission: "reports.view",
   },
   {
     name: "Accounting",
     href: "/accounting",
     icon: <CircleDollarSign className="size-5" strokeWidth={1.5} />,
+    permission: "accounting.view",
   },
 ];
 
@@ -87,5 +96,6 @@ export const PACKING_NAV_FOOTER = [
     name: "System settings",
     href: "/more-settings/site",
     icon: <Settings2 className="size-5" strokeWidth={1.5} />,
+    permission: "system-settings.view",
   },
 ];

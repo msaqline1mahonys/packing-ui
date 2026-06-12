@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
+import { fetchCommodityDirectory, fetchCustomerDirectory, sameId } from "@/lib/reports-data";
 import { cn } from "@/lib/utils";
 
 export function SubscriptionRow({ subscription, onEdit, onDelete, onToggle }) {
@@ -17,17 +17,17 @@ export function SubscriptionRow({ subscription, onEdit, onDelete, onToggle }) {
   // Support both new customerIds[] and legacy single customerId
   const customerIds = useMemo(() => {
     if (Array.isArray(subscription.customerIds) && subscription.customerIds.length) {
-      return subscription.customerIds.map(Number);
+      return [...subscription.customerIds];
     }
-    if (subscription.customerId != null) return [Number(subscription.customerId)];
+    if (subscription.customerId != null) return [subscription.customerId];
     return [];
   }, [subscription]);
 
-  const selectedCustomers = customers.filter((c) => customerIds.includes(Number(c.id)));
+  const selectedCustomers = customers.filter((c) => customerIds.some((id) => sameId(id, c.id)));
   const allSelected = selectedCustomers.length === customers.length && customers.length > 0;
 
   const commodityNames = (subscription.commodityIds || [])
-    .map((id) => commodities.find((c) => Number(c.id) === Number(id))?.description)
+    .map((id) => commodities.find((c) => sameId(c.id, id))?.description)
     .filter(Boolean);
 
   function customerLabel() {

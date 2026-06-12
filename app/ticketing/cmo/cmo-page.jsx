@@ -197,7 +197,7 @@ export default function CmoPage() {
               <DetailRow label="Direction" value={selected.direction} />
               <DetailRow label="Customer" value={selected.customer} />
               <DetailRow label="Commodity Type" value={selected.commodityType} />
-              <DetailRow label="Commodity" value={selected.commodity} />
+              <DetailRow label="Commodities" value={selected.commodity} />
               <DetailRow label="Status" value={selected.status} />
               <DetailRow label="Estimated (T)" value={selected.estimatedAmount} />
               <DetailRow label="Actual Delivered (T)" value={selected.actualAmountDelivered} />

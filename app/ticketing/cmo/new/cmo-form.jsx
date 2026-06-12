@@ -11,6 +11,7 @@ import {
   fetchCmoFormData,
   saveCmo,
 } from "@/lib/ticketing-api";
+import { weightUnitLabel } from "@/lib/weight-units";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -28,7 +29,7 @@ function emptyForm() {
     direction: "incoming",
     customerId: "",
     commodityTypeId: "",
-    commodityId: "",
+    commodityIds: [],
     status: STATUS_OPTIONS[0],
     estimatedAmount: "0",
     actualAmountDelivered: "0",
@@ -74,7 +75,11 @@ export default function CmoForm() {
             direction: row.direction,
             customerId: row.customerId,
             commodityTypeId: row.commodityTypeId,
-            commodityId: row.commodityId,
+            commodityIds: row.commodityIds?.length
+              ? row.commodityIds
+              : row.commodityId
+                ? [row.commodityId]
+                : [],
             status: row.status,
             estimatedAmount: String(row.estimatedAmount),
             actualAmountDelivered: String(row.actualAmountDelivered),
@@ -106,7 +111,22 @@ export default function CmoForm() {
     [commodities, form.commodityTypeId]
   );
 
+  const selectedCommodityUnit = useMemo(() => {
+    const firstId = form.commodityIds[0];
+    const comm = firstId ? commodities.find((c) => c.id === firstId) : null;
+    return comm?.unitType ?? comm?.unit_type;
+  }, [form.commodityIds, commodities]);
+
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const toggleCommodityId = (commodityId) => {
+    setForm((prev) => ({
+      ...prev,
+      commodityIds: prev.commodityIds.includes(commodityId)
+        ? prev.commodityIds.filter((id) => id !== commodityId)
+        : [...prev.commodityIds, commodityId],
+    }));
+  };
 
   const addAdditionalReference = () => {
     const ref = form.additionalReferenceDraft.trim();
@@ -129,7 +149,7 @@ export default function CmoForm() {
     form.cmoReference.trim() &&
     form.customerId &&
     form.commodityTypeId &&
-    form.commodityId &&
+    form.commodityIds.length > 0 &&
     form.status;
 
   const handleSave = async () => {
@@ -144,9 +164,12 @@ export default function CmoForm() {
         direction: form.direction,
         customerId: form.customerId,
         commodityTypeId: form.commodityTypeId,
-        commodityId: form.commodityId,
+        commodityIds: form.commodityIds,
         status: form.status,
         estimatedAmount: Number(form.estimatedAmount) || 0,
+        actualAmountDelivered: Number(form.actualAmountDelivered) || 0,
+        additionalReferences: form.additionalReferences,
+        attachments: form.attachments,
         note: form.note,
       });
       router.push("/ticketing/cmo");
@@ -234,7 +257,7 @@ export default function CmoForm() {
                 value={form.commodityTypeId}
                 onChange={(e) => {
                   setField("commodityTypeId", e.target.value);
-                  setField("commodityId", "");
+                  setField("commodityIds", []);
                 }}
               >
                 <option value="">Select commodity type...</option>
@@ -246,25 +269,50 @@ export default function CmoForm() {
               </select>
             </Field>
 
-            <Field label="Commodity" required>
-              <select suppressHydrationWarning className={inputClass} value={form.commodityId} onChange={(e) => setField("commodityId", e.target.value)} disabled={!form.commodityTypeId}>
-                <option value="">Select commodity...</option>
-                {commodityChoices.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.description || c.commodity_code || c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Estimated Amount (T)">
+            <Field label={`Estimated Amount${selectedCommodityUnit ? ` (${weightUnitLabel(selectedCommodityUnit)})` : ""}`}>
               <input suppressHydrationWarning className={inputClass} inputMode="decimal" value={form.estimatedAmount} onChange={(e) => setField("estimatedAmount", e.target.value)} />
             </Field>
 
-            <Field label="Actual Amount Delivered (T)">
+            <Field label={`Actual Amount Delivered${selectedCommodityUnit ? ` (${weightUnitLabel(selectedCommodityUnit)})` : ""}`}>
               <input suppressHydrationWarning className={inputClass} inputMode="decimal" value={form.actualAmountDelivered} onChange={(e) => setField("actualAmountDelivered", e.target.value)} />
             </Field>
           </div>
+
+          <Field label="Commodities" required>
+            {!form.commodityTypeId ? (
+              <p className="text-xs text-slate-500">Select a commodity type first.</p>
+            ) : commodityChoices.length === 0 ? (
+              <p className="text-xs text-slate-500">No active commodities for this type.</p>
+            ) : (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                {commodityChoices.map((c) => {
+                  const checked = form.commodityIds.includes(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                        checked ? "bg-brand/10 text-brand-ink" : "text-slate-700 hover:bg-white"
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-slate-300"
+                        checked={checked}
+                        onChange={() => toggleCommodityId(c.id)}
+                      />
+                      <span>{c.description || c.commodity_code || c.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {form.commodityIds.length > 0 ? (
+              <p className="mt-1.5 text-xs text-slate-500">
+                {form.commodityIds.length} commodit{form.commodityIds.length === 1 ? "y" : "ies"} selected. Tickets will finalize one of these grades per load.
+              </p>
+            ) : null}
+          </Field>
         </div>
       </section>
 

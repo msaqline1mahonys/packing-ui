@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { CADENCE_LABELS } from "@/lib/reports-windows";
-import { fetchCustomerDirectory } from "@/lib/reports-data";
+import { fetchCustomerDirectory, sameId } from "@/lib/reports-data";
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES = {
@@ -26,7 +26,7 @@ export function HistoryTable({ rows }) {
     fetchCustomerDirectory().then(setCustomers);
   }, []);
 
-  const customerById = useMemo(() => new Map(customers.map((c) => [Number(c.id), c])), [customers]);
+  const customerById = useMemo(() => new Map(customers.map((c) => [String(c.id), c])), [customers]);
 
   if (!rows || rows.length === 0) {
     return (
@@ -58,7 +58,7 @@ export function HistoryTable({ rows }) {
             const customerCount = (row.recipients || []).length;
             const deliveries = Array.from(new Set((row.recipients || []).map((r) => r.deliveredAs).filter(Boolean)));
             const customerNames = (row.recipients || [])
-              .map((r) => customerById.get(Number(r.customerId))?.name)
+              .map((r) => customerById.get(String(r.customerId))?.name)
               .filter(Boolean);
             return (
               <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/60">

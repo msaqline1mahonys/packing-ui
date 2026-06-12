@@ -83,6 +83,27 @@ function sumGroupMembers(members, ticketTests) {
   return { total, hasValue };
 }
 
+function getCmoCommodityLines(cmo) {
+  if (!cmo) return [];
+  if (Array.isArray(cmo.commodities) && cmo.commodities.length) return cmo.commodities;
+  const ids = Array.isArray(cmo.commodityIds) ? cmo.commodityIds : cmo.commodityId ? [cmo.commodityId] : [];
+  return ids.map((commodityId) => ({
+    commodityTypeId: cmo.commodityTypeId,
+    commodityId,
+  }));
+}
+
+function formatCmoCommoditySummary(cmo, commodities) {
+  const lines = getCmoCommodityLines(cmo);
+  if (!lines.length) return "Unknown";
+  return lines
+    .map((line) => {
+      const comm = commodities.find((c) => c.id === line.commodityId);
+      return comm?.description || comm?.commodityCode || comm?.commodity_code || "Unknown";
+    })
+    .join(", ");
+}
+
 function buildBlankTicket(direction) {
   return {
     type: direction,
@@ -157,11 +178,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     direction: cmoDirection,
     customerId: "",
     commodityTypeId: "",
-    commodityId: "",
+    commodityIds: [],
     status: "Open",
     estimatedAmount: "",
-    actualAmountDelivered: "",
-    additionalReferences: [],
     note: "",
     attachments: [],
   });
@@ -172,8 +191,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const printHref = ticketNumericId ? `${detailPathBase}/${ticketNumericId}/print?print=1` : null;
 
   const cmo = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
+  const cmoCommodityLines = useMemo(() => getCmoCommodityLines(cmo), [cmo]);
+  const allowedCommodityTypeIds = useMemo(
+    () => new Set(cmoCommodityLines.map((line) => line.commodityTypeId).filter(Boolean)),
+    [cmoCommodityLines]
+  );
+  const allowedCommodityIds = useMemo(
+    () => new Set(cmoCommodityLines.map((line) => line.commodityId).filter(Boolean)),
+    [cmoCommodityLines]
+  );
   const commodity = ticket.commodityId ? commodities.find((c) => c.id === ticket.commodityId) : null;
-  const cmoCommodity = cmo ? commodities.find((c) => c.id === cmo.commodityId) : null;
+  const cmoCommodity = cmoCommodityLines.length === 1
+    ? commodities.find((c) => c.id === cmoCommodityLines[0].commodityId)
+    : commodity;
   const weightUnit = commodity?.unitType ?? cmoCommodity?.unitType;
   const customer = ticket.accountType === "internal" && ticket.internalAccountId
     ? internalAccounts.find((acc) => acc.id === ticket.internalAccountId)
@@ -281,8 +311,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     if (!cmoId) return null;
     const selectedCmo = cmos.find((c) => c.id === cmoId);
     if (!selectedCmo) return null;
-    const commodityForCmo = commodities.find((c) => c.id === selectedCmo.commodityId);
-    const unit = commodityForCmo?.unitType;
+    const lines = getCmoCommodityLines(selectedCmo);
+    const commodityForCmo = commodities.find(
+      (c) => c.id === (ticket.commodityId || lines[0]?.commodityId || selectedCmo.commodityId)
+    );
+    const unit = commodityForCmo?.unitType ?? commodityForCmo?.unit_type;
     const totalReceived = completedTickets
       .filter((t) => t.type === ticketType && t.status === "completed" && t.cmoId === cmoId)
       .reduce((sum, t) => {
@@ -387,7 +420,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const confirmCommodity = () => {
     if (!ticket.commodityTypeId) return;
     const testsByName = buildTestsByName(tests);
-    const sameCommodities = commodities.filter((c) => c.commodityTypeId === ticket.commodityTypeId && c.status === "active");
+    const sameCommodities = commodities.filter(
+      (c) =>
+        c.commodityTypeId === ticket.commodityTypeId &&
+        c.status === "active" &&
+        (allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
+    );
     const commodityAnalysis = sameCommodities.map((comm) => {
       const thresholds = getCommodityThresholds(comm);
       const groupedNames = new Set();
@@ -551,6 +589,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     onChange={(e) => {
                       const cmoId = e.target.value || null;
                       const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
+                      const lines = getCmoCommodityLines(selectedCmo);
+                      const singleLine = lines.length === 1 ? lines[0] : null;
                       setTicket((prev) => ({
                         ...prev,
                         cmoId,
@@ -558,21 +598,20 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         accountType: "customer",
                         internalAccountId: null,
                         commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
-                        commodityId: selectedCmo ? selectedCmo.commodityId ?? null : null,
+                        commodityId: singleLine ? singleLine.commodityId ?? null : null,
+                        commodityConfirmed: false,
+                        commodityOverrideReason: "",
                       }));
                     }}
                   >
                     <option value="">Select CMO</option>
                     {cmos
                       .filter((c) => c.direction === cmoDirection)
-                      .map((c) => {
-                        const cCommodity = commodities.find((com) => com.id === c.commodityId);
-                        return (
-                          <option key={c.id} value={c.id}>
-                            {c.cmoReference} - {cCommodity?.description || "Unknown"}
-                          </option>
-                        );
-                      })}
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.cmoReference} - {formatCmoCommoditySummary(c, commodities)}
+                        </option>
+                      ))}
                   </select>
                   {!isCompleted ? (
                     <button
@@ -648,10 +687,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     const v = e.target.value;
                     set("commodityTypeId", v || null);
                     set("commodityId", null);
+                    set("commodityConfirmed", false);
+                    set("commodityOverrideReason", "");
                   }}
                 >
                   <option value="">Select commodity type</option>
-                  {commodityTypes.map((ct) => (
+                  {commodityTypes
+                    .filter((ct) => !cmo || allowedCommodityTypeIds.size === 0 || allowedCommodityTypeIds.has(ct.id))
+                    .map((ct) => (
                     <option key={ct.id} value={ct.id}>
                       {ct.name}
                     </option>
@@ -667,13 +710,17 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   onChange={(e) => {
                     const v = e.target.value;
                     set("commodityId", v || null);
+                    set("commodityConfirmed", false);
+                    set("commodityOverrideReason", "");
                   }}
                 >
                   <option value="">Select commodity</option>
                   {commodities
                     .filter(
                       (c) =>
-                        c.status === "active" && (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId)
+                        c.status === "active" &&
+                        (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId) &&
+                        (!cmo || allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
                     )
                     .map((c) => (
                       <option key={c.id} value={c.id}>
@@ -697,8 +744,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     <div>{customer?.name || "-"}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-semibold text-slate-500">CMO commodity</div>
-                    <div>{cmoCommodity ? `${cmoCommodity.commodityCode || cmoCommodity.description || "-"}` : "-"}</div>
+                    <div className="text-[10px] font-semibold text-slate-500">CMO commodities</div>
+                    <div>{formatCmoCommoditySummary(cmo, commodities)}</div>
                   </div>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-500">Status</div>
@@ -852,6 +899,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               <TestResultsGrid
                 commodityTypeId={ticket.commodityTypeId}
                 commodities={commodities}
+                allowedCommodityIds={allowedCommodityIds}
                 tests={tests}
                 surface={testSurface}
                 ticketTests={ticket.tests}
@@ -1068,11 +1116,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             </optgroup>
           </select>
         </FormRow>
+
         <FormRow label="Commodity Type" required>
           <select
             className={inputClass}
             value={newCmo.commodityTypeId}
-            onChange={(e) => setNewCmo({ ...newCmo, commodityTypeId: e.target.value, commodityId: "" })}
+            onChange={(e) => setNewCmo({ ...newCmo, commodityTypeId: e.target.value, commodityIds: [] })}
           >
             <option value="">Select commodity type</option>
             {commodityTypes.map((t) => (
@@ -1082,32 +1131,44 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             ))}
           </select>
         </FormRow>
-        <FormRow label="Commodity" required>
-          <select
-            className={inputClass}
-            value={newCmo.commodityId}
-            disabled={!newCmo.commodityTypeId}
-            onChange={(e) => setNewCmo({ ...newCmo, commodityId: e.target.value })}
-          >
-            <option value="">Select commodity</option>
-            {commodities
-              .filter(
-                (c) =>
-                  c.status === "active" &&
-                  (!newCmo.commodityTypeId || c.commodityTypeId === newCmo.commodityTypeId)
-              )
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.commodityCode}
-                </option>
-              ))}
-          </select>
+        <FormRow label="Commodities" required>
+          {!newCmo.commodityTypeId ? (
+            <p className="text-xs text-slate-500">Select a commodity type first.</p>
+          ) : (
+            <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+              {commodities
+                .filter(
+                  (c) =>
+                    c.status === "active" &&
+                    (!newCmo.commodityTypeId || c.commodityTypeId === newCmo.commodityTypeId)
+                )
+                .map((c) => (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-white">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-slate-300"
+                      checked={newCmo.commodityIds.includes(c.id)}
+                      onChange={() =>
+                        setNewCmo((prev) => ({
+                          ...prev,
+                          commodityIds: prev.commodityIds.includes(c.id)
+                            ? prev.commodityIds.filter((id) => id !== c.id)
+                            : [...prev.commodityIds, c.id],
+                        }))
+                      }
+                    />
+                    <span>{c.commodityCode || c.description}</span>
+                  </label>
+                ))}
+            </div>
+          )}
         </FormRow>
         <FormRow
-          label={`Estimated Amount${newCmo.commodityId
-              ? ` (${weightUnitLabel(commodities.find((c) => c.id === newCmo.commodityId)?.unitType)})`
+          label={`Estimated Amount${
+            newCmo.commodityIds[0]
+              ? ` (${weightUnitLabel(commodities.find((c) => c.id === newCmo.commodityIds[0])?.unitType)})`
               : ""
-            }`}
+          }`}
         >
           <input
             className={inputClass}
@@ -1133,7 +1194,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             type="button"
             size="sm"
             onClick={async () => {
-              if (!newCmo.customerId || !newCmo.commodityTypeId || !newCmo.commodityId) return;
+              if (!newCmo.customerId || !newCmo.commodityTypeId || newCmo.commodityIds.length === 0) return;
               try {
                 setError("");
                 const created = await saveCmo({
@@ -1141,18 +1202,22 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   direction: cmoDirection,
                   customerId: newCmo.customerId,
                   commodityTypeId: newCmo.commodityTypeId,
-                  commodityId: newCmo.commodityId,
+                  commodityIds: newCmo.commodityIds,
                   status: newCmo.status || "Open",
                   estimatedAmount: Number(newCmo.estimatedAmount) || 0,
                   note: newCmo.note,
                 });
                 setCmos((prev) => [...prev, created]);
+                const lines = getCmoCommodityLines(created);
+                const singleLine = lines.length === 1 ? lines[0] : null;
                 setTicket((prev) => ({
                   ...prev,
                   cmoId: created.id,
                   customerId: created.customerId,
                   commodityTypeId: created.commodityTypeId,
-                  commodityId: created.commodityId,
+                  commodityId: singleLine ? singleLine.commodityId : null,
+                  commodityConfirmed: false,
+                  commodityOverrideReason: "",
                 }));
                 setShowCmoModal(false);
                 setNewCmo({
@@ -1160,11 +1225,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   direction: cmoDirection,
                   customerId: "",
                   commodityTypeId: "",
-                  commodityId: "",
+                  commodityIds: [],
                   status: "Open",
                   estimatedAmount: "",
-                  actualAmountDelivered: "",
-                  additionalReferences: [],
                   note: "",
                   attachments: [],
                 });
@@ -1239,6 +1302,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           suggestedCommodities={suggestedCommodities}
           testResultsSummary={testResultsSummary}
           commodities={commodities}
+          allowedCommodityIds={allowedCommodityIds}
           ticket={ticket}
           set={set}
           overrideReason={overrideReason}
@@ -1300,8 +1364,13 @@ function TestInputCard({ label, unit, value, isCompleted, onChange, state, helpe
   );
 }
 
-function TestResultsGrid({ commodityTypeId, commodities, tests, surface, ticketTests, isCompleted, setTest }) {
-  const sameCommodities = commodities.filter((c) => c.commodityTypeId === commodityTypeId && c.status === "active");
+function TestResultsGrid({ commodityTypeId, commodities, allowedCommodityIds, tests, surface, ticketTests, isCompleted, setTest }) {
+  const sameCommodities = commodities.filter(
+    (c) =>
+      c.commodityTypeId === commodityTypeId &&
+      c.status === "active" &&
+      (!allowedCommodityIds || allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
+  );
   const testsByName = buildTestsByName(tests);
   const applies = (name) => !surface || testAppliesToSurface(name, testsByName, surface);
 
@@ -1479,6 +1548,7 @@ function CommodityIdentificationBody({
   suggestedCommodities,
   testResultsSummary,
   commodities,
+  allowedCommodityIds,
   ticket,
   set,
   overrideReason,
@@ -1561,7 +1631,12 @@ function CommodityIdentificationBody({
         >
           <option value="">Select commodity</option>
           {commodities
-            .filter((c) => c.commodityTypeId === ticket.commodityTypeId && c.status === "active")
+            .filter(
+              (c) =>
+                c.commodityTypeId === ticket.commodityTypeId &&
+                c.status === "active" &&
+                (!allowedCommodityIds || allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
+            )
             .map((comm) => {
               const isSuggested = suggestedCommodities.some((s) => s.commodityId === comm.id);
               return (

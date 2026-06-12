@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
-import { getPackFormData } from "@/lib/api/packing";
+import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -74,22 +74,18 @@ function emptyParkDisplay(row, parkIdToName) {
 
 export default function PackersScheduleClient() {
   const router = useRouter();
+  const lookups = useAllPackLookups();
   const [rows, setRows] = useState([]);
   const [importExportFilter, setImportExportFilter] = useState("all");
   const [dateFilterMode, setDateFilterMode] = useState("all");
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
-  const [lookups, setLookups] = useState({});
 
   useEffect(() => {
     fetchPackRows({ status: "Inprogress" }).then(({ rows: data }) => {
       setRows(Array.isArray(data) ? data.filter((row) => row.status === "Inprogress") : []);
     }).catch(() => setRows([]));
-  }, []);
-
-  useEffect(() => {
-    getPackFormData().then((data) => setLookups(data || {})).catch(() => setLookups({}));
   }, []);
 
   const filtered = useMemo(() => {
@@ -122,7 +118,7 @@ export default function PackersScheduleClient() {
       m.set(String(p.id), p.name);
     }
     return m;
-  }, [lookups]);
+  }, [lookups.containerParks]);
 
   const workByPack = useMemo(() => syncWorkDrafts(rows, loadWorkDrafts(), lookups), [rows, lookups]);
 

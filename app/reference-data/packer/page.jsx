@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -143,6 +144,8 @@ function toApiPayload(draft) {
 }
 
 export default function PackerPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [packerRecords, setPackerRecords] = useState([]);
   const [stockLocationOptions, setStockLocationOptions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -300,6 +303,7 @@ export default function PackerPage() {
         setPackerRecords((prev) => [payload, ...prev]);
         setSelectedId(payload.id);
         setNotice("Packer created successfully.");
+        await invalidateReferenceData("packers");
         setModalMode(null);
         return;
       }
@@ -312,6 +316,7 @@ export default function PackerPage() {
         if (!payload?.id) throw new Error("Invalid response from server.");
         setPackerRecords((prev) => prev.map((row) => (row.id === selected.id ? payload : row)));
         setNotice("Packer updated successfully.");
+        await invalidateReferenceData("packers");
         setModalMode(null);
       }
     } catch (err) {
@@ -354,6 +359,7 @@ export default function PackerPage() {
       setPackerRecords((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Packer deleted successfully.");
+      await invalidateReferenceData("packers");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete packer.");
     } finally {

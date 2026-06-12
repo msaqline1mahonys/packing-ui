@@ -1,4 +1,16 @@
-export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "" }) {
+import { formatOutloadError, getOutloadBlockers } from "@/lib/packers-container-validation";
+
+export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "", onBlocked }) {
+  function blockIfOutloadInvalid(patch) {
+    const next = { ...container, ...patch };
+    const blockers = getOutloadBlockers(next);
+    if (blockers.length) {
+      onBlocked?.(formatOutloadError(blockers));
+      return true;
+    }
+    return false;
+  }
+
   return {
     onResetContainer: () =>
       applyPatch({
@@ -10,11 +22,14 @@ export function createPraActionHandlers({ container, applyPatch, fallbackPacker 
         praLastSubmittedTime: "",
         praLastError: "",
       }),
-    onMarkPacked: () =>
-      applyPatch({
+    onMarkPacked: () => {
+      const patch = {
         outLoaded: "Yes",
         packerSignoff: container?.packerSignoff || fallbackPacker || "",
-      }),
+      };
+      if (blockIfOutloadInvalid(patch)) return;
+      applyPatch(patch);
+    },
     onSubmitPra: () =>
       applyPatch({
         praSubmitted: true,

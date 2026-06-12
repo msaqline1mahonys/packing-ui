@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -238,6 +239,8 @@ function utilizationColor(pct) {
 /* ─── Page ───────────────────────────────────────────────────────────────── */
 
 export default function StockLocationsPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [apiRows, setApiRows] = useState([]);
   const [siteOptions, setSiteOptions] = useState([]);
   const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
@@ -444,6 +447,7 @@ export default function StockLocationsPage() {
         setApiRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Stock location created successfully.");
+        await invalidateReferenceData("stockLocations");
         setModalMode(null);
         loadUtilization();
         return;
@@ -458,6 +462,7 @@ export default function StockLocationsPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setApiRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Stock location updated successfully.");
+        await invalidateReferenceData("stockLocations");
         setModalMode(null);
         loadUtilization();
       }
@@ -500,6 +505,7 @@ export default function StockLocationsPage() {
       setApiRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Stock location deleted successfully.");
+      await invalidateReferenceData("stockLocations");
       loadUtilization();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete stock location.");

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 import {
   ALL_CLASSIFICATIONS,
@@ -155,6 +156,8 @@ function hasClassification(formData, classification) {
 }
 
 export default function ContactUsersPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   // Keep raw API users so we can read user.profile and roles on edit
   const [rawApiUsers, setRawApiUsers] = useState([]);
@@ -439,6 +442,7 @@ export default function ContactUsersPage() {
       setFormData(buildFormData());
       await loadUsers();
       setSelectedId(userId);
+      await invalidateReferenceData("users");
     } catch (err) {
       window.alert(err.message || "Failed to save user.");
     } finally {
@@ -463,6 +467,7 @@ export default function ContactUsersPage() {
       setSaving(true);
       await updateApiUser(selected.id, { is_active: nextActive });
       await loadUsers();
+      await invalidateReferenceData("users");
     } catch (err) {
       window.alert(err.message || `Failed to ${verb.toLowerCase()} user.`);
     } finally {

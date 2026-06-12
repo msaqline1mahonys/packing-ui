@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -148,6 +149,8 @@ function toApiPayload(draft) {
 }
 
 export default function CommodityPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [commodityTypes, setCommodityTypes] = useState([]);
   const [tests, setTests] = useState([]);
@@ -367,6 +370,7 @@ export default function CommodityPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Commodity created successfully.");
+        await invalidateReferenceData("commodities");
         setModalMode(null);
         return;
       }
@@ -380,6 +384,7 @@ export default function CommodityPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Commodity updated successfully.");
+        await invalidateReferenceData("commodities");
         setModalMode(null);
       }
     } catch (err) {
@@ -403,6 +408,7 @@ export default function CommodityPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Commodity deleted successfully.");
+      await invalidateReferenceData("commodities");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete commodity.");
     } finally {

@@ -6,6 +6,7 @@ import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -217,6 +218,8 @@ function toApiPayload(draft) {
 }
 
 export default function VesselVoyagePage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [vesselOptions, setVesselOptions] = useState([]);
   const [shippingLineOptions, setShippingLineOptions] = useState([]);
@@ -365,6 +368,7 @@ export default function VesselVoyagePage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Voyage created successfully.");
+        await invalidateReferenceData("vesselVoyages");
         setModalMode(null);
         return;
       }
@@ -376,6 +380,7 @@ export default function VesselVoyagePage() {
         const nextRow = fromApiVoyage(payload);
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Voyage updated successfully.");
+        await invalidateReferenceData("vesselVoyages");
         setModalMode(null);
       }
     } catch (err) {
@@ -399,6 +404,7 @@ export default function VesselVoyagePage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Voyage deleted successfully.");
+      await invalidateReferenceData("vesselVoyages");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete voyage.");
     } finally {

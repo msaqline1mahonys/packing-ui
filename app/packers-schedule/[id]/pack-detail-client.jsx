@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, X } from "lucide-react";
+import { AlertCircle, Eye, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
@@ -39,7 +39,15 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData, updateContainer, fetchUsersForSelect, fetchStockLocations, fetchPackers, activePackerNames } from "@/lib/api/packing";
+import {
+  applyContainerPatch,
+  getCompletionMissingChecks,
+  getOutloadBlockers,
+  validateContainerForSave,
+} from "@/lib/packers-container-validation";
+import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { loadFumigants } from "@/lib/fumigation-store";
+import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
@@ -313,6 +321,12 @@ function resolveExporterCustomerId(packRow) {
 
 export default function PackDetailClient({ packId }) {
   const router = useRouter();
+
+  // All reference/lookup data via TanStack Query — globally cached, auto-refetches
+  // on window focus so switching back from a tab where reference data was updated
+  // (packers, customers, ISO codes, etc.) silently picks up the new options.
+  const lookups = useAllPackLookups();
+
   const [activeTab, setActiveTab] = useState("Packing");
   const [packRow, setPackRow] = useState(null);
   const [workByPack, setWorkByPack] = useState({});
@@ -322,16 +336,54 @@ export default function PackDetailClient({ packId }) {
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSavingContainer, setIsSavingContainer] = useState(false);
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
+  const [containerSaveError, setContainerSaveError] = useState("");
+  const containerValidationTimerRef = useRef(null);
+
+  const showContainerValidationError = useCallback((message) => {
+    if (containerValidationTimerRef.current) {
+      clearTimeout(containerValidationTimerRef.current);
+      containerValidationTimerRef.current = null;
+    }
+    setContainerSaveError(message);
+    setContainerSaveStatus("error");
+  }, []);
+
+  const clearContainerValidationFeedback = useCallback(() => {
+    if (containerValidationTimerRef.current) {
+      clearTimeout(containerValidationTimerRef.current);
+      containerValidationTimerRef.current = null;
+    }
+    setContainerSaveError("");
+    setContainerSaveStatus(null);
+  }, []);
+
+  const scheduleContainerFeedbackClear = useCallback((delayMs = 5000) => {
+    if (containerValidationTimerRef.current) clearTimeout(containerValidationTimerRef.current);
+    containerValidationTimerRef.current = setTimeout(() => {
+      clearContainerValidationFeedback();
+      containerValidationTimerRef.current = null;
+    }, delayMs);
+  }, [clearContainerValidationFeedback]);
+  const [isDirty, setIsDirty] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
-  const [lookups, setLookups] = useState({});
   const previewRevokeRef = useRef(null);
 
-  const packerNames = useMemo(() => {
-    const fromUsers = (lookups.users || []).map((u) => u.name).filter(Boolean);
-    if (fromUsers.length) return fromUsers;
-    return activePackerNames(lookups.packers);
-  }, [lookups.users, lookups.packers]);
-  const packerSelectOptions = useMemo(() => activePackerNames(lookups.referencePackers), [lookups.referencePackers]);
+  const { packerNames, packerSelectOptions: allPackerSelectOptions } = lookups;
+  const packPackerSelectOptions = useMemo(
+    () => packAssignedPackerOptions(packRow, lookups.referencePackers ?? lookups.packers ?? []),
+    [packRow, lookups.referencePackers, lookups.packers]
+  );
+  const fumigantDisplay = useMemo(() => {
+    if (!packRow) return "—";
+    const fumigants = loadFumigants();
+    const fumigantId = packRow.fumigantId ?? packRow.fumigationDetail?.fumigantId;
+    const match = fumigants.find((row) => String(row.id) === String(fumigantId));
+    if (match?.name) return match.name;
+    const detailName = packRow.fumigationDetail?.fumigantName ?? packRow.fumigationDetail?.fumigant_name;
+    if (detailName) return detailName;
+    if (packRow.fumigationRequired && !packRow.fumigationTiming) return "Required";
+    return packRow.fumigationTiming || packRow.fumigation || "—";
+  }, [packRow]);
   const packReleases = useMemo(
     () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -372,19 +424,24 @@ export default function PackDetailClient({ packId }) {
 
   useEffect(() => {
     if (!packId) return;
-    Promise.all([
-      fetchPack(packId),
-      getPackFormData().catch(() => ({})),
-      fetchUsersForSelect().catch(() => []),
-      fetchStockLocations().catch(() => []),
-      fetchPackers().catch(() => []),
-    ]).then(([row, fd, users, stockLocations, referencePackers]) => {
-      const mergedLookups = { ...(fd || {}), users, stockLocations, referencePackers };
-      setLookups(mergedLookups);
-      setPackRow(row || null);
-      if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, mergedLookups));
-    }).catch(() => {});
+    fetchPack(packId)
+      .then((row) => {
+        setPackRow(row || null);
+        if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, lookups));
+      })
+      .catch(() => {});
+    // lookups intentionally excluded — we only want this to fire on packId change.
+    // The syncWorkDrafts call uses the latest lookups snapshot at mount time;
+    // subsequent lookup updates (e.g. new packers) are reflected reactively via
+    // the TanStack Query cache without re-fetching the pack.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId]);
+
+  useEffect(() => {
+    return () => {
+      if (containerValidationTimerRef.current) clearTimeout(containerValidationTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     saveWorkDrafts(workByPack);
@@ -416,6 +473,7 @@ export default function PackDetailClient({ packId }) {
     }
     if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
       setSelectedContainerId(filteredContainerRows[0].id);
+      setIsDirty(false);
     }
   }, [filteredContainerRows, selectedContainerId]);
 
@@ -423,14 +481,6 @@ export default function PackDetailClient({ packId }) {
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
     [filteredContainerRows, selectedContainerId]
   );
-  const selectedContainerActions = useMemo(() => {
-    if (!selectedContainer) return null;
-    return createPraActionHandlers({
-      container: selectedContainer,
-      applyPatch: updateSelectedContainer,
-      fallbackPacker: packerNames[0] || "",
-    });
-  }, [selectedContainer, packerNames]);
   const stagedContainers = useMemo(
     () => containerRows.filter((container) => pemsDraft.stagedContainerIds.includes(container.id)),
     [containerRows, pemsDraft.stagedContainerIds]
@@ -500,8 +550,25 @@ export default function PackDetailClient({ packId }) {
 
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
+    const result = applyContainerPatch(selectedContainer, patch);
+    if (!result.ok) {
+      showContainerValidationError(result.error);
+      return;
+    }
+    clearContainerValidationFeedback();
     updateContainerById(selectedContainer.id, patch);
+    setIsDirty(true);
   }
+
+  const selectedContainerActions = useMemo(() => {
+    if (!selectedContainer) return null;
+    return createPraActionHandlers({
+      container: selectedContainer,
+      applyPatch: updateSelectedContainer,
+      fallbackPacker: packerNames[0] || "",
+      onBlocked: showContainerValidationError,
+    });
+  }, [selectedContainer, packerNames, showContainerValidationError]);
 
   function persistPackRowToStore(nextRow, workDraft) {
     const containers = (workDraft?.containers || []).map((container) => packContainerFromWorkContainer(container, nextRow));
@@ -559,6 +626,30 @@ export default function PackDetailClient({ packId }) {
         [checkKey]: value,
       },
     }));
+    if (!packRow?.id) return;
+    const apiFieldMap = {
+      importDetailsChecked: "importDetailsChecked",
+      sampleRequirementsChecked: "sampleRequirementsChecked",
+      rfpDetailsChecked: "rfpDetailsChecked",
+      micorRequirementsChecked: "micorRequirementsChecked",
+    };
+    const apiField = apiFieldMap[checkKey];
+    if (!apiField) return;
+    updatePrepackChecks(packRow.id, { [apiField]: value })
+      .then((updated) => {
+        if (!updated) return;
+        setPackRow((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            importDetailsChecked: updated.importDetailsChecked,
+            sampleRequirementsChecked: updated.sampleRequirementsChecked,
+            rfpDetailsChecked: updated.rfpDetailsChecked,
+            micorRequirementsChecked: updated.micorRequirementsChecked,
+          };
+        });
+      })
+      .catch(() => {});
   }
 
   const closeFilePreview = useCallback(() => {
@@ -763,14 +854,26 @@ export default function PackDetailClient({ packId }) {
   function refreshPack() {
     fetchPack(packId).then((row) => {
       setPackRow(row || null);
-      if (row) setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
+      if (row) {
+        // Pass current lookups so refreshed containers resolve park/transporter
+        // names from the latest TanStack Query cache.
+        setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
+        setIsDirty(false);
+      }
     }).catch(() => {});
   }
 
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
+
+    const saveError = validateContainerForSave(selectedContainer);
+    if (saveError) {
+      showContainerValidationError(saveError);
+      return;
+    }
+
     setIsSavingContainer(true);
-    setContainerSaveStatus(null);
+    clearContainerValidationFeedback();
     try {
       // Strip id, packId, order — read-only on this endpoint
       const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(selectedContainer, packRow);
@@ -780,11 +883,13 @@ export default function PackDetailClient({ packId }) {
         updateContainerById(updated.id, updated);
       }
       setContainerSaveStatus("saved");
+      setIsDirty(false);
+      scheduleContainerFeedbackClear();
     } catch (err) {
+      showContainerValidationError(err?.message || "Save failed — check connection.");
       setContainerSaveStatus(err?.status === 404 ? "not-found" : "error");
     } finally {
       setIsSavingContainer(false);
-      setTimeout(() => setContainerSaveStatus(null), 3000);
     }
   }
 
@@ -809,15 +914,8 @@ export default function PackDetailClient({ packId }) {
     packRow.packWarningRequired && String(packRow.packWarning || "").trim()
       ? String(packRow.packWarning).trim()
       : "";
-  const missingChecks = selectedContainer
-    ? [
-        selectedContainer.packerSignoff ? null : "Packer signoff",
-        selectedContainer.outLoaded === "Yes" ? null : "Out-loaded confirmation",
-        selectedContainer.emptyInspection === "Passed" ? null : "Empty container inspection",
-        selectedContainer.grainInspection === "Passed" ? null : "Grain inspection",
-        selectedContainer.aoSignoff ? null : "AO signoff",
-      ].filter(Boolean)
-    : [];
+  const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer) : [];
+  const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer) : [];
   const packChecks = selectedPackDraft?.packChecks || {};
   const packChecksCompleteCount = PACK_CHECK_FIELDS.filter((field) => Boolean(packChecks[field.key])).length;
   const allPackChecksComplete = packChecksCompleteCount === PACK_CHECK_FIELDS.length;
@@ -848,7 +946,7 @@ export default function PackDetailClient({ packId }) {
           <Field label="Cut-off" value={formatDateTimeValue(packRow.vesselCutoffDate)} />
           <Field
             label="Fumigation"
-            value={safeValue(packRow.fumigation)}
+            value={safeValue(fumigantDisplay)}
             labelClassName="text-purple-700"
             valueClassName="border-purple-200 bg-purple-50 text-purple-900"
           />
@@ -1009,6 +1107,32 @@ export default function PackDetailClient({ packId }) {
             </div>
           </div>
         </div>
+        {Array.isArray(packRow?.packTests) && packRow.packTests.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Quality tests</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {packRow.packTests.map((test) => {
+                const status = String(test.status || "pending").toLowerCase();
+                const badgeClass =
+                  status === "pass"
+                    ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
+                    : status === "fail"
+                      ? "bg-rose-100 text-rose-800 ring-rose-200"
+                      : "bg-slate-100 text-slate-600 ring-slate-200";
+                return (
+                  <span
+                    key={test.id || test.testName}
+                    className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1", badgeClass)}
+                    title={test.notes || undefined}
+                  >
+                    {test.testName}
+                    {test.value ? `: ${test.value}${test.unit ? ` ${test.unit}` : ""}` : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-2">
@@ -1065,7 +1189,7 @@ export default function PackDetailClient({ packId }) {
                   <button
                     key={container.id}
                     type="button"
-                    onClick={() => setSelectedContainerId(container.id)}
+                    onClick={() => { setSelectedContainerId(container.id); setIsDirty(false); }}
                     className={cn(
                       "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                       selectedContainerId === container.id
@@ -1127,7 +1251,57 @@ export default function PackDetailClient({ packId }) {
                 >
                   {containerStage(selectedContainer)}
                 </span>
+                <div className="ms-auto flex shrink-0 items-center gap-2">
+                  {isDirty ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-300">
+                      <AlertCircle className="size-3 shrink-0" aria-hidden />
+                      Unsaved changes
+                    </span>
+                  ) : containerSaveStatus === "saved" ? (
+                    <span className="text-[11px] font-medium text-emerald-700">Saved</span>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 px-4 text-sm"
+                    disabled={isSavingContainer}
+                    onClick={saveSelectedContainer}
+                  >
+                    {isSavingContainer ? "Saving…" : "Save"}
+                  </Button>
+                </div>
               </div>
+
+              {containerSaveStatus === "not-found" ? (
+                <p className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  Container not found — use Refresh to reload the pack.
+                </p>
+              ) : containerSaveStatus === "error" && containerSaveError ? (
+                <p className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  {containerSaveError}
+                </p>
+              ) : null}
+
+              {outloadBlockers.length ? (
+                <div className="space-y-1 border-t border-amber-200 bg-amber-50 px-3 py-2">
+                  {outloadBlockers.map((message) => (
+                    <p key={message} className="text-sm font-medium text-amber-900">
+                      {message}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              {missingChecks.length === 0 ? (
+                <div className="border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  All mandatory checks complete for this container.
+                </div>
+              ) : selectedContainer.outLoaded === "Yes" ? (
+                <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                  Missing checks before completion: {missingChecks.join(", ")}.
+                </div>
+              ) : null}
+
               <div className="border-t border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/95 to-amber-100/70 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
                 <div className="flex flex-wrap items-start gap-2">
                   <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/60">
@@ -1150,7 +1324,7 @@ export default function PackDetailClient({ packId }) {
               container={selectedContainer}
               onChange={updateSelectedContainer}
               packerNames={packerNames}
-              packerSelectOptions={packerSelectOptions}
+              packerSelectOptions={packPackerSelectOptions.length ? packPackerSelectOptions : allPackerSelectOptions}
               yesNoOptions={YES_NO_OPTIONS}
               inspectionOptions={INSPECTION_OPTIONS}
               praTemplateOptions={PRA_TEMPLATE_OPTIONS}
@@ -1168,29 +1342,6 @@ export default function PackDetailClient({ packId }) {
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
-
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                size="sm"
-                className="h-10 px-5 text-sm"
-                disabled={isSavingContainer}
-                onClick={saveSelectedContainer}
-              >
-                {isSavingContainer ? "Saving…" : "Save Container"}
-              </Button>
-              {containerSaveStatus === "saved" ? (
-                <span className="text-sm font-medium text-emerald-700">Container saved.</span>
-              ) : containerSaveStatus === "not-found" ? (
-                <span className="text-sm font-medium text-rose-700">Container not found — use Refresh to reload the pack.</span>
-              ) : containerSaveStatus === "error" ? (
-                <span className="text-sm font-medium text-rose-700">Save failed — check connection.</span>
-              ) : null}
-            </div>
-
-            <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-rose-300 bg-rose-50 text-rose-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
-              {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}
-            </div>
           </section>
         )}
         </div>

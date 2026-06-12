@@ -35,7 +35,10 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData, fetchPackers, activePackerNames } from "@/lib/api/packing";
+import { packAssignedPackerOptions } from "@/lib/api/packing";
+import { getApplicablePackTests, mergePackTests } from "@/lib/pack-tests";
+import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -350,6 +353,7 @@ const blankPack = (siteId) => ({
   sampleSentDates: [],
   sampleStatuses: [],
   sampleEntries: [],
+  packTests: [],
   packingInstructionFiles: [],
   pemsDraft: defaultPemsDraft(),
   pemsSubmissions: [],
@@ -472,8 +476,19 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     originalRfpNumber: (row.original_rfp_number ?? row.originalRfpNumber) || "",
     assignedPackerIds: Array.isArray(row.packer_assignments)
       ? row.packer_assignments.map((a) => String(a.packer_id ?? a.packerId ?? "")).filter(Boolean)
-      : Array.isArray(row.assigned_packer_ids ?? row.assignedPackerIds)
-        ? (row.assigned_packer_ids ?? row.assignedPackerIds).map(String)
+      : Array.isArray(row.assigned_packers ?? row.assignedPackers)
+        ? (row.assigned_packers ?? row.assignedPackers).map((p) => String(p.id ?? "")).filter(Boolean)
+        : Array.isArray(row.assigned_packer_ids ?? row.assignedPackerIds)
+          ? (row.assigned_packer_ids ?? row.assignedPackerIds).map(String)
+          : [],
+    assignedPackers: Array.isArray(row.assigned_packers ?? row.assignedPackers)
+      ? (row.assigned_packers ?? row.assignedPackers)
+      : Array.isArray(row.packer_assignments)
+        ? row.packer_assignments.map((a) => ({
+            id: a.packer_id ?? a.packerId,
+            name: a.packer?.name ?? a.name ?? "",
+            status: a.packer?.status ?? a.status ?? "Active",
+          })).filter((p) => p.id)
         : [],
     releaseDetails: Array.isArray(row.releases) ? row.releases.map((r) => ({
       releaseRef: r.release_ref ?? r.releaseRef ?? "",
@@ -526,6 +541,21 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
         status: status || SAMPLE_STATUSES[0] || "Pending",
         notes: "",
       })),
+    packTests: Array.isArray(row.pack_tests ?? row.packTests)
+      ? (row.pack_tests ?? row.packTests).map((t) => ({
+          id: t.id ?? null,
+          testId: t.test_id ?? t.testId ?? null,
+          testName: t.test_name ?? t.testName ?? "",
+          testType: t.test_type ?? t.testType ?? "Percentage",
+          unit: t.unit ?? "",
+          thresholdMin: t.threshold_min ?? t.thresholdMin ?? null,
+          thresholdMax: t.threshold_max ?? t.thresholdMax ?? null,
+          value: t.value ?? "",
+          findings: Array.isArray(t.findings) ? t.findings : [],
+          status: t.status ?? "pending",
+          notes: t.notes ?? "",
+        }))
+      : [],
     importPermitFiles: normalizeFileItems(
       row.importPermitFiles ??
       (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importPermit") : null)
@@ -636,6 +666,30 @@ function packToScheduleRow(pack, existingRow) {
     packer_assignments: Array.isArray(pack.assignedPackerIds)
       ? pack.assignedPackerIds.map((id) => ({ packer_id: id }))
       : [],
+    assigned_packers: (() => {
+      const ids = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
+      const fromPack = Array.isArray(pack.assignedPackers) ? pack.assignedPackers : [];
+      if (fromPack.length) {
+        return fromPack
+          .filter((p) => ids.includes(String(p.id)))
+          .map((p) => ({ id: p.id, name: p.name ?? "", status: p.status ?? "Active" }));
+      }
+      return ids.map((id) => ({ id, name: "", status: "Active" }));
+    })(),
+    pack_tests: Array.isArray(pack.packTests)
+      ? pack.packTests.map((t) => ({
+          test_id: t.testId ?? null,
+          test_name: t.testName,
+          test_type: t.testType ?? "Percentage",
+          unit: t.unit ?? "",
+          threshold_min: t.thresholdMin ?? null,
+          threshold_max: t.thresholdMax ?? null,
+          value: t.value ?? "",
+          findings: t.findings ?? null,
+          status: t.status ?? "pending",
+          notes: t.notes ?? "",
+        }))
+      : [],
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
   };
@@ -711,30 +765,84 @@ function NewPackFormPageInner() {
   const editId = searchParams.get("id") || "";
   const requestedTab = searchParams.get("tab");
   const currentSite = activeSiteId || null;
+
+  // All form lookup data from TanStack Query — cached globally, refetches on
+  // window focus so switching back from a reference-data tab picks up new options.
+  const queryLookups = useAllPackLookups();
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [fumigants] = useState(() => loadFumigants());
   const [methodologies] = useState(() => loadMethodologies());
   const [certificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates] = useState(() => loadRecordTemplates());
-  const [customerOptions, setCustomerOptions] = useState([]);
-  const [commodityOptions, setCommodityOptions] = useState([]);
-  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
-  const [shippingLineOptions, setShippingLineOptions] = useState([]);
-  const [containerParkOptions, setContainerParkOptions] = useState([]);
-  const [transporterOptions, setTransporterOptions] = useState([]);
-  const [containerCodeOptions, setContainerCodeOptions] = useState([]);
-  const [packerOptions, setPackerOptions] = useState([]);
-  const [terminalOptions, setTerminalOptions] = useState([]);
-  const [vesselVoyageOptions, setVesselVoyageOptions] = useState([]);
-  const [countryOptions, setCountryOptions] = useState([]);
-  const [portOptions, setPortOptions] = useState([]);
-  const [releaseOptions, setReleaseOptions] = useState([]);
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
-  const packerNames = useMemo(
-    () => activePackerNames(packerOptions),
-    [packerOptions]
+
+  const customerOptions = queryLookups.customers;
+  const commodityOptions = queryLookups.commodities;
+  const commodityTypeOptions = queryLookups.commodityTypes;
+  const shippingLineOptions = useMemo(
+    () =>
+      queryLookups.shippingLines.map((s) => ({
+        id: s.id,
+        name: s.shipping_line_name ?? s.name ?? "",
+        code: s.shipping_line_code ?? s.code ?? "",
+      })),
+    [queryLookups.shippingLines]
   );
-  const packerSelectOptions = packerNames;
+  const containerParkOptions = useMemo(
+    () => queryLookups.containerParks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
+    [queryLookups.containerParks]
+  );
+  const transporterOptions = useMemo(
+    () => queryLookups.transporters.map((t) => ({ id: t.id, name: t.name ?? "" })),
+    [queryLookups.transporters]
+  );
+  const containerCodeOptions = queryLookups.containerCodes;
+  const packerOptions = useMemo(
+    () => (queryLookups.referencePackers.length ? queryLookups.referencePackers : queryLookups.packers),
+    [queryLookups.referencePackers, queryLookups.packers]
+  );
+  const packerNames = queryLookups.packerNames;
+  const [testsCatalog, setTestsCatalog] = useState([]);
+  const terminalOptions = queryLookups.terminals;
+  const vesselVoyageOptions = queryLookups.vesselVoyages;
+  const countryOptions = useMemo(
+    () =>
+      queryLookups.countries.map((c) => ({
+        id: c.id,
+        name: c.country_name ?? c.countryName ?? "",
+        code: c.country_code ?? c.countryCode ?? "",
+      })),
+    [queryLookups.countries]
+  );
+  const portOptions = queryLookups.ports;
+  const releaseOptions = useMemo(
+    () => queryLookups.releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber),
+    [queryLookups.releases]
+  );
+  const quickReleaseLookups = useMemo(
+    () => ({
+      containerParks: containerParkOptions,
+      transporters: transporterOptions,
+      containerCodes: containerCodeOptions,
+      loading: queryLookups.isLoading,
+    }),
+    [containerParkOptions, transporterOptions, containerCodeOptions, queryLookups.isLoading]
+  );
   const [pack, setPack] = useState(() => blankPack(currentSite));
+  const packerSelectOptions = useMemo(
+    () => packAssignedPackerOptions(pack, queryLookups.referencePackers ?? queryLookups.packers ?? []),
+    [pack, queryLookups.referencePackers, queryLookups.packers]
+  );
+  const selectedCommodity = useMemo(
+    () => commodityOptions.find((c) => String(c.id) === String(pack.commodityId)) ?? null,
+    [commodityOptions, pack.commodityId]
+  );
+  const applicablePackTests = useMemo(
+    () => getApplicablePackTests(selectedCommodity, testsCatalog),
+    [selectedCommodity, testsCatalog]
+  );
+  const showPackTestsSection = applicablePackTests.length > 0 || pack.testRequired || (pack.packTests || []).length > 0;
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
     ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
@@ -899,11 +1007,10 @@ function NewPackFormPageInner() {
     }
 
     // Persist the release to the database (Modules/ReferenceData ReleaseController).
-    let newRelease;
     setQuickReleaseSaving(true);
     setQuickReleaseError("");
     try {
-      newRelease = await saveRelease({
+      await saveRelease({
         ...quickReleaseDraft,
         releaseNumber: releaseRef,
         parks: cleanedParks,
@@ -919,10 +1026,7 @@ function NewPackFormPageInner() {
       setQuickReleaseSaving(false);
     }
 
-    setReleaseOptions((prev) => {
-      const normalized = normalizeReleaseOption(newRelease);
-      return [normalized, ...prev.filter((r) => r.releaseNumber !== normalized.releaseNumber)];
-    });
+    await invalidateReferenceData("releases");
 
     const firstPark = cleanedParks[0];
     const firstTransporterId = firstPark.transporterIds[0] ?? "";
@@ -950,7 +1054,7 @@ function NewPackFormPageInner() {
 
   function handleQuickVesselCreated(option) {
     if (!option?.id) return;
-    setVesselVoyageOptions((prev) => [option, ...prev.filter((v) => String(v.id) !== String(option.id))]);
+    invalidateReferenceData("vesselVoyages");
     setPack((prev) => ({
       ...prev,
       vesselDepartureId: option.id,
@@ -1334,14 +1438,25 @@ function NewPackFormPageInner() {
   }, [pack.vesselDepartureId, vesselVoyageOptions]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const destinationCountryId = useMemo(() => {
-    const name = String(pack.destinationCountry || "").trim();
-    if (!name) return "";
-    return countryOptions.find((c) => c.name === name)?.id || "";
+    const raw = String(pack.destinationCountry || "").trim();
+    if (!raw) return "";
+    const exact = countryOptions.find((c) => c.name === raw);
+    if (exact?.id) return String(exact.id);
+    const lower = raw.toLowerCase();
+    const byName = countryOptions.find((c) => c.name.toLowerCase() === lower);
+    if (byName?.id) return String(byName.id);
+    const byCode = countryOptions.find((c) => String(c.code || "").toLowerCase() === lower);
+    return byCode?.id ? String(byCode.id) : "";
   }, [pack.destinationCountry, countryOptions]);
-  const destinationPortOptions = useMemo(
-    () => (destinationCountryId ? portOptions.filter((p) => String(p.countryId) === String(destinationCountryId)) : portOptions),
-    [portOptions, destinationCountryId]
-  );
+  const destinationPortOptions = useMemo(() => {
+    const countryName = String(pack.destinationCountry || "").trim().toLowerCase();
+    if (!destinationCountryId && !countryName) return portOptions;
+    return portOptions.filter((port) => {
+      if (destinationCountryId && String(port.countryId) === String(destinationCountryId)) return true;
+      const portCountryName = String(port.countryName || "").trim().toLowerCase();
+      return Boolean(countryName && portCountryName === countryName);
+    });
+  }, [portOptions, pack.destinationCountry, destinationCountryId]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
   const filteredPemsPackContainers = useMemo(() => {
     const q = pemsContainerSearch.trim().toLowerCase();
@@ -1557,6 +1672,32 @@ function NewPackFormPageInner() {
   }, [currentSite, mode]);
 
   useEffect(() => {
+    let cancelled = false;
+    const base = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    fetch(`${base}/product-settings/tests?per_page=500`, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        if (cancelled) return;
+        const rows = Array.isArray(result?.data?.data)
+          ? result.data.data
+          : Array.isArray(result?.data)
+            ? result.data
+            : [];
+        setTestsCatalog(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!pack.fumigationRequired && activeTab === "fumigation") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("general");
@@ -1703,7 +1844,11 @@ function NewPackFormPageInner() {
     <>
       <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-0 sm:px-2 lg:px-3">
         <div className="flex flex-wrap items-center justify-between gap-1">
-          <h1 className="text-base font-semibold leading-tight text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
+          <h1 className="text-base font-semibold leading-tight text-slate-900">
+            {mode === "edit"
+              ? `Edit Pack${pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
+              : "Add Pack"}
+          </h1>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -2006,6 +2151,49 @@ function NewPackFormPageInner() {
                   ) : null}
                 </div>
               </section>
+
+              {showPackTestsSection ? (
+                <section className={flushSectionClass} aria-label="Pack tests">
+                  <div className={cn(flushSectionBodyClass, sectionStackClass)}>
+                    <FormRow label="Tests on pack">
+                      <p className="text-xs text-slate-500">
+                        Tests are created on the pack from commodity thresholds. Results can be updated on the Ticketing pack tests page.
+                      </p>
+                    </FormRow>
+                    {(pack.packTests || []).length === 0 ? (
+                      <p className="text-xs text-slate-400">No tests apply for the selected commodity.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {(pack.packTests || []).map((test, index) => (
+                          <div key={test.testName || index} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-900">{test.testName}</span>
+                              <span className="text-slate-500">{test.testType}{test.unit ? ` · ${test.unit}` : ""}</span>
+                              {(test.thresholdMin != null && test.thresholdMin !== "") || (test.thresholdMax != null && test.thresholdMax !== "") ? (
+                                <span className="text-slate-500">
+                                  Threshold
+                                  {test.thresholdMin != null && test.thresholdMin !== "" ? ` min ${test.thresholdMin}` : ""}
+                                  {test.thresholdMax != null && test.thresholdMax !== "" ? ` max ${test.thresholdMax}` : ""}
+                                </span>
+                              ) : null}
+                            </div>
+                            <input
+                              className={cn(inputClass, "mt-1.5 !h-9 text-xs")}
+                              value={test.notes || ""}
+                              onChange={(e) => {
+                                const next = [...(pack.packTests || [])];
+                                next[index] = { ...next[index], notes: e.target.value };
+                                set("packTests", next);
+                              }}
+                              placeholder="Schedule notes (optional)"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
 
             <section className={sectionClass} aria-label="Basic details">
@@ -2037,10 +2225,12 @@ function NewPackFormPageInner() {
                     onChange={(e) => {
                       const id = e.target.value;
                       const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
+                      const nextApplicable = row ? getApplicablePackTests(row, testsCatalog) : [];
                       setPack((prev) => ({
                         ...prev,
                         commodityId: id,
                         commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
+                        packTests: nextApplicable.length ? mergePackTests(prev.packTests, nextApplicable) : [],
                       }));
                     }}
                   >
@@ -2077,7 +2267,10 @@ function NewPackFormPageInner() {
                                   const currentIds = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
                                   const id = String(p.id);
                                   const nextIds = currentIds.includes(id) ? currentIds.filter((x) => x !== id) : [...currentIds, id];
-                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds }));
+                                  const nextAssigned = packerOptions
+                                    .filter((row) => nextIds.includes(String(row.id)))
+                                    .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
+                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
                                 }}
                               />
                               {p.name}
@@ -2373,7 +2566,17 @@ function NewPackFormPageInner() {
                 <div className={cn(flushSectionBodyClass, "gap-1")}>
                   <div className={shippingGridClass}>
                     <FormRow label="Destination country">
-                      <select className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
+                      <select
+                        className={inputClass}
+                        value={pack.destinationCountry}
+                        onChange={(e) =>
+                          setPack((prev) => ({
+                            ...prev,
+                            destinationCountry: e.target.value,
+                            destinationPort: "",
+                          }))
+                        }
+                      >
                         <option value="">- Select country -</option>
                         {countryOptions.map((country) => (
                           <option key={country.id} value={country.name}>
@@ -2384,7 +2587,7 @@ function NewPackFormPageInner() {
                     </FormRow>
                     <FormRow label="Destination port">
                       <select className={inputClass} value={pack.destinationPort || ""} onChange={(e) => set("destinationPort", e.target.value)}>
-                        <option value="">{destinationCountryId ? "- Select port -" : "- Select country first -"}</option>
+                        <option value="">{pack.destinationCountry ? "- Select port -" : "- Select country first -"}</option>
                         {pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort) ? (
                           <option value={pack.destinationPort}>{pack.destinationPort}</option>
                         ) : null}

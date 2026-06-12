@@ -25,6 +25,7 @@ function mapFooterItems(items) {
     name: item.title,
     href: item.path,
     icon: item.icon,
+    permission: item.permission,
   }));
 }
 
@@ -45,12 +46,16 @@ export function ErpNavUiProvider({
   user,
 }) {
   const allModules = sections?.main ? mapSectionItems(sections.main) : modules ?? PACKING_NAV_MODULES;
-  const mergedFooter = sections?.bottom ? mapFooterItems(sections.bottom) : footerNav ?? PACKING_NAV_FOOTER;
+  const footerNavRaw = sections?.bottom ? mapFooterItems(sections.bottom) : footerNav ?? PACKING_NAV_FOOTER;
 
   const userPermissions = useCurrentUserPermissions();
   const mergedModules = useMemo(
     () => filterModulesByPermissions(allModules, userPermissions),
     [allModules, userPermissions]
+  );
+  const mergedFooter = useMemo(
+    () => filterModulesByPermissions(footerNavRaw, userPermissions),
+    [footerNavRaw, userPermissions]
   );
 
   const hasAuthUserProp = user !== undefined;

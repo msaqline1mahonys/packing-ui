@@ -13,7 +13,7 @@ export function CommodityMultiSelect({ commodities, value = [], onChange, allowE
       options={commodities}
       value={value}
       onChange={onChange}
-      getId={(c) => Number(c.id)}
+      getId={(c) => c.id}
       getLabel={(c) => c.description}
       getMeta={(c) => c.commodityCode || ""}
       placeholder="Select commodities..."

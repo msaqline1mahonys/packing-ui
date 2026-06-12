@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CADENCE_LABELS } from "@/lib/reports-windows";
-import { ALL_SECTIONS, SECTION_LABELS, fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
+import { ALL_SECTIONS, SECTION_LABELS, fetchCommodityDirectory, fetchCustomerDirectory, sameId } from "@/lib/reports-data";
 import { getHistoryEntry } from "@/lib/reports-store";
 
 export default function PreviewClient({ runId }) {
@@ -36,7 +36,7 @@ export default function PreviewClient({ runId }) {
   }
 
   const customerNames = (entry.recipients || [])
-    .map((r) => customers.find((c) => Number(c.id) === Number(r.customerId))?.name)
+    .map((r) => customers.find((c) => sameId(c.id, r.customerId))?.name)
     .filter(Boolean);
 
   return (
@@ -66,7 +66,7 @@ export default function PreviewClient({ runId }) {
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Customers ({customerNames.length})</h2>
         <ul className="list-disc space-y-0.5 ps-5 text-slate-800">
           {(entry.recipients || []).map((r, idx) => {
-            const cust = customers.find((c) => Number(c.id) === Number(r.customerId));
+            const cust = customers.find((c) => sameId(c.id, r.customerId));
             return (
               <li key={idx}>
                 <span className="font-medium">{cust?.name || "Unknown customer"}</span>

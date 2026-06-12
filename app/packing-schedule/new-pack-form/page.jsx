@@ -8,6 +8,7 @@ import { createPraActionHandlers } from "@/components/pems/container-form-action
 import ContainerFormSections from "@/components/pems/container-form-sections";
 import PackFileList from "@/components/pack-file-list";
 import { Button } from "@/components/ui/button";
+import { hasPermission } from "@/lib/use-user-permissions";
 import {
   PACK_STATUSES,
   PACK_TEMPLATE,
@@ -2833,14 +2834,20 @@ function NewPackFormPageInner() {
                       ))}
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    className="h-10 shrink-0 self-center sm:min-w-[160px]"
-                    onClick={submitPemsFromForm}
-                    disabled={!stagedPemsContainers.length || isSubmittingPems}
-                  >
-                    {isSubmittingPems ? "Submitting…" : `Submit ${stagedPemsContainers.length}`}
-                  </Button>
+                  {hasPermission("packing.container.ao-signoff") ? (
+                    <Button
+                      type="button"
+                      className="h-10 shrink-0 self-center sm:min-w-[160px]"
+                      onClick={submitPemsFromForm}
+                      disabled={!stagedPemsContainers.length || isSubmittingPems}
+                    >
+                      {isSubmittingPems ? "Submitting…" : `Submit ${stagedPemsContainers.length}`}
+                    </Button>
+                  ) : (
+                    <div className="flex h-10 shrink-0 items-center self-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 sm:min-w-[160px]">
+                      Requires Authorised Officer permission
+                    </div>
+                  )}
                 </div>
                 {pemsSubmitError ? (
                   <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>

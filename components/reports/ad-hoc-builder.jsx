@@ -136,7 +136,7 @@ export function AdHocBuilder({ onRanComplete }) {
               options={customers}
               value={customerIds}
               onChange={setCustomerIds}
-              getId={(c) => Number(c.id)}
+              getId={(c) => c.id}
               getLabel={(c) => c.name}
               getMeta={(c) => c.code || ""}
               placeholder="Select customers..."

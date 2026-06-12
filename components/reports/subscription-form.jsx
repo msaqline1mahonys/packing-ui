@@ -18,15 +18,15 @@ export function SubscriptionForm({ open, cadence, initial, onCancel, onSave }) {
     fetchCommodityDirectory().then(setCommodities);
   }, []);
 
-  const allCustomerIds = useMemo(() => customers.map((c) => Number(c.id)), [customers]);
+  const allCustomerIds = useMemo(() => customers.map((c) => c.id), [customers]);
 
   function resolveInitialCustomerIds() {
     if (!initial) return allCustomerIds;
     if (Array.isArray(initial.customerIds) && initial.customerIds.length > 0) {
-      return initial.customerIds.map(Number);
+      return [...initial.customerIds];
     }
     // backward compat: single customerId from old subscriptions
-    if (initial.customerId != null) return [Number(initial.customerId)];
+    if (initial.customerId != null) return [initial.customerId];
     return allCustomerIds;
   }
 
@@ -53,8 +53,8 @@ export function SubscriptionForm({ open, cadence, initial, onCancel, onSave }) {
     onSave({
       id: initial?.id,
       cadence,
-      customerIds: customerIds.map(Number),
-      commodityIds: commodityIds.map(Number),
+      customerIds: [...customerIds],
+      commodityIds: [...commodityIds],
       recipientEmails,
       enabled,
     });
@@ -81,7 +81,7 @@ export function SubscriptionForm({ open, cadence, initial, onCancel, onSave }) {
               options={customers}
               value={customerIds}
               onChange={setCustomerIds}
-              getId={(c) => Number(c.id)}
+              getId={(c) => c.id}
               getLabel={(c) => c.name}
               getMeta={(c) => c.code || ""}
               placeholder="Select customers..."

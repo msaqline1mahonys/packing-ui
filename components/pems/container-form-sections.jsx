@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
+import { hasPermission } from "@/lib/use-user-permissions";
 
 const defaultFieldNames = {
   containerNo: "containerNo",
@@ -74,6 +75,8 @@ export default function ContainerFormSections({
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
   const submitted = Boolean(getValue(container, names, "praSubmitted", false));
+  // AO sign-off action gating
+  const canAoSignoff = hasPermission("packing.container.ao-signoff");
   const packerOptions = packerSelectOptions ?? packerNames ?? [];
 
   function handleReleaseSelect(releaseRef) {
@@ -268,7 +271,17 @@ export default function ContainerFormSections({
           <PemsSelect label="Grain inspection" value={getValue(container, names, "grainInspection")} options={inspectionOptions} onChange={(value) => setField("grainInspection", value)} inputClass={inputClass} />
           <PemsSelect label="Inspection level (PEMS)" value={getValue(container, names, "inspectionLevelCode", "Consumable")} options={inspectionLevelOptions} onChange={(value) => setField("inspectionLevelCode", value)} inputClass={inputClass} />
           <PemsSelect label="Passed after rectification" value={getValue(container, names, "passedAfterRectification", "N")} options={rectificationOptions} onChange={(value) => setField("passedAfterRectification", value)} inputClass={inputClass} />
-          <PemsSelect label="AO signoff" value={getValue(container, names, "aoSignoff")} options={packerNames} onChange={(value) => setField("aoSignoff", value)} inputClass={inputClass} />
+          {canAoSignoff ? (
+            <PemsSelect label="AO signoff" value={getValue(container, names, "aoSignoff")} options={packerNames} onChange={(value) => setField("aoSignoff", value)} inputClass={inputClass} />
+          ) : (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-slate-600">AO signoff</p>
+              <div className={cn(inputClass, "cursor-not-allowed bg-slate-50 text-slate-400")}>
+                {getValue(container, names, "aoSignoff") || "—"}
+              </div>
+              <p className="text-[10px] text-amber-600">Requires Authorised Officer permission</p>
+            </div>
+          )}
           {remarkCodeOptions.length ? (
             <PemsSelect
               label="Inspection remark code"

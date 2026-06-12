@@ -1,91 +1,96 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { PACKING_NAV_MODULES } from "@/components/erp-navbar/packing-defaults";
-import { loadContactUsers } from "@/lib/contact-users-store";
-import { loadUserPermissions, saveUserPermissions } from "@/lib/user-permissions-store";
-import { fetchApiUsers } from "@/lib/users-api";
+import { readAuthPayload } from "@/lib/auth-session";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-function slugify(text) {
-  return String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+/**
+ * Grouped display of the known permission catalogue, so we can show
+ * a tidy grouped list rather than a flat dump.
+ */
+const PERMISSION_GROUPS = [
+  {
+    label: "Packing",
+    permissions: [
+      { name: "packing.schedule.view", description: "View packing schedule" },
+      { name: "packing.pack.create", description: "Create packs" },
+      { name: "packing.pack.update", description: "Update packs" },
+      { name: "packing.container.view", description: "View containers" },
+      { name: "packing.container.edit", description: "Edit containers" },
+      { name: "packing.container.ao-signoff", description: "Record AO sign-off on containers / submit PEMs batches" },
+    ],
+  },
+  {
+    label: "Fumigation",
+    permissions: [
+      { name: "fumigation.records.view", description: "View fumigation records" },
+      { name: "fumigation.records.signoff", description: "Sign off fumigation records" },
+      { name: "fumigation.certificate.signoff", description: "Sign off fumigation certificates" },
+      { name: "fumigation.masters.view", description: "View fumigation master data" },
+    ],
+  },
+  {
+    label: "Ticketing",
+    permissions: [
+      { name: "ticketing.tickets.view", description: "View tickets" },
+      { name: "ticketing.tickets.create", description: "Create tickets" },
+      { name: "ticketing.cmo.view", description: "View CMO data" },
+    ],
+  },
+  {
+    label: "Stock",
+    permissions: [
+      { name: "stock.view", description: "View stock management" },
+    ],
+  },
+  {
+    label: "Accounting",
+    permissions: [
+      { name: "accounting.view", description: "View accounting" },
+    ],
+  },
+  {
+    label: "Reports",
+    permissions: [
+      { name: "reports.view", description: "View reports" },
+    ],
+  },
+  {
+    label: "Reference & Settings",
+    permissions: [
+      { name: "reference-data.view", description: "View reference data" },
+      { name: "contacts.view", description: "View contacts" },
+      { name: "product-settings.view", description: "View product settings" },
+    ],
+  },
+];
+
+function readCurrentPermissions() {
+  const payload = readAuthPayload();
+  if (!payload) return null;
+  const perms = payload.permissions;
+  return Array.isArray(perms) ? perms : null;
 }
 
 export default function UserPermissionPage() {
-  const permissionsList = useMemo(() => {
-    const items = [];
-    for (const module of PACKING_NAV_MODULES) {
-      items.push({
-        id: `module:${slugify(module.name)}`,
-        label: module.name,
-        description: `Access to ${module.name}.`,
-      });
-      for (const child of module.children ?? []) {
-        items.push({
-          id: `module:${slugify(module.name)}:${slugify(child.name)}`,
-          label: child.name,
-          description: `Access to ${module.name} / ${child.name}.`,
-        });
-      }
-    }
-    return items;
-  }, []);
-
-  const allPermissionIds = useMemo(() => permissionsList.map((permission) => permission.id), [permissionsList]);
-
-  const [users, setUsers] = useState([]);
-  const [search, setSearch] = useState("");
-  const [selectedUserId, setSelectedUserId] = useState(null);
-  const [selectedPermissions, setSelectedPermissions] = useState([]);
-  const [hasChanges, setHasChanges] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const selectAllCheckboxRef = useRef(null);
+  const [permissions, setPermissions] = useState(() => readCurrentPermissions());
 
-  const [permissionsByUser, setPermissionsByUser] = useState(() => loadUserPermissions());
-
+  // Re-read on storage changes (e.g., re-login)
   useEffect(() => {
-    let cancelled = false;
-    function mapUsers(list) {
-      return list.map((u) => ({
-        id: u.id,
-        name: u.name || "",
-        email: u.email || "",
-        role: u.roles?.[0]?.display_name || u.roles?.[0]?.name || u.role || "",
-        active: u.active !== false,
-      }));
+    function sync() {
+      setPermissions(readCurrentPermissions());
     }
-    const fallback = mapUsers(loadContactUsers());
-    setUsers(fallback);
-
-    fetchApiUsers()
-      .then((apiUsers) => {
-        if (cancelled) return;
-        if (apiUsers.length > 0) {
-          const mapped = mapUsers(apiUsers);
-          setUsers(mapped);
-          if (selectedUserId != null && !mapped.some((u) => u.id === selectedUserId)) {
-            setSelectedUserId(null);
-            setSelectedPermissions([]);
-            setHasChanges(false);
-          }
-        }
-      })
-      .catch(() => {});
-
-    return () => { cancelled = true; };
+    window.addEventListener("storage", sync);
+    window.addEventListener("auth-session-changed", sync);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("auth-session-changed", sync);
+    };
   }, []);
-
-  useEffect(() => {
-    saveUserPermissions(permissionsByUser);
-  }, [permissionsByUser]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -95,292 +100,106 @@ export default function UserPermissionPage() {
     return () => query.removeEventListener("change", handleMedia);
   }, []);
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      if (!search) return true;
-      const text = `${user.name} ${user.email} ${user.role}`.toLowerCase();
-      return text.includes(search.toLowerCase());
-    });
-  }, [search, users]);
+  const permSet = useMemo(() => new Set(permissions || []), [permissions]);
+  const isAdmin = permissions === null;
 
-  const selected = users.find((user) => user.id === selectedUserId) || null;
-
-  function getUserPermissions(userId) {
-    return permissionsByUser[userId] || [];
-  }
-
-  function handleUserSelect(userId) {
-    setSelectedUserId(userId);
-    setSelectedPermissions(getUserPermissions(userId));
-    setHasChanges(false);
-  }
-
-  function handlePermissionToggle(permissionId) {
-    const nextPermissions = selectedPermissions.includes(permissionId)
-      ? selectedPermissions.filter((permission) => permission !== permissionId)
-      : [...selectedPermissions, permissionId];
-    setSelectedPermissions(nextPermissions);
-    setHasChanges(true);
-  }
-
-  function handleSave() {
-    if (!selectedUserId) return;
-    setPermissionsByUser((prev) => ({ ...prev, [selectedUserId]: selectedPermissions }));
-    setHasChanges(false);
-  }
-
-  function handleCancel() {
-    if (!selectedUserId) return;
-    setSelectedPermissions(getUserPermissions(selectedUserId));
-    setHasChanges(false);
-  }
-
-  const allSelected = permissionsList.length > 0 && selectedPermissions.length === permissionsList.length;
-  const someSelected = selectedPermissions.length > 0;
-  const isIndeterminate = someSelected && !allSelected;
-
-  function handleSelectAll() {
-    if (allSelected) {
-      setSelectedPermissions([]);
-    } else {
-      setSelectedPermissions([...allPermissionIds]);
-    }
-    setHasChanges(true);
-  }
-
-  useEffect(() => {
-    const element = selectAllCheckboxRef.current;
-    if (element) element.indeterminate = isIndeterminate;
-  }, [isIndeterminate]);
+  const totalGranted = isAdmin
+    ? PERMISSION_GROUPS.reduce((sum, g) => sum + g.permissions.length, 0)
+    : permissions.length;
 
   return (
     <div className="space-y-5">
       <div>
         <p className="text-xs text-slate-500">Contacts / User Permissions</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">User Permissions</h1>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">My Permissions</h1>
+        {!isMobile ? (
+          <p className="mt-1 text-xs text-slate-500">
+            Your effective permissions are derived from your assigned classifications and roles. To change them, ask an administrator to edit your user record.
+          </p>
+        ) : null}
       </div>
 
-      {isMobile ? (
-        <div className="space-y-3">
-          <section className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
-            <input suppressHydrationWarning className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
-          </section>
+      <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        {isAdmin ? (
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+              Organisation / Site Administrator
+            </span>
+            <span className="text-sm text-slate-600">You hold all permissions.</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand ring-1 ring-brand/20">
+              {totalGranted} permission{totalGranted !== 1 ? "s" : ""} granted
+            </span>
+            <span className="text-sm text-slate-500">
+              Permissions are controlled by your classifications and roles — edit via the Users page.
+            </span>
+          </div>
+        )}
+      </div>
 
-          <section className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-            <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">Users ({filteredUsers.length})</div>
-            <div className="max-h-[260px] space-y-2 overflow-y-auto p-2">
-              {filteredUsers.length === 0 ? (
-                <div className="py-8 text-center text-sm text-slate-400">{search ? "No users match your search." : "No users found."}</div>
-              ) : (
-                filteredUsers.map((user) => {
-                  const count = getUserPermissions(user.id).length;
-                  const active = user.id === selectedUserId;
-                  return (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onClick={() => handleUserSelect(user.id)}
-                      className={cn(
-                        "w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
-                        active ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
-                      )}
-                    >
-                      <p className="text-sm font-semibold text-slate-800">{user.name}</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {count} permission{count !== 1 ? "s" : ""}
-                        {user.role ? ` - ${user.role}` : ""}
-                      </p>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          {selected ? (
-            <section className="space-y-3 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">{selected.name}</h3>
-                  <p className="text-xs text-slate-500">
-                    {selected.email} - {selected.role || "No role"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasChanges ? <span className="rounded bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-700">Unsaved</span> : null}
-                  <BtnPrimary type="button" disabled={!hasChanges} onClick={handleSave}>
-                    Save
-                  </BtnPrimary>
-                  <BtnSecondary type="button" disabled={!hasChanges} onClick={handleCancel}>
-                    Cancel
-                  </BtnSecondary>
-                </div>
+      <div className={cn("space-y-4", !isMobile && "grid gap-4 grid-cols-2 space-y-0")}>
+        {PERMISSION_GROUPS.map((group) => {
+          const grantedInGroup = group.permissions.filter(
+            (p) => isAdmin || permSet.has(p.name)
+          );
+          return (
+            <section
+              key={group.label}
+              className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700">{group.label}</h2>
+                <span className="text-[10px] font-semibold text-slate-500 tabular-nums">
+                  {isAdmin ? group.permissions.length : grantedInGroup.length}/{group.permissions.length}
+                </span>
               </div>
-
-              <button
-                type="button"
-                onClick={handleSelectAll}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left",
-                  allSelected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"
-                )}
-              >
-                <input suppressHydrationWarning ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
-                <span className="text-sm font-semibold text-slate-800">Select all</span>
-              </button>
-
-              <div className="max-h-[320px] space-y-2 overflow-y-auto">
-                {permissionsList.map((permission) => {
-                  const checked = selectedPermissions.includes(permission.id);
+              <div className="divide-y divide-slate-100">
+                {group.permissions.map((perm) => {
+                  const granted = isAdmin || permSet.has(perm.name);
                   return (
-                    <button
-                      key={permission.id}
-                      type="button"
-                      onClick={() => handlePermissionToggle(permission.id)}
+                    <div
+                      key={perm.name}
                       className={cn(
-                        "flex w-full items-start gap-3 rounded-lg border p-3 text-left",
-                        checked ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"
+                        "flex items-start gap-3 px-3 py-2.5",
+                        granted ? "bg-white" : "bg-slate-50/60"
                       )}
                     >
-                      <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
-                      <span>
-                        <span className="block text-sm font-semibold text-slate-800">{permission.label}</span>
-                        <span className="block text-xs text-slate-500">{permission.description}</span>
-                      </span>
-                    </button>
+                      <span
+                        className={cn(
+                          "mt-0.5 size-4 shrink-0 rounded-full ring-1",
+                          granted
+                            ? "bg-emerald-400 ring-emerald-300"
+                            : "bg-slate-200 ring-slate-300"
+                        )}
+                        aria-hidden
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className={cn("text-xs font-semibold", granted ? "text-slate-800" : "text-slate-400")}>
+                          {perm.description}
+                        </p>
+                        <p className={cn("mt-0.5 font-mono text-[10px]", granted ? "text-slate-500" : "text-slate-300")}>
+                          {perm.name}
+                        </p>
+                      </div>
+                      {granted ? (
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                          Granted
+                        </span>
+                      ) : (
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-400 ring-1 ring-slate-200">
+                          Not granted
+                        </span>
+                      )}
+                    </div>
                   );
                 })}
               </div>
             </section>
-          ) : (
-            <section className="rounded-xl border border-slate-200/90 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
-              Select a user above to manage their permissions
-            </section>
-          )}
-        </div>
-      ) : (
-        <div className="grid min-h-[560px] gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-            <div className="border-b border-slate-200 p-3">
-              <input suppressHydrationWarning className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users..." />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {filteredUsers.length === 0 ? (
-                <div className="py-10 text-center text-sm text-slate-400">{search ? "No users match your search." : "No users found."}</div>
-              ) : (
-                filteredUsers.map((user) => {
-                  const count = getUserPermissions(user.id).length;
-                  const active = user.id === selectedUserId;
-                  return (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onClick={() => handleUserSelect(user.id)}
-                      className={cn(
-                        "mb-2 w-full rounded-xl border-2 px-3 py-3 text-left transition-colors",
-                        active ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                      )}
-                    >
-                      <p className="text-sm font-semibold text-slate-800">{user.name}</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {count} permission{count !== 1 ? "s" : ""}
-                        {user.role ? ` - ${user.role}` : ""}
-                      </p>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
-            {selected ? (
-              <>
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b-2 border-slate-200 pb-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">{selected.name}</h3>
-                    <p className="text-xs text-slate-500">
-                      {selected.email} - {selected.role || "No role"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {hasChanges ? <span className="rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">Unsaved Changes</span> : null}
-                    <BtnPrimary type="button" disabled={!hasChanges} onClick={handleSave}>
-                      Save Changes
-                    </BtnPrimary>
-                    <BtnSecondary type="button" disabled={!hasChanges} onClick={handleCancel}>
-                      Cancel
-                    </BtnSecondary>
-                  </div>
-                </div>
-
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Permissions</div>
-
-                <button
-                  type="button"
-                  onClick={handleSelectAll}
-                  className={cn(
-                    "mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-left",
-                    allSelected ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"
-                  )}
-                >
-                  <input suppressHydrationWarning ref={selectAllCheckboxRef} type="checkbox" checked={allSelected} onChange={() => {}} />
-                  <span className="text-sm font-semibold text-slate-800">Select all</span>
-                </button>
-
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-                  {permissionsList.map((permission) => {
-                    const checked = selectedPermissions.includes(permission.id);
-                    return (
-                      <button
-                        key={permission.id}
-                        type="button"
-                        onClick={() => handlePermissionToggle(permission.id)}
-                        className={cn(
-                          "flex w-full items-start gap-3 rounded-lg border p-3 text-left",
-                          checked ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                        )}
-                      >
-                        <input suppressHydrationWarning type="checkbox" checked={checked} onChange={() => {}} className="mt-0.5" />
-                        <span>
-                          <span className="block text-sm font-semibold text-slate-800">{permission.label}</span>
-                          <span className="block text-xs text-slate-500">{permission.description}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="grid min-h-full place-content-center text-center text-sm text-slate-400">Select a user to manage their permissions</div>
-            )}
-          </section>
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
-  );
-}
-
-function BtnPrimary({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function BtnSecondary({ className, ...props }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
   );
 }

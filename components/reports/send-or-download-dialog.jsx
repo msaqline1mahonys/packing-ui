@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RecipientPicker } from "@/components/reports/recipient-picker";
 import { appendHistory, getCurrentUserEmail } from "@/lib/reports-store";
 import { buildCustomerBundle, buildMultiBundle, downloadBlob } from "@/lib/reports-csv";
-import { collectReportData, fetchCustomerDirectory } from "@/lib/reports-data";
+import { collectReportData, fetchCustomerDirectory, sameId } from "@/lib/reports-data";
 
 function getAuthToken() {
   if (typeof window === "undefined") return null;
@@ -183,7 +183,7 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
           </p>
           <div className="space-y-4">
             {selectedCustomerIds.map((cid) => {
-              const customer = customers.find((c) => Number(c.id) === Number(cid));
+              const customer = customers.find((c) => sameId(c.id, cid));
               return (
                 <div key={cid} className="rounded-lg border border-slate-200 p-3">
                   <div className="mb-2 flex items-center justify-between">
@@ -191,7 +191,7 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
                     <span className="text-[10px] uppercase tracking-wide text-slate-400">{customer?.code || ""}</span>
                   </div>
                   <RecipientPicker
-                    customerId={Number(cid)}
+                    customerId={cid}
                     value={recipientsByCustomer[cid] || []}
                     onChange={(emails) => setRecipientsByCustomer((prev) => ({ ...prev, [cid]: emails }))}
                   />

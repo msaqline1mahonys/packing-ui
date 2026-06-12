@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -13,11 +13,50 @@ import {
   legacyFlagsFromClassifications,
   normalizeClassifications,
 } from "@/lib/user-classifications";
-import { fetchApiUsers, createApiUser, updateApiUser, deleteApiUser, fetchAvailableRoles } from "@/lib/users-api";
+import { fetchApiUsers, createApiUser, updateApiUser, fetchOrgSites } from "@/lib/users-api";
+import { notifyAuthSessionChanged, readAuthPayload } from "@/lib/auth-session";
+import { refreshAuthPayload } from "@/lib/site-switch";
 
 const MOBILE_BREAKPOINT = 900;
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+
+/**
+ * Map classification key -> role display_name as used by the backend.
+ */
+const CLASSIFICATION_ROLE_NAME = {
+  [USER_CLASSIFICATIONS.PACKER]: "Packer",
+  [USER_CLASSIFICATIONS.AUTHORISED_OFFICER]: "Authorised Officer",
+  [USER_CLASSIFICATIONS.FUMIGATOR]: "Fumigator",
+  [USER_CLASSIFICATIONS.WEIGHBRIDGE]: "Weighbridge Operator",
+  [USER_CLASSIFICATIONS.SITE_ADMIN]: "Site Admin",
+  [USER_CLASSIFICATIONS.ORG_ADMIN]: "Org Admin",
+};
+
+// Role IDs are UUIDs — used to drop stale/garbage dropdown role IDs before send.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Given a user's assigned roles, derive which classification keys are active.
+ */
+function classificationsFromRoles(roles) {
+  if (!Array.isArray(roles) || !roles.length) return [];
+  const nameToClassification = Object.fromEntries(
+    Object.entries(CLASSIFICATION_ROLE_NAME).map(([cls, roleName]) => [roleName, cls])
+  );
+  const result = new Set();
+  for (const role of roles) {
+    const displayName = role.display_name || role.name || "";
+    const name = String(role.name || "");
+    if (nameToClassification[displayName]) result.add(nameToClassification[displayName]);
+    // Admin roles have config-driven display_names, so detect them by name pattern.
+    if (name.startsWith("admin_")) result.add(USER_CLASSIFICATIONS.SITE_ADMIN);
+    if (name.startsWith("org_admin_") || displayName === "Organization Admin") {
+      result.add(USER_CLASSIFICATIONS.ORG_ADMIN);
+    }
+  }
+  return Array.from(result);
+}
 
 const columns = [
   { key: "name", label: "Name" },
@@ -55,13 +94,14 @@ function toDisplayRow(row) {
   };
 }
 
-function buildFormData(row) {
+function buildFormData(row, apiUserRaw) {
   if (!row) {
     return {
       name: "",
       email: "",
       role: "",
       roleIds: [],
+      siteIds: [],
       active: true,
       userClassifications: [],
       aoExpiry: "",
@@ -77,23 +117,34 @@ function buildFormData(row) {
       confirmPassword: "",
     };
   }
-  const userClassifications = classificationsFromLegacyUser(row);
+
+  // Hydrate classifications from roles when the raw API user is provided
+  const userClassifications =
+    apiUserRaw?.roles?.length
+      ? classificationsFromRoles(apiUserRaw.roles)
+      : classificationsFromLegacyUser(row);
+
+  // Hydrate credential fields from user.profile when available, else fall back
+  // to the localStorage domain store values already merged into `row`.
+  const profile = apiUserRaw?.profile || {};
+
   return {
     name: row.name || "",
     email: row.email || "",
     role: row.role || "",
     roleIds: row.roleIds || [],
+    siteIds: row.siteIds || [],
     active: row.active !== false,
     userClassifications,
-    aoExpiry: row.aoExpiry || "",
-    aoNumber: row.aoNumber || "",
-    aoLicenseNumber: row.aoLicenseNumber || "",
-    aoPemsUsername: row.aoPemsUsername || "",
-    aoPemsPassword: row.aoPemsPassword || "",
-    aoToken: row.aoToken || "",
-    signature: row.signature || "",
-    fumigationExpiry: row.fumigationExpiry || "",
-    fumigatorLicence: row.fumigatorLicence || "",
+    aoExpiry: profile.ao_expiry ?? profile.aoExpiry ?? row.aoExpiry ?? "",
+    aoNumber: profile.ao_number ?? profile.aoNumber ?? row.aoNumber ?? "",
+    aoLicenseNumber: profile.ao_license_number ?? profile.aoLicenseNumber ?? row.aoLicenseNumber ?? "",
+    aoPemsUsername: profile.ao_pems_username ?? profile.aoPemsUsername ?? row.aoPemsUsername ?? "",
+    aoPemsPassword: "",  // always blank on open for security
+    aoToken: "",          // always blank on open for security
+    signature: profile.signature ?? row.signature ?? "",
+    fumigationExpiry: profile.fumigation_expiry ?? profile.fumigationExpiry ?? row.fumigationExpiry ?? "",
+    fumigatorLicence: profile.fumigator_licence ?? profile.fumigatorLicence ?? row.fumigatorLicence ?? "",
     newPassword: "",
     confirmPassword: "",
   };
@@ -105,6 +156,8 @@ function hasClassification(formData, classification) {
 
 export default function ContactUsersPage() {
   const [rows, setRows] = useState([]);
+  // Keep raw API users so we can read user.profile and roles on edit
+  const [rawApiUsers, setRawApiUsers] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -114,28 +167,55 @@ export default function ContactUsersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
-  const [availableRoles, setAvailableRoles] = useState([]);
+  const [orgSites, setOrgSites] = useState([]);
 
   const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
       setApiError("");
-      const [apiUsers, roles] = await Promise.all([fetchApiUsers(), fetchAvailableRoles()]);
+      const [apiUsers, sites] = await Promise.all([fetchApiUsers(), fetchOrgSites()]);
       const domainStore = loadDomainData();
       const merged = apiUsers.map((u) => {
         const domain = domainStore[u.id] || {};
+        // Derive classifications from roles (backend source of truth) with domain fallback
+        const classFromRoles = classificationsFromRoles(u.roles || []);
+        const userClassifications = classFromRoles.length ? classFromRoles : (domain.userClassifications || []);
+        // Org admins are identified by user_type, not just by role rows.
+        if ((u.user_type === "admin") && !userClassifications.includes(USER_CLASSIFICATIONS.ORG_ADMIN)) {
+          userClassifications.push(USER_CLASSIFICATIONS.ORG_ADMIN);
+        }
+        const legacy = legacyFlagsFromClassifications(userClassifications);
         return toDisplayRow({
           id: u.id,
           name: u.name || "",
           email: u.email || "",
+          // Merge domain fields (localStorage) but prefer profile fields from API
+          ...domain,
+          // Override with profile data from backend when present
+          ...(u.profile ? {
+            signature: u.profile.signature ?? domain.signature ?? "",
+            aoActive: u.profile.ao_active ?? legacy.aoActive,
+            aoExpiry: u.profile.ao_expiry ?? u.profile.aoExpiry ?? domain.aoExpiry ?? "",
+            aoNumber: u.profile.ao_number ?? u.profile.aoNumber ?? domain.aoNumber ?? "",
+            aoLicenseNumber: u.profile.ao_license_number ?? u.profile.aoLicenseNumber ?? domain.aoLicenseNumber ?? "",
+            aoPemsUsername: u.profile.ao_pems_username ?? u.profile.aoPemsUsername ?? domain.aoPemsUsername ?? "",
+            fumigatorLicence: u.profile.fumigator_licence ?? u.profile.fumigatorLicence ?? domain.fumigatorLicence ?? "",
+            fumigationExpiry: u.profile.fumigation_expiry ?? u.profile.fumigationExpiry ?? domain.fumigationExpiry ?? "",
+          } : {}),
+          userClassifications,
+          ...legacy,
+          // Authoritative identity from the backend — placed AFTER the domain
+          // spread so stale localStorage values can never override it.
           role: u.roles?.[0]?.display_name || u.roles?.[0]?.name || "",
           roleIds: (u.roles || []).map((r) => r.id),
-          active: true,
-          ...domain,
+          siteIds: (u.accessible_sites ?? u.accessibleSites ?? []).map((s) => String(s.id)),
+          active: u.is_active !== false,
+          userType: u.user_type ?? u.userType ?? "user",
         });
       });
       setRows(merged);
-      setAvailableRoles(roles);
+      setRawApiUsers(apiUsers);
+      setOrgSites(sites);
       saveContactUsers(merged);
     } catch (err) {
       setApiError(err.message || "Failed to load users.");
@@ -168,14 +248,21 @@ export default function ContactUsersPage() {
 
   function openCreateModal() {
     setEditMode(false);
-    setFormData(buildFormData());
+    const base = buildFormData();
+    // Default new users to the caller's current site for convenience.
+    const currentSiteId = readAuthPayload()?.current_site?.id;
+    if (currentSiteId && orgSites.some((s) => String(s.id) === String(currentSiteId))) {
+      base.siteIds = [String(currentSiteId)];
+    }
+    setFormData(base);
     setModalOpen(true);
   }
 
   function openEditModal() {
     if (!selected) return;
     setEditMode(true);
-    setFormData(buildFormData(selected));
+    const rawUser = rawApiUsers.find((u) => u.id === selected.id) || null;
+    setFormData(buildFormData(selected, rawUser));
     setModalOpen(true);
   }
 
@@ -214,17 +301,35 @@ export default function ContactUsersPage() {
         window.alert("Password confirmation does not match.");
         return;
       }
-      const selectedRoles = formData.roleIds || [];
-      if (selectedRoles.length === 0 && availableRoles.length > 0) {
-        window.alert("Please select a role for the user.");
-        return;
-      }
     }
 
     const userClassifications = normalizeClassifications(formData.userClassifications);
     const legacy = legacyFlagsFromClassifications(userClassifications);
     const isAo = legacy.aoActive;
     const isFumigator = legacy.isFumigator;
+
+    // Classifications are sent as backend role display_names; the server resolves
+    // the matching site-scoped role for EACH selected site.
+    const classificationNames = userClassifications
+      .map((c) => CLASSIFICATION_ROLE_NAME[c])
+      .filter(Boolean);
+
+    // Any role explicitly picked in the dropdown (applies to its own site).
+    const dropdownRoleIds = (formData.roleIds || []).filter((id) => UUID_RE.test(id));
+
+    // Sites this user gets access to (multi-site).
+    const siteIds = (formData.siteIds || []).map((id) => String(id)).filter(Boolean);
+    // Org Admin is org-wide — the backend grants every site, so no site pick needed.
+    const isOrgAdmin = classificationNames.includes("Org Admin");
+
+    if (!isOrgAdmin && siteIds.length === 0) {
+      window.alert("Select at least one site for the user.");
+      return;
+    }
+    if (classificationNames.length === 0 && dropdownRoleIds.length === 0) {
+      window.alert("Please select at least one classification or role for the user.");
+      return;
+    }
 
     const isActivatingAo = isAo && (!editMode || !selected || !selected.aoActive);
 
@@ -246,6 +351,19 @@ export default function ContactUsersPage() {
     setSaving(true);
     setApiError("");
 
+    // Profile data block (snake_case) for the backend
+    const profileData = {
+      signature,
+      ao_number: isAo ? aoNumber : "",
+      ao_license_number: isAo ? aoLicenseNumber : "",
+      ao_expiry: isAo ? (formData.aoExpiry || null) : null,
+      ao_pems_username: isAo ? aoPemsUsername : "",
+      ao_pems_password: isAo ? (formData.aoPemsPassword || "").trim() : "",
+      ao_token: isAo ? aoToken : "",
+      fumigator_licence: isFumigator ? fumigatorLicence : "",
+      fumigation_expiry: isFumigator ? (formData.fumigationExpiry || null) : null,
+    };
+
     try {
       let userId;
 
@@ -253,21 +371,34 @@ export default function ContactUsersPage() {
         const updateData = {
           name: formData.name.trim(),
           email: formData.email.trim(),
+          roles: dropdownRoleIds,
+          classifications: classificationNames,
+          site_ids: siteIds,
+          is_active: formData.active,
+          isAo,
+          isFumigator,
+          profileData,
         };
         if (nextPassword) updateData.password = nextPassword;
         await updateApiUser(selected.id, updateData);
         userId = selected.id;
       } else {
-        const roleIds = formData.roleIds || [];
         const created = await createApiUser({
           name: formData.name.trim(),
           email: formData.email.trim(),
           password: nextPassword,
-          roles: roleIds,
+          roles: dropdownRoleIds,
+          classifications: classificationNames,
+          siteIds,
+          isActive: formData.active,
+          isAo,
+          isFumigator,
+          profileData,
         });
         userId = created.id;
       }
 
+      // Belt-and-braces: also write to localStorage domain store
       const domainData = {
         userClassifications,
         weighbridgeAccess: legacy.weighbridgeAccess,
@@ -290,6 +421,20 @@ export default function ContactUsersPage() {
       allDomain[userId] = domainData;
       saveDomainData(allDomain);
 
+      // Navbar site dropdown reads from cached login payload — refresh when the
+      // signed-in user edits their own site memberships.
+      const auth = readAuthPayload();
+      const authUserId = auth?.user?.id != null ? String(auth.user.id) : "";
+      const authEmail = typeof auth?.user?.email === "string" ? auth.user.email.trim().toLowerCase() : "";
+      if (authUserId === String(userId) || authEmail === formData.email.trim().toLowerCase()) {
+        try {
+          await refreshAuthPayload();
+          notifyAuthSessionChanged();
+        } catch {
+          // Non-fatal — user can log out/in to pick up site changes.
+        }
+      }
+
       setModalOpen(false);
       setFormData(buildFormData());
       await loadUsers();
@@ -301,19 +446,25 @@ export default function ContactUsersPage() {
     }
   }
 
-  async function removeSelected() {
+  const PROTECTED_USER_TYPES = ["admin", "super_admin", "developer", "support"];
+
+  async function toggleSelectedActive() {
     if (!selected) return;
-    if (!window.confirm(`Delete user "${selected.name}" permanently?`)) return;
+    const isProtected = PROTECTED_USER_TYPES.includes(selected.userType);
+    // Users are never deleted — only deactivated. Org admins can't be deactivated.
+    if (selected.active && isProtected) {
+      window.alert("Organization admin users cannot be made inactive.");
+      return;
+    }
+    const nextActive = !selected.active;
+    const verb = nextActive ? "Reactivate" : "Deactivate";
+    if (!window.confirm(`${verb} user "${selected.name}"?`)) return;
     try {
       setSaving(true);
-      await deleteApiUser(selected.id);
-      const allDomain = loadDomainData();
-      delete allDomain[selected.id];
-      saveDomainData(allDomain);
-      setSelectedId(null);
+      await updateApiUser(selected.id, { is_active: nextActive });
       await loadUsers();
     } catch (err) {
-      window.alert(err.message || "Failed to delete user.");
+      window.alert(err.message || `Failed to ${verb.toLowerCase()} user.`);
     } finally {
       setSaving(false);
     }
@@ -353,7 +504,17 @@ export default function ContactUsersPage() {
                 <div className="flex flex-wrap gap-2">
                   <BtnPrimary type="button" onClick={openCreateModal}>+ Add</BtnPrimary>
                   <BtnSecondary type="button" disabled={!selected} onClick={openEditModal}>Edit</BtnSecondary>
-                  <BtnDanger type="button" disabled={!selected} onClick={removeSelected}>Delete</BtnDanger>
+                  {selected && !selected.active ? (
+                    <BtnSecondary type="button" onClick={toggleSelectedActive}>Activate</BtnSecondary>
+                  ) : (
+                    <BtnDanger
+                      type="button"
+                      disabled={!selected || PROTECTED_USER_TYPES.includes(selected?.userType)}
+                      onClick={toggleSelectedActive}
+                    >
+                      Deactivate
+                    </BtnDanger>
+                  )}
                 </div>
               }
             />
@@ -400,9 +561,20 @@ export default function ContactUsersPage() {
                   <BtnSecondary type="button" className="flex-1 justify-center" onClick={openEditModal}>
                     Edit User
                   </BtnSecondary>
-                  <BtnDanger type="button" className="flex-1 justify-center" onClick={removeSelected}>
-                    Delete User
-                  </BtnDanger>
+                  {selected && !selected.active ? (
+                    <BtnSecondary type="button" className="flex-1 justify-center" onClick={toggleSelectedActive}>
+                      Activate User
+                    </BtnSecondary>
+                  ) : (
+                    <BtnDanger
+                      type="button"
+                      className="flex-1 justify-center"
+                      disabled={PROTECTED_USER_TYPES.includes(selected?.userType)}
+                      onClick={toggleSelectedActive}
+                    >
+                      Deactivate User
+                    </BtnDanger>
+                  )}
                 </div>
               </div>
             )}
@@ -430,28 +602,39 @@ export default function ContactUsersPage() {
           </div>
 
           <div className="grid gap-4">
-            {availableRoles.length > 0 ? (
-              <FormRow label="Role" required={!editMode}>
-                <select
-                  className={inputClass}
-                  value={formData.roleIds?.[0] || ""}
-                  onChange={(event) => setFormData({ ...formData, roleIds: event.target.value ? [event.target.value] : [] })}
-                >
-                  <option value="">Select a role...</option>
-                  {availableRoles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.display_name || r.name}</option>
-                  ))}
-                </select>
-              </FormRow>
-            ) : (
-              <FormRow label="Role">
-                <Input
-                  value={formData.role}
-                  onChange={(event) => setFormData({ ...formData, role: event.target.value })}
-                  placeholder="e.g., Manager, Supervisor, Operator"
-                />
-              </FormRow>
-            )}
+            <FormRow label="Sites (access)">
+              <div className="flex flex-wrap gap-2">
+                {orgSites.length === 0 ? (
+                  <span className="text-xs text-slate-400">No sites available</span>
+                ) : (
+                  orgSites.map((s) => {
+                    const siteId = String(s.id);
+                    const selected = (formData.siteIds || []).map((id) => String(id));
+                    const on = selected.includes(siteId);
+                    return (
+                      <button
+                        key={siteId}
+                        type="button"
+                        onClick={() => {
+                          const set = new Set(selected);
+                          if (set.has(siteId)) set.delete(siteId);
+                          else set.add(siteId);
+                          setFormData({ ...formData, siteIds: Array.from(set) });
+                        }}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs transition",
+                          on
+                            ? "border-brand bg-brand/10 text-brand"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        {s.name || s.code || s.id}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </FormRow>
 
             <FormRow label="Status">
               <select
@@ -475,7 +658,7 @@ export default function ContactUsersPage() {
 
           <div className="border-t border-slate-200 pt-4">
             <SectionTitle title="User Classifications" />
-            <p className="mb-3 text-xs text-slate-500">Select all roles that apply. Additional fields appear for each classification.</p>
+            <p className="mb-3 text-xs text-slate-500">Select all roles that apply. Classification toggles map directly to site roles on save.</p>
             <ClassificationPicker
               value={formData.userClassifications}
               onChange={(userClassifications) => setFormData({ ...formData, userClassifications })}
@@ -717,25 +900,6 @@ function ClassificationPicker({ value, onChange }) {
         );
       })}
     </div>
-  );
-}
-
-function ToggleField({ label, checked, onChange }) {
-  return (
-    <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-      <span className="text-xs font-medium text-slate-700">{label}</span>
-      <button
-        type="button"
-        aria-pressed={checked}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "inline-flex h-6 min-w-[58px] items-center justify-center rounded-full px-2 text-[11px] font-semibold transition-colors",
-          checked ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300" : "bg-slate-200 text-slate-600 ring-1 ring-slate-300"
-        )}
-      >
-        {checked ? "Enabled" : "Disabled"}
-      </button>
-    </label>
   );
 }
 

@@ -154,6 +154,9 @@ export default function AllTransactionsPage() {
               visibleRows={14}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
+              getRowStyle={({ row }) =>
+                row.status === "reversed" ? { backgroundColor: "#fef2f2" } : undefined
+              }
             />
           )}
         </div>

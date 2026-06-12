@@ -39,6 +39,12 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
+import {
+  applyContainerPatch,
+  getCompletionMissingChecks,
+  getOutloadBlockers,
+  validateContainerForSave,
+} from "@/lib/packers-container-validation";
 import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
 import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
@@ -329,6 +335,34 @@ export default function PackDetailClient({ packId }) {
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSavingContainer, setIsSavingContainer] = useState(false);
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
+  const [containerSaveError, setContainerSaveError] = useState("");
+  const containerValidationTimerRef = useRef(null);
+
+  const showContainerValidationError = useCallback((message) => {
+    if (containerValidationTimerRef.current) {
+      clearTimeout(containerValidationTimerRef.current);
+      containerValidationTimerRef.current = null;
+    }
+    setContainerSaveError(message);
+    setContainerSaveStatus("error");
+  }, []);
+
+  const clearContainerValidationFeedback = useCallback(() => {
+    if (containerValidationTimerRef.current) {
+      clearTimeout(containerValidationTimerRef.current);
+      containerValidationTimerRef.current = null;
+    }
+    setContainerSaveError("");
+    setContainerSaveStatus(null);
+  }, []);
+
+  const scheduleContainerFeedbackClear = useCallback((delayMs = 5000) => {
+    if (containerValidationTimerRef.current) clearTimeout(containerValidationTimerRef.current);
+    containerValidationTimerRef.current = setTimeout(() => {
+      clearContainerValidationFeedback();
+      containerValidationTimerRef.current = null;
+    }, delayMs);
+  }, [clearContainerValidationFeedback]);
   const [isDirty, setIsDirty] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
   const previewRevokeRef = useRef(null);
@@ -403,6 +437,12 @@ export default function PackDetailClient({ packId }) {
   }, [packId]);
 
   useEffect(() => {
+    return () => {
+      if (containerValidationTimerRef.current) clearTimeout(containerValidationTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     saveWorkDrafts(workByPack);
   }, [workByPack]);
 
@@ -440,14 +480,6 @@ export default function PackDetailClient({ packId }) {
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
     [filteredContainerRows, selectedContainerId]
   );
-  const selectedContainerActions = useMemo(() => {
-    if (!selectedContainer) return null;
-    return createPraActionHandlers({
-      container: selectedContainer,
-      applyPatch: updateSelectedContainer,
-      fallbackPacker: packerNames[0] || "",
-    });
-  }, [selectedContainer, packerNames]);
   const stagedContainers = useMemo(
     () => containerRows.filter((container) => pemsDraft.stagedContainerIds.includes(container.id)),
     [containerRows, pemsDraft.stagedContainerIds]
@@ -517,9 +549,25 @@ export default function PackDetailClient({ packId }) {
 
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
+    const result = applyContainerPatch(selectedContainer, patch);
+    if (!result.ok) {
+      showContainerValidationError(result.error);
+      return;
+    }
+    clearContainerValidationFeedback();
     updateContainerById(selectedContainer.id, patch);
     setIsDirty(true);
   }
+
+  const selectedContainerActions = useMemo(() => {
+    if (!selectedContainer) return null;
+    return createPraActionHandlers({
+      container: selectedContainer,
+      applyPatch: updateSelectedContainer,
+      fallbackPacker: packerNames[0] || "",
+      onBlocked: showContainerValidationError,
+    });
+  }, [selectedContainer, packerNames, showContainerValidationError]);
 
   function persistPackRowToStore(nextRow, workDraft) {
     const containers = (workDraft?.containers || []).map((container) => packContainerFromWorkContainer(container, nextRow));
@@ -816,8 +864,15 @@ export default function PackDetailClient({ packId }) {
 
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
+
+    const saveError = validateContainerForSave(selectedContainer);
+    if (saveError) {
+      showContainerValidationError(saveError);
+      return;
+    }
+
     setIsSavingContainer(true);
-    setContainerSaveStatus(null);
+    clearContainerValidationFeedback();
     try {
       // Strip id, packId, order — read-only on this endpoint
       const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(selectedContainer, packRow);
@@ -828,11 +883,12 @@ export default function PackDetailClient({ packId }) {
       }
       setContainerSaveStatus("saved");
       setIsDirty(false);
+      scheduleContainerFeedbackClear();
     } catch (err) {
+      showContainerValidationError(err?.message || "Save failed — check connection.");
       setContainerSaveStatus(err?.status === 404 ? "not-found" : "error");
     } finally {
       setIsSavingContainer(false);
-      setTimeout(() => setContainerSaveStatus(null), 3000);
     }
   }
 
@@ -857,15 +913,8 @@ export default function PackDetailClient({ packId }) {
     packRow.packWarningRequired && String(packRow.packWarning || "").trim()
       ? String(packRow.packWarning).trim()
       : "";
-  const missingChecks = selectedContainer
-    ? [
-        selectedContainer.packerSignoff ? null : "Packer signoff",
-        selectedContainer.outLoaded === "Yes" ? null : "Out-loaded confirmation",
-        selectedContainer.emptyInspection === "Passed" ? null : "Empty container inspection",
-        selectedContainer.grainInspection === "Passed" ? null : "Grain inspection",
-        selectedContainer.aoSignoff ? null : "AO signoff",
-      ].filter(Boolean)
-    : [];
+  const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer) : [];
+  const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer) : [];
   const packChecks = selectedPackDraft?.packChecks || {};
   const packChecksCompleteCount = PACK_CHECK_FIELDS.filter((field) => Boolean(packChecks[field.key])).length;
   const allPackChecksComplete = packChecksCompleteCount === PACK_CHECK_FIELDS.length;
@@ -1221,6 +1270,37 @@ export default function PackDetailClient({ packId }) {
                   </Button>
                 </div>
               </div>
+
+              {containerSaveStatus === "not-found" ? (
+                <p className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  Container not found — use Refresh to reload the pack.
+                </p>
+              ) : containerSaveStatus === "error" && containerSaveError ? (
+                <p className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  {containerSaveError}
+                </p>
+              ) : null}
+
+              {outloadBlockers.length ? (
+                <div className="space-y-1 border-t border-amber-200 bg-amber-50 px-3 py-2">
+                  {outloadBlockers.map((message) => (
+                    <p key={message} className="text-sm font-medium text-amber-900">
+                      {message}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              {missingChecks.length === 0 ? (
+                <div className="border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  All mandatory checks complete for this container.
+                </div>
+              ) : selectedContainer.outLoaded === "Yes" ? (
+                <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                  Missing checks before completion: {missingChecks.join(", ")}.
+                </div>
+              ) : null}
+
               <div className="border-t border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/95 to-amber-100/70 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
                 <div className="flex flex-wrap items-start gap-2">
                   <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/60">
@@ -1261,20 +1341,6 @@ export default function PackDetailClient({ packId }) {
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
-
-            {containerSaveStatus === "not-found" ? (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
-                Container not found — use Refresh to reload the pack.
-              </p>
-            ) : containerSaveStatus === "error" ? (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
-                Save failed — check connection.
-              </p>
-            ) : null}
-
-            <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-rose-300 bg-rose-50 text-rose-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
-              {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}
-            </div>
           </section>
         )}
         </div>

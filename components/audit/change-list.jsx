@@ -12,7 +12,7 @@ export function ChangeList({ changes, max }) {
   return (
     <ul className="mt-1 space-y-1">
       {shown.map((c) => (
-        <li key={c.key} className="text-xs leading-snug">
+        <li key={c.key} className="break-words text-xs leading-snug">
           <span className="font-medium text-slate-600">{humanizeField(c.key)}: </span>
           <span className="text-slate-400 line-through">{formatAuditValue(c.old)}</span>
           <span className="mx-1 text-slate-400">→</span>

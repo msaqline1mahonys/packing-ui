@@ -815,7 +815,7 @@ function NewPackFormPageInner() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentSite]);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 

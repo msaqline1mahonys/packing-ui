@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
+import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   computeTransactionTotals,
@@ -13,6 +14,7 @@ import {
 import { TRANSACTION_DETAIL_COLUMNS, TRANSACTION_GRID_COLUMNS } from "@/lib/transactions-grid";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
+import AdjustmentModal from "./_components/adjustment-modal";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
@@ -25,6 +27,8 @@ export default function AllTransactionsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
+  const [adjustmentOpen, setAdjustmentOpen] = useState(false);
+  const [toast, setToast] = useState("");
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -48,6 +52,12 @@ export default function AllTransactionsPage() {
 
   // Live refresh: poll every 60s (paused when the tab is hidden).
   usePolling(loadRows, { intervalMs: 60000 });
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = window.setTimeout(() => setToast(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const baseFiltered = useMemo(() => {
     const [fromDate, toDate] = dateRange;
@@ -89,12 +99,17 @@ export default function AllTransactionsPage() {
             Complete ledger of all stock movements: deposits, withdrawals, shrinkage, and adjustments.
           </p>
         </div>
-        <Link
-          href="/stock-management/account-balance"
-          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Account Balances
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" onClick={() => setAdjustmentOpen(true)}>
+            + Manual Adjustment
+          </Button>
+          <Link
+            href="/stock-management/account-balance"
+            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Account Balances
+          </Link>
+        </div>
       </div>
 
       {error ? (
@@ -174,6 +189,22 @@ export default function AllTransactionsPage() {
           )}
         </aside>
       </div>
+
+      <AdjustmentModal
+        open={adjustmentOpen}
+        onClose={() => setAdjustmentOpen(false)}
+        onSaved={(created) => {
+          setToast(`Adjustment saved (${created?.reference ?? "ADJ"}).`);
+          loadRows();
+          if (created?.id) setSelectedId(created.id);
+        }}
+      />
+
+      {toast ? (
+        <div className="fixed bottom-5 right-5 z-50 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-lg">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }

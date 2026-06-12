@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Drawer from "@mui/material/Drawer";
 import { X } from "lucide-react";
 
 import { fetchAuditLogs } from "@/lib/audit-api";
@@ -85,14 +84,31 @@ export function HistoryDrawer({ open, onClose, subjectType, subjectId, title = "
     };
   }, [open, subjectType, subjectId]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKeyDown(event) {
+      if (event.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
   return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      PaperProps={{ sx: { width: { xs: "100%", sm: 460 } } }}
-    >
-      <div className="flex h-full flex-col bg-white">
+    <div className="fixed inset-0 z-[1300]" role="presentation">
+      <button
+        type="button"
+        aria-label="Close history"
+        className="absolute inset-0 bg-slate-900/40"
+        onClick={onClose}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col bg-white shadow-2xl"
+      >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
@@ -108,7 +124,7 @@ export function HistoryDrawer({ open, onClose, subjectType, subjectId, title = "
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {loading ? (
             <p className="py-10 text-center text-sm text-slate-400">Loading history…</p>
           ) : error ? (
@@ -123,7 +139,7 @@ export function HistoryDrawer({ open, onClose, subjectType, subjectId, title = "
             </ul>
           )}
         </div>
-      </div>
-    </Drawer>
+      </aside>
+    </div>
   );
 }

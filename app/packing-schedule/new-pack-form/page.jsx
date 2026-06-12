@@ -34,6 +34,8 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
+import { packAssignedPackerOptions } from "@/lib/api/packing";
+import { getApplicablePackTests, mergePackTests } from "@/lib/pack-tests";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import {
@@ -350,6 +352,7 @@ const blankPack = (siteId) => ({
   sampleSentDates: [],
   sampleStatuses: [],
   sampleEntries: [],
+  packTests: [],
   packingInstructionFiles: [],
   pemsDraft: defaultPemsDraft(),
   pemsSubmissions: [],
@@ -472,8 +475,19 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     originalRfpNumber: (row.original_rfp_number ?? row.originalRfpNumber) || "",
     assignedPackerIds: Array.isArray(row.packer_assignments)
       ? row.packer_assignments.map((a) => String(a.packer_id ?? a.packerId ?? "")).filter(Boolean)
-      : Array.isArray(row.assigned_packer_ids ?? row.assignedPackerIds)
-        ? (row.assigned_packer_ids ?? row.assignedPackerIds).map(String)
+      : Array.isArray(row.assigned_packers ?? row.assignedPackers)
+        ? (row.assigned_packers ?? row.assignedPackers).map((p) => String(p.id ?? "")).filter(Boolean)
+        : Array.isArray(row.assigned_packer_ids ?? row.assignedPackerIds)
+          ? (row.assigned_packer_ids ?? row.assignedPackerIds).map(String)
+          : [],
+    assignedPackers: Array.isArray(row.assigned_packers ?? row.assignedPackers)
+      ? (row.assigned_packers ?? row.assignedPackers)
+      : Array.isArray(row.packer_assignments)
+        ? row.packer_assignments.map((a) => ({
+            id: a.packer_id ?? a.packerId,
+            name: a.packer?.name ?? a.name ?? "",
+            status: a.packer?.status ?? a.status ?? "Active",
+          })).filter((p) => p.id)
         : [],
     releaseDetails: Array.isArray(row.releases) ? row.releases.map((r) => ({
       releaseRef: r.release_ref ?? r.releaseRef ?? "",
@@ -526,6 +540,21 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
         status: status || SAMPLE_STATUSES[0] || "Pending",
         notes: "",
       })),
+    packTests: Array.isArray(row.pack_tests ?? row.packTests)
+      ? (row.pack_tests ?? row.packTests).map((t) => ({
+          id: t.id ?? null,
+          testId: t.test_id ?? t.testId ?? null,
+          testName: t.test_name ?? t.testName ?? "",
+          testType: t.test_type ?? t.testType ?? "Percentage",
+          unit: t.unit ?? "",
+          thresholdMin: t.threshold_min ?? t.thresholdMin ?? null,
+          thresholdMax: t.threshold_max ?? t.thresholdMax ?? null,
+          value: t.value ?? "",
+          findings: Array.isArray(t.findings) ? t.findings : [],
+          status: t.status ?? "pending",
+          notes: t.notes ?? "",
+        }))
+      : [],
     importPermitFiles: normalizeFileItems(
       row.importPermitFiles ??
       (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importPermit") : null)
@@ -635,6 +664,30 @@ function packToScheduleRow(pack, existingRow) {
     packingInstructionFiles: normalizeFileItems(pack.packingInstructionFiles),
     packer_assignments: Array.isArray(pack.assignedPackerIds)
       ? pack.assignedPackerIds.map((id) => ({ packer_id: id }))
+      : [],
+    assigned_packers: (() => {
+      const ids = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
+      const fromPack = Array.isArray(pack.assignedPackers) ? pack.assignedPackers : [];
+      if (fromPack.length) {
+        return fromPack
+          .filter((p) => ids.includes(String(p.id)))
+          .map((p) => ({ id: p.id, name: p.name ?? "", status: p.status ?? "Active" }));
+      }
+      return ids.map((id) => ({ id, name: "", status: "Active" }));
+    })(),
+    pack_tests: Array.isArray(pack.packTests)
+      ? pack.packTests.map((t) => ({
+          test_id: t.testId ?? null,
+          test_name: t.testName,
+          test_type: t.testType ?? "Percentage",
+          unit: t.unit ?? "",
+          threshold_min: t.thresholdMin ?? null,
+          threshold_max: t.thresholdMax ?? null,
+          value: t.value ?? "",
+          findings: t.findings ?? null,
+          status: t.status ?? "pending",
+          notes: t.notes ?? "",
+        }))
       : [],
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
@@ -749,7 +802,7 @@ function NewPackFormPageInner() {
     [queryLookups.referencePackers, queryLookups.packers]
   );
   const packerNames = queryLookups.packerNames;
-  const packerSelectOptions = queryLookups.packerSelectOptions;
+  const [testsCatalog, setTestsCatalog] = useState([]);
   const terminalOptions = queryLookups.terminals;
   const vesselVoyageOptions = queryLookups.vesselVoyages;
   const countryOptions = useMemo(
@@ -776,6 +829,19 @@ function NewPackFormPageInner() {
     [containerParkOptions, transporterOptions, containerCodeOptions, queryLookups.isLoading]
   );
   const [pack, setPack] = useState(() => blankPack(currentSite));
+  const packerSelectOptions = useMemo(
+    () => packAssignedPackerOptions(pack, queryLookups.referencePackers ?? queryLookups.packers ?? []),
+    [pack, queryLookups.referencePackers, queryLookups.packers]
+  );
+  const selectedCommodity = useMemo(
+    () => commodityOptions.find((c) => String(c.id) === String(pack.commodityId)) ?? null,
+    [commodityOptions, pack.commodityId]
+  );
+  const applicablePackTests = useMemo(
+    () => getApplicablePackTests(selectedCommodity, testsCatalog),
+    [selectedCommodity, testsCatalog]
+  );
+  const showPackTestsSection = applicablePackTests.length > 0 || pack.testRequired || (pack.packTests || []).length > 0;
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
     ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
@@ -1543,6 +1609,32 @@ function NewPackFormPageInner() {
   }, [currentSite, mode]);
 
   useEffect(() => {
+    let cancelled = false;
+    const base = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    fetch(`${base}/product-settings/tests?per_page=500`, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        if (cancelled) return;
+        const rows = Array.isArray(result?.data?.data)
+          ? result.data.data
+          : Array.isArray(result?.data)
+            ? result.data
+            : [];
+        setTestsCatalog(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!pack.fumigationRequired && activeTab === "fumigation") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("general");
@@ -1689,7 +1781,11 @@ function NewPackFormPageInner() {
     <>
       <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-0 sm:px-2 lg:px-3">
         <div className="flex flex-wrap items-center justify-between gap-1">
-          <h1 className="text-base font-semibold leading-tight text-slate-900">{mode === "edit" ? `Edit Pack #${editingRow?.id ?? ""}` : "Add Pack"}</h1>
+          <h1 className="text-base font-semibold leading-tight text-slate-900">
+            {mode === "edit"
+              ? `Edit Pack${pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
+              : "Add Pack"}
+          </h1>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -1992,6 +2088,49 @@ function NewPackFormPageInner() {
                   ) : null}
                 </div>
               </section>
+
+              {showPackTestsSection ? (
+                <section className={flushSectionClass} aria-label="Pack tests">
+                  <div className={cn(flushSectionBodyClass, sectionStackClass)}>
+                    <FormRow label="Tests on pack">
+                      <p className="text-xs text-slate-500">
+                        Tests are created on the pack from commodity thresholds. Results can be updated on the Ticketing pack tests page.
+                      </p>
+                    </FormRow>
+                    {(pack.packTests || []).length === 0 ? (
+                      <p className="text-xs text-slate-400">No tests apply for the selected commodity.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {(pack.packTests || []).map((test, index) => (
+                          <div key={test.testName || index} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-900">{test.testName}</span>
+                              <span className="text-slate-500">{test.testType}{test.unit ? ` · ${test.unit}` : ""}</span>
+                              {(test.thresholdMin != null && test.thresholdMin !== "") || (test.thresholdMax != null && test.thresholdMax !== "") ? (
+                                <span className="text-slate-500">
+                                  Threshold
+                                  {test.thresholdMin != null && test.thresholdMin !== "" ? ` min ${test.thresholdMin}` : ""}
+                                  {test.thresholdMax != null && test.thresholdMax !== "" ? ` max ${test.thresholdMax}` : ""}
+                                </span>
+                              ) : null}
+                            </div>
+                            <input
+                              className={cn(inputClass, "mt-1.5 !h-9 text-xs")}
+                              value={test.notes || ""}
+                              onChange={(e) => {
+                                const next = [...(pack.packTests || [])];
+                                next[index] = { ...next[index], notes: e.target.value };
+                                set("packTests", next);
+                              }}
+                              placeholder="Schedule notes (optional)"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
 
             <section className={sectionClass} aria-label="Basic details">
@@ -2023,10 +2162,12 @@ function NewPackFormPageInner() {
                     onChange={(e) => {
                       const id = e.target.value;
                       const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
+                      const nextApplicable = row ? getApplicablePackTests(row, testsCatalog) : [];
                       setPack((prev) => ({
                         ...prev,
                         commodityId: id,
                         commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
+                        packTests: nextApplicable.length ? mergePackTests(prev.packTests, nextApplicable) : [],
                       }));
                     }}
                   >
@@ -2063,7 +2204,10 @@ function NewPackFormPageInner() {
                                   const currentIds = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
                                   const id = String(p.id);
                                   const nextIds = currentIds.includes(id) ? currentIds.filter((x) => x !== id) : [...currentIds, id];
-                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds }));
+                                  const nextAssigned = packerOptions
+                                    .filter((row) => nextIds.includes(String(row.id)))
+                                    .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
+                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
                                 }}
                               />
                               {p.name}

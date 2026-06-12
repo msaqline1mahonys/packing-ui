@@ -39,7 +39,8 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
-import { updateContainer, activePackerNames } from "@/lib/api/packing";
+import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
@@ -332,7 +333,22 @@ export default function PackDetailClient({ packId }) {
   const [filePreview, setFilePreview] = useState(null);
   const previewRevokeRef = useRef(null);
 
-  const { packerNames, packerSelectOptions } = lookups;
+  const { packerNames, packerSelectOptions: allPackerSelectOptions } = lookups;
+  const packPackerSelectOptions = useMemo(
+    () => packAssignedPackerOptions(packRow, lookups.referencePackers ?? lookups.packers ?? []),
+    [packRow, lookups.referencePackers, lookups.packers]
+  );
+  const fumigantDisplay = useMemo(() => {
+    if (!packRow) return "—";
+    const fumigants = loadFumigants();
+    const fumigantId = packRow.fumigantId ?? packRow.fumigationDetail?.fumigantId;
+    const match = fumigants.find((row) => String(row.id) === String(fumigantId));
+    if (match?.name) return match.name;
+    const detailName = packRow.fumigationDetail?.fumigantName ?? packRow.fumigationDetail?.fumigant_name;
+    if (detailName) return detailName;
+    if (packRow.fumigationRequired && !packRow.fumigationTiming) return "Required";
+    return packRow.fumigationTiming || packRow.fumigation || "—";
+  }, [packRow]);
   const packReleases = useMemo(
     () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -561,6 +577,30 @@ export default function PackDetailClient({ packId }) {
         [checkKey]: value,
       },
     }));
+    if (!packRow?.id) return;
+    const apiFieldMap = {
+      importDetailsChecked: "importDetailsChecked",
+      sampleRequirementsChecked: "sampleRequirementsChecked",
+      rfpDetailsChecked: "rfpDetailsChecked",
+      micorRequirementsChecked: "micorRequirementsChecked",
+    };
+    const apiField = apiFieldMap[checkKey];
+    if (!apiField) return;
+    updatePrepackChecks(packRow.id, { [apiField]: value })
+      .then((updated) => {
+        if (!updated) return;
+        setPackRow((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            importDetailsChecked: updated.importDetailsChecked,
+            sampleRequirementsChecked: updated.sampleRequirementsChecked,
+            rfpDetailsChecked: updated.rfpDetailsChecked,
+            micorRequirementsChecked: updated.micorRequirementsChecked,
+          };
+        });
+      })
+      .catch(() => {});
   }
 
   const closeFilePreview = useCallback(() => {
@@ -856,7 +896,7 @@ export default function PackDetailClient({ packId }) {
           <Field label="Cut-off" value={formatDateTimeValue(packRow.vesselCutoffDate)} />
           <Field
             label="Fumigation"
-            value={safeValue(packRow.fumigation)}
+            value={safeValue(fumigantDisplay)}
             labelClassName="text-purple-700"
             valueClassName="border-purple-200 bg-purple-50 text-purple-900"
           />
@@ -1017,6 +1057,32 @@ export default function PackDetailClient({ packId }) {
             </div>
           </div>
         </div>
+        {Array.isArray(packRow?.packTests) && packRow.packTests.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Quality tests</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {packRow.packTests.map((test) => {
+                const status = String(test.status || "pending").toLowerCase();
+                const badgeClass =
+                  status === "pass"
+                    ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
+                    : status === "fail"
+                      ? "bg-rose-100 text-rose-800 ring-rose-200"
+                      : "bg-slate-100 text-slate-600 ring-slate-200";
+                return (
+                  <span
+                    key={test.id || test.testName}
+                    className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1", badgeClass)}
+                    title={test.notes || undefined}
+                  >
+                    {test.testName}
+                    {test.value ? `: ${test.value}${test.unit ? ` ${test.unit}` : ""}` : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-2">
@@ -1177,7 +1243,7 @@ export default function PackDetailClient({ packId }) {
               container={selectedContainer}
               onChange={updateSelectedContainer}
               packerNames={packerNames}
-              packerSelectOptions={packerSelectOptions}
+              packerSelectOptions={packPackerSelectOptions.length ? packPackerSelectOptions : allPackerSelectOptions}
               yesNoOptions={YES_NO_OPTIONS}
               inspectionOptions={INSPECTION_OPTIONS}
               praTemplateOptions={PRA_TEMPLATE_OPTIONS}

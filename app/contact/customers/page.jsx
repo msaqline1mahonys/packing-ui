@@ -1,8 +1,9 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import { useCustomersQuery, useInvalidateCustomers } from "@/lib/hooks/use-customers-query";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -217,40 +218,24 @@ function buildFormData(row) {
 }
 
 export default function ContactCustomersPage() {
-  const [rows, setRows] = useState([]);
+  const invalidateCustomers = useInvalidateCustomers();
+  const { data: apiRows = [], isLoading, refetch } = useCustomersQuery();
+
+  const rows = useMemo(
+    () => apiRows.map(fromApiCustomer).filter(Boolean),
+    [apiRows]
+  );
+
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState(() => buildFormData());
   const [isMobile, setIsMobile] = useState(false);
   const [showGoToTop, setShowGoToTop] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-
-  const loadCustomers = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const result = await customerRequest("?per_page=500");
-      const pager = result?.data;
-      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
-      setRows(apiRows.map(fromApiCustomer).filter(Boolean));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load customers.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      loadCustomers();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [loadCustomers]);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -325,7 +310,7 @@ export default function ContactCustomersPage() {
         });
         const nextRow = fromApiCustomer(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
-        setRows((prev) => [nextRow, ...prev]);
+        await invalidateCustomers();
         setSelectedId(nextRow.id);
         setNotice(result.message || "Customer created successfully.");
         setModalOpen(false);
@@ -340,7 +325,8 @@ export default function ContactCustomersPage() {
         });
         const nextRow = fromApiCustomer(result.data);
         if (!nextRow) throw new Error("Invalid response from server.");
-        setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
+        await invalidateCustomers();
+        setSelectedId(nextRow.id);
         setNotice(result.message || "Customer updated successfully.");
         setModalOpen(false);
         setFormData(buildFormData());
@@ -362,9 +348,9 @@ export default function ContactCustomersPage() {
 
     try {
       const result = await customerRequest(`/${selected.id}`, { method: "DELETE" });
-      setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Customer deleted successfully.");
+      await invalidateCustomers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete customer.");
     } finally {
@@ -420,7 +406,7 @@ export default function ContactCustomersPage() {
       <BtnPrimary type="button" onClick={openCreateModal} disabled={isLoading}>
         + Add
       </BtnPrimary>
-      <BtnSecondary type="button" onClick={loadCustomers} disabled={isLoading}>
+      <BtnSecondary type="button" onClick={() => refetch()} disabled={isLoading}>
         Refresh
       </BtnSecondary>
       <BtnSecondary type="button" disabled={!selected || isLoading || selectedLocked} onClick={openEditModal}>

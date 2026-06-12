@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 import {
   ALL_CLASSIFICATIONS,
@@ -104,6 +105,8 @@ function hasClassification(formData, classification) {
 }
 
 export default function ContactUsersPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -294,6 +297,7 @@ export default function ContactUsersPage() {
       setFormData(buildFormData());
       await loadUsers();
       setSelectedId(userId);
+      await invalidateReferenceData("users");
     } catch (err) {
       window.alert(err.message || "Failed to save user.");
     } finally {
@@ -312,6 +316,7 @@ export default function ContactUsersPage() {
       saveDomainData(allDomain);
       setSelectedId(null);
       await loadUsers();
+      await invalidateReferenceData("users");
     } catch (err) {
       window.alert(err.message || "Failed to delete user.");
     } finally {

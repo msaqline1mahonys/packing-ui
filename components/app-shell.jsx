@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
 import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
@@ -129,11 +130,29 @@ function AppShellInner({ children }) {
 }
 
 export function AppShell({ children }) {
+  // QueryClient is created once per app instance (stable across re-renders).
+  // refetchOnWindowFocus means switching back to this tab after editing
+  // reference data in another tab will automatically refresh stale lookups.
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            retry: 1,
+            refetchOnWindowFocus: true,
+          },
+        },
+      })
+  );
+
   return (
-    <SiteProvider>
-      <NavDockProvider>
-        <AppShellInner>{children}</AppShellInner>
-      </NavDockProvider>
-    </SiteProvider>
+    <QueryClientProvider client={queryClient}>
+      <SiteProvider>
+        <NavDockProvider>
+          <AppShellInner>{children}</AppShellInner>
+        </NavDockProvider>
+      </SiteProvider>
+    </QueryClientProvider>
   );
 }

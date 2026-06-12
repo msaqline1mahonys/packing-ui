@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_CONTAINER_SIZES } from "@/lib/Data";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -157,6 +158,8 @@ function parseFieldValue(field, value) {
 }
 
 export default function ContainerCodesPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -265,6 +268,7 @@ export default function ContainerCodesPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Container code created successfully.");
+        await invalidateReferenceData("containerCodes");
         setModalMode(null);
         return;
       }
@@ -278,6 +282,7 @@ export default function ContainerCodesPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Container code updated successfully.");
+        await invalidateReferenceData("containerCodes");
         setModalMode(null);
       }
     } catch (err) {
@@ -300,6 +305,7 @@ export default function ContainerCodesPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Container code deleted successfully.");
+      await invalidateReferenceData("containerCodes");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete container code.");
     } finally {

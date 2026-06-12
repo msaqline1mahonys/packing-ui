@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -134,6 +135,8 @@ function toApiPayload(draft) {
 }
 
 export default function ShippingLinePage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -239,6 +242,7 @@ export default function ShippingLinePage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Shipping line created successfully.");
+        await invalidateReferenceData("shippingLines");
         setModalMode(null);
         return;
       }
@@ -252,6 +256,7 @@ export default function ShippingLinePage() {
 
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Shipping line updated successfully.");
+        await invalidateReferenceData("shippingLines");
         setModalMode(null);
       }
     } catch (err) {
@@ -280,6 +285,7 @@ export default function ShippingLinePage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Shipping line deleted successfully.");
+      await invalidateReferenceData("shippingLines");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to delete shipping line."

@@ -34,7 +34,8 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData, fetchPackers, activePackerNames } from "@/lib/api/packing";
+import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -710,29 +711,70 @@ function NewPackFormPageInner() {
   const editId = searchParams.get("id") || "";
   const requestedTab = searchParams.get("tab");
   const currentSite = activeSiteId || null;
+
+  // All form lookup data from TanStack Query — cached globally, refetches on
+  // window focus so switching back from a reference-data tab picks up new options.
+  const queryLookups = useAllPackLookups();
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [fumigants] = useState(() => loadFumigants());
   const [methodologies] = useState(() => loadMethodologies());
   const [certificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates] = useState(() => loadRecordTemplates());
-  const [customerOptions, setCustomerOptions] = useState([]);
-  const [commodityOptions, setCommodityOptions] = useState([]);
-  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
-  const [shippingLineOptions, setShippingLineOptions] = useState([]);
-  const [containerParkOptions, setContainerParkOptions] = useState([]);
-  const [transporterOptions, setTransporterOptions] = useState([]);
-  const [containerCodeOptions, setContainerCodeOptions] = useState([]);
-  const [packerOptions, setPackerOptions] = useState([]);
-  const [terminalOptions, setTerminalOptions] = useState([]);
-  const [vesselVoyageOptions, setVesselVoyageOptions] = useState([]);
-  const [countryOptions, setCountryOptions] = useState([]);
-  const [portOptions, setPortOptions] = useState([]);
-  const [releaseOptions, setReleaseOptions] = useState([]);
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
-  const packerNames = useMemo(
-    () => activePackerNames(packerOptions),
-    [packerOptions]
+
+  const customerOptions = queryLookups.customers;
+  const commodityOptions = queryLookups.commodities;
+  const commodityTypeOptions = queryLookups.commodityTypes;
+  const shippingLineOptions = useMemo(
+    () =>
+      queryLookups.shippingLines.map((s) => ({
+        id: s.id,
+        name: s.shipping_line_name ?? s.name ?? "",
+        code: s.shipping_line_code ?? s.code ?? "",
+      })),
+    [queryLookups.shippingLines]
   );
-  const packerSelectOptions = packerNames;
+  const containerParkOptions = useMemo(
+    () => queryLookups.containerParks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
+    [queryLookups.containerParks]
+  );
+  const transporterOptions = useMemo(
+    () => queryLookups.transporters.map((t) => ({ id: t.id, name: t.name ?? "" })),
+    [queryLookups.transporters]
+  );
+  const containerCodeOptions = queryLookups.containerCodes;
+  const packerOptions = useMemo(
+    () => (queryLookups.referencePackers.length ? queryLookups.referencePackers : queryLookups.packers),
+    [queryLookups.referencePackers, queryLookups.packers]
+  );
+  const packerNames = queryLookups.packerNames;
+  const packerSelectOptions = queryLookups.packerSelectOptions;
+  const terminalOptions = queryLookups.terminals;
+  const vesselVoyageOptions = queryLookups.vesselVoyages;
+  const countryOptions = useMemo(
+    () =>
+      queryLookups.countries.map((c) => ({
+        id: c.id,
+        name: c.country_name ?? c.countryName ?? "",
+        code: c.country_code ?? c.countryCode ?? "",
+      })),
+    [queryLookups.countries]
+  );
+  const portOptions = queryLookups.ports;
+  const releaseOptions = useMemo(
+    () => queryLookups.releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber),
+    [queryLookups.releases]
+  );
+  const quickReleaseLookups = useMemo(
+    () => ({
+      containerParks: containerParkOptions,
+      transporters: transporterOptions,
+      containerCodes: containerCodeOptions,
+      loading: queryLookups.isLoading,
+    }),
+    [containerParkOptions, transporterOptions, containerCodeOptions, queryLookups.isLoading]
+  );
   const [pack, setPack] = useState(() => blankPack(currentSite));
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
@@ -753,68 +795,6 @@ function NewPackFormPageInner() {
   const [quickReleaseError, setQuickReleaseError] = useState("");
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
-  const [quickReleaseLookups, setQuickReleaseLookups] = useState({
-    containerParks: [],
-    transporters: [],
-    containerCodes: [],
-    loading: true,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getPackFormData();
-        const referencePackers = await fetchPackers().catch(() => []);
-        if (cancelled) return;
-        const customers = Array.isArray(data?.customers) ? data.customers : [];
-        const commodities = Array.isArray(data?.commodities) ? data.commodities.filter((c) => c.status !== "Inactive") : [];
-        const commodityTypes = Array.isArray(data?.commodityTypes) ? data.commodityTypes : [];
-        const shLines = Array.isArray(data?.shippingLines) ? data.shippingLines : [];
-        const parks = Array.isArray(data?.containerParks) ? data.containerParks : [];
-        const trs = Array.isArray(data?.transporters) ? data.transporters : [];
-        const codes = Array.isArray(data?.containerCodes) ? data.containerCodes : [];
-        const packers = referencePackers.length ? referencePackers : Array.isArray(data?.packers) ? data.packers : [];
-        const terminals = Array.isArray(data?.terminals) ? data.terminals : [];
-        const voyages = Array.isArray(data?.vesselVoyages) ? data.vesselVoyages : [];
-        const countries = Array.isArray(data?.countries) ? data.countries : [];
-        const ports = Array.isArray(data?.ports) ? data.ports : [];
-        const releases = Array.isArray(data?.releases) ? data.releases : [];
-        setCountryOptions(
-          countries.map((c) => ({ id: c.id, name: c.country_name ?? c.countryName ?? "", code: c.country_code ?? c.countryCode ?? "" }))
-        );
-        setPortOptions(
-          ports.map((p) => ({ id: p.id, countryId: p.country_id ?? p.countryId ?? "", name: p.name ?? "", code: p.code ?? "" }))
-        );
-        // Releases are stored in the database (Modules/ReferenceData ReleaseController);
-        // the pack form-data endpoint returns them under `releases`.
-        setReleaseOptions(releases.map(normalizeReleaseOption).filter((r) => r.releaseNumber));
-        setCustomerOptions(customers);
-        setCommodityOptions(commodities);
-        setCommodityTypeOptions(commodityTypes);
-        setShippingLineOptions(shLines.map((s) => ({ id: s.id, name: s.shipping_line_name ?? s.name ?? "", code: s.shipping_line_code ?? s.code ?? "" })));
-        setContainerParkOptions(parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })));
-        setTransporterOptions(trs.map((t) => ({ id: t.id, name: t.name ?? "" })));
-        setContainerCodeOptions(codes);
-        setPackerOptions(packers);
-        setTerminalOptions(terminals);
-        setVesselVoyageOptions(voyages);
-        setQuickReleaseLookups({
-          containerParks: parks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
-          transporters: trs.map((t) => ({ id: t.id, name: t.name ?? "" })),
-          containerCodes: codes,
-          loading: false,
-        });
-      } catch {
-        if (cancelled) return;
-        setReleaseOptions([]);
-        setQuickReleaseLookups((prev) => ({ ...prev, loading: false }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 
@@ -898,11 +878,10 @@ function NewPackFormPageInner() {
     }
 
     // Persist the release to the database (Modules/ReferenceData ReleaseController).
-    let newRelease;
     setQuickReleaseSaving(true);
     setQuickReleaseError("");
     try {
-      newRelease = await saveRelease({
+      await saveRelease({
         ...quickReleaseDraft,
         releaseNumber: releaseRef,
         parks: cleanedParks,
@@ -918,10 +897,7 @@ function NewPackFormPageInner() {
       setQuickReleaseSaving(false);
     }
 
-    setReleaseOptions((prev) => {
-      const normalized = normalizeReleaseOption(newRelease);
-      return [normalized, ...prev.filter((r) => r.releaseNumber !== normalized.releaseNumber)];
-    });
+    await invalidateReferenceData("releases");
 
     const firstPark = cleanedParks[0];
     const firstTransporterId = firstPark.transporterIds[0] ?? "";
@@ -949,7 +925,7 @@ function NewPackFormPageInner() {
 
   function handleQuickVesselCreated(option) {
     if (!option?.id) return;
-    setVesselVoyageOptions((prev) => [option, ...prev.filter((v) => String(v.id) !== String(option.id))]);
+    invalidateReferenceData("vesselVoyages");
     setPack((prev) => ({
       ...prev,
       vesselDepartureId: option.id,
@@ -1333,14 +1309,25 @@ function NewPackFormPageInner() {
   }, [pack.vesselDepartureId, vesselVoyageOptions]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const destinationCountryId = useMemo(() => {
-    const name = String(pack.destinationCountry || "").trim();
-    if (!name) return "";
-    return countryOptions.find((c) => c.name === name)?.id || "";
+    const raw = String(pack.destinationCountry || "").trim();
+    if (!raw) return "";
+    const exact = countryOptions.find((c) => c.name === raw);
+    if (exact?.id) return String(exact.id);
+    const lower = raw.toLowerCase();
+    const byName = countryOptions.find((c) => c.name.toLowerCase() === lower);
+    if (byName?.id) return String(byName.id);
+    const byCode = countryOptions.find((c) => String(c.code || "").toLowerCase() === lower);
+    return byCode?.id ? String(byCode.id) : "";
   }, [pack.destinationCountry, countryOptions]);
-  const destinationPortOptions = useMemo(
-    () => (destinationCountryId ? portOptions.filter((p) => String(p.countryId) === String(destinationCountryId)) : portOptions),
-    [portOptions, destinationCountryId]
-  );
+  const destinationPortOptions = useMemo(() => {
+    const countryName = String(pack.destinationCountry || "").trim().toLowerCase();
+    if (!destinationCountryId && !countryName) return portOptions;
+    return portOptions.filter((port) => {
+      if (destinationCountryId && String(port.countryId) === String(destinationCountryId)) return true;
+      const portCountryName = String(port.countryName || "").trim().toLowerCase();
+      return Boolean(countryName && portCountryName === countryName);
+    });
+  }, [portOptions, pack.destinationCountry, destinationCountryId]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
   const filteredPemsPackContainers = useMemo(() => {
     const q = pemsContainerSearch.trim().toLowerCase();
@@ -2372,7 +2359,17 @@ function NewPackFormPageInner() {
                 <div className={cn(flushSectionBodyClass, "gap-1")}>
                   <div className={shippingGridClass}>
                     <FormRow label="Destination country">
-                      <select className={inputClass} value={pack.destinationCountry} onChange={(e) => set("destinationCountry", e.target.value)}>
+                      <select
+                        className={inputClass}
+                        value={pack.destinationCountry}
+                        onChange={(e) =>
+                          setPack((prev) => ({
+                            ...prev,
+                            destinationCountry: e.target.value,
+                            destinationPort: "",
+                          }))
+                        }
+                      >
                         <option value="">- Select country -</option>
                         {countryOptions.map((country) => (
                           <option key={country.id} value={country.name}>
@@ -2383,7 +2380,7 @@ function NewPackFormPageInner() {
                     </FormRow>
                     <FormRow label="Destination port">
                       <select className={inputClass} value={pack.destinationPort || ""} onChange={(e) => set("destinationPort", e.target.value)}>
-                        <option value="">{destinationCountryId ? "- Select port -" : "- Select country first -"}</option>
+                        <option value="">{pack.destinationCountry ? "- Select port -" : "- Select country first -"}</option>
                         {pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort) ? (
                           <option value={pack.destinationPort}>{pack.destinationPort}</option>
                         ) : null}

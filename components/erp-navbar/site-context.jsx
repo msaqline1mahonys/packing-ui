@@ -26,17 +26,14 @@ export function SiteProvider({
   /** First matching site id when nothing valid is stored. */
   defaultSiteId,
 }) {
-  const [resolvedSites, setResolvedSites] = useState(() => {
-    if (sites?.length) return sites;
-    return sitesFromAuthPayload();
-  });
+  // Only use explicit props during SSR/hydration; auth payload is synced in useEffect
+  // so server and client markup match before localStorage is read.
+  const [resolvedSites, setResolvedSites] = useState(() => (sites?.length ? sites : []));
   const sitesRef = useRef(resolvedSites);
   sitesRef.current = resolvedSites;
 
   const [siteId, setSiteIdState] = useState(() => {
-    const fromAuth = currentSiteIdFromAuth();
-    const list = sites?.length ? sites : sitesFromAuthPayload();
-    if (fromAuth && list.some((s) => s.id === fromAuth)) return fromAuth;
+    const list = sites?.length ? sites : [];
     if (defaultSiteId && list.some((s) => s.id === defaultSiteId)) return defaultSiteId;
     return list[0]?.id ?? "";
   });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -197,6 +198,8 @@ function parseFieldValue(field, value) {
 }
 
 export default function CountriesPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -308,6 +311,7 @@ export default function CountriesPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice(result.message || "Country created successfully.");
+        await invalidateReferenceData("countries");
         setModalMode(null);
         return;
       }
@@ -321,6 +325,7 @@ export default function CountriesPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice(result.message || "Country updated successfully.");
+        await invalidateReferenceData("countries");
         setModalMode(null);
       }
     } catch (err) {
@@ -382,6 +387,7 @@ export default function CountriesPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Country deleted successfully.");
+      await invalidateReferenceData("countries");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete country.");
     } finally {

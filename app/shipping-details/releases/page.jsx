@@ -13,6 +13,7 @@ import {
   normalizeRelease,
 } from "@/lib/releases-store";
 import { deleteRelease, fetchReleases, saveRelease } from "@/lib/releases-api";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +132,8 @@ function decorate(row, containerParks, transporters) {
 }
 
 export default function ReleasesPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -288,6 +291,7 @@ export default function ReleasesPage() {
       await loadRows();
       setSelectedId(saved?.id ?? null);
       setNotice(isAdd ? "Release created successfully." : "Release updated successfully.");
+      await invalidateReferenceData("releases");
       setModalMode(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save release.");
@@ -304,6 +308,7 @@ export default function ReleasesPage() {
       await loadRows();
       setSelectedId(null);
       setNotice("Release deleted successfully.");
+      await invalidateReferenceData("releases");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete release.");
     }

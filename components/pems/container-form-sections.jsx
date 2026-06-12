@@ -4,6 +4,41 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
 
+/** Combine stored date + hour + minute into a datetime-local value string. */
+function buildDatetimeValue(container, names) {
+  const date = String(container?.[names.startDate] ?? "").trim();
+  const hour = String(container?.[names.startHour] ?? "").trim();
+  const minute = String(container?.[names.startMinute] ?? "").trim();
+  if (!date) return "";
+  return `${date}T${(hour || "00").padStart(2, "0")}:${(minute || "00").padStart(2, "0")}`;
+}
+
+/** Return today's datetime string for the datetime-local input default display. */
+function getTodayDatetime() {
+  if (typeof window === "undefined") return "";
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+/** Split a datetime-local value back into startDate / startHour / startMinute. */
+function splitDatetimeValue(value, names) {
+  if (!value) {
+    return {
+      [names.startDate]: "",
+      [names.startHour]: "",
+      [names.startMinute]: "",
+    };
+  }
+  const [datePart = "", timePart = ""] = value.split("T");
+  const [hourPart = "00", minutePart = "00"] = timePart.split(":");
+  return {
+    [names.startDate]: datePart,
+    [names.startHour]: hourPart.padStart(2, "0"),
+    [names.startMinute]: minutePart.padStart(2, "0"),
+  };
+}
+
 const defaultFieldNames = {
   containerNo: "containerNo",
   sealNo: "sealNo",
@@ -126,29 +161,28 @@ export default function ContainerFormSections({
           <PemsInput label="Seal No" value={getValue(container, names, "sealNo")} onChange={(value) => setField("sealNo", value)} inputClass={inputClass} />
           <PemsSelect label="Container ISO" value={getValue(container, names, "isoCode")} options={isoOptions} onChange={(value) => setField("isoCode", value)} inputClass={inputClass} />
           <div className="space-y-1 md:col-span-2 xl:col-span-1">
-            <label className="text-xs font-medium text-slate-600">Start Time (24-hour)</label>
-            <div className="grid grid-cols-[1fr_92px_92px] gap-2">
-              <input suppressHydrationWarning className={inputClass} type="date" value={getValue(container, names, "startDate")} onChange={(event) => setField("startDate", event.target.value)} />
-              <select suppressHydrationWarning className={inputClass} value={getValue(container, names, "startHour")} onChange={(event) => setField("startHour", event.target.value)}>
-                <option value="">HH</option>
-                {Array.from({ length: 24 }).map((_, hour) => {
-                  const option = String(hour).padStart(2, "0");
-                  return (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  );
-                })}
-              </select>
-              <select suppressHydrationWarning className={inputClass} value={getValue(container, names, "startMinute")} onChange={(event) => setField("startMinute", event.target.value)}>
-                <option value="">MM</option>
-                {["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map((minute) => (
-                  <option key={minute} value={minute}>
-                    {minute}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <label className="text-xs font-medium text-slate-600">Start Date &amp; Time</label>
+            {(() => {
+              const stored = buildDatetimeValue(container, names);
+              const isDefault = !stored;
+              const displayValue = stored || getTodayDatetime();
+              return (
+                <div className="relative">
+                  <input
+                    suppressHydrationWarning
+                    className={cn(inputClass, "block w-full", isDefault ? "text-slate-400" : "")}
+                    type="datetime-local"
+                    value={displayValue}
+                    onChange={(event) => onChange?.(splitDatetimeValue(event.target.value, names))}
+                  />
+                  {isDefault ? (
+                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400">
+                      today
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })()}
           </div>
           <PemsSelect label="Stock/Bay ID" value={getValue(container, names, "stockBayId")} options={stockBayOptions} onChange={(value) => setField("stockBayId", value)} inputClass={inputClass} />
           <PemsSelect label="Packer" value={getValue(container, names, "packer")} options={packerOptions} onChange={(value) => setField("packer", value)} inputClass={inputClass} />

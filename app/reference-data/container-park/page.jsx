@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -178,6 +179,8 @@ function parseFieldValue(field, value) {
 }
 
 export default function ContainerParkPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalMode, setModalMode] = useState(null);
@@ -289,6 +292,7 @@ export default function ContainerParkPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice(result.message || "Container park created successfully.");
+        await invalidateReferenceData("containerParks");
         setModalMode(null);
         return;
       }
@@ -302,6 +306,7 @@ export default function ContainerParkPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice(result.message || "Container park updated successfully.");
+        await invalidateReferenceData("containerParks");
         setModalMode(null);
       }
     } catch (err) {
@@ -344,6 +349,7 @@ export default function ContainerParkPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Container park deleted successfully.");
+      await invalidateReferenceData("containerParks");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete container park.");
     } finally {

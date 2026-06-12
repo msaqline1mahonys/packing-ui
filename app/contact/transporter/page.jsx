@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -151,6 +152,8 @@ function buildFormData(row) {
 }
 
 export default function TransporterPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -257,6 +260,7 @@ export default function TransporterPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice(result.message || "Transporter created successfully.");
+        await invalidateReferenceData("transporters");
         setModalOpen(false);
         setFormData(buildFormData());
         return;
@@ -271,6 +275,7 @@ export default function TransporterPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice(result.message || "Transporter updated successfully.");
+        await invalidateReferenceData("transporters");
         setModalOpen(false);
         setFormData(buildFormData());
       }
@@ -294,6 +299,7 @@ export default function TransporterPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice(result.message || "Transporter deleted successfully.");
+      await invalidateReferenceData("transporters");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete transporter.");
     } finally {

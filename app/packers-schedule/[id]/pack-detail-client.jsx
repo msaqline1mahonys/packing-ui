@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, X } from "lucide-react";
+import { AlertCircle, Eye, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
@@ -39,7 +39,8 @@ import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
 import { fetchPack, savePack } from "@/lib/pack-schedule-store";
-import { getPackFormData, updateContainer, fetchUsersForSelect, fetchStockLocations, fetchPackers, activePackerNames } from "@/lib/api/packing";
+import { updateContainer, activePackerNames } from "@/lib/api/packing";
+import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
@@ -312,6 +313,12 @@ function resolveExporterCustomerId(packRow) {
 
 export default function PackDetailClient({ packId }) {
   const router = useRouter();
+
+  // All reference/lookup data via TanStack Query — globally cached, auto-refetches
+  // on window focus so switching back from a tab where reference data was updated
+  // (packers, customers, ISO codes, etc.) silently picks up the new options.
+  const lookups = useAllPackLookups();
+
   const [activeTab, setActiveTab] = useState("Packing");
   const [packRow, setPackRow] = useState(null);
   const [workByPack, setWorkByPack] = useState({});
@@ -321,16 +328,11 @@ export default function PackDetailClient({ packId }) {
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSavingContainer, setIsSavingContainer] = useState(false);
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
-  const [lookups, setLookups] = useState({});
   const previewRevokeRef = useRef(null);
 
-  const packerNames = useMemo(() => {
-    const fromUsers = (lookups.users || []).map((u) => u.name).filter(Boolean);
-    if (fromUsers.length) return fromUsers;
-    return activePackerNames(lookups.packers);
-  }, [lookups.users, lookups.packers]);
-  const packerSelectOptions = useMemo(() => activePackerNames(lookups.referencePackers), [lookups.referencePackers]);
+  const { packerNames, packerSelectOptions } = lookups;
   const packReleases = useMemo(
     () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -371,18 +373,17 @@ export default function PackDetailClient({ packId }) {
 
   useEffect(() => {
     if (!packId) return;
-    Promise.all([
-      fetchPack(packId),
-      getPackFormData().catch(() => ({})),
-      fetchUsersForSelect().catch(() => []),
-      fetchStockLocations().catch(() => []),
-      fetchPackers().catch(() => []),
-    ]).then(([row, fd, users, stockLocations, referencePackers]) => {
-      const mergedLookups = { ...(fd || {}), users, stockLocations, referencePackers };
-      setLookups(mergedLookups);
-      setPackRow(row || null);
-      if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, mergedLookups));
-    }).catch(() => {});
+    fetchPack(packId)
+      .then((row) => {
+        setPackRow(row || null);
+        if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, lookups));
+      })
+      .catch(() => {});
+    // lookups intentionally excluded — we only want this to fire on packId change.
+    // The syncWorkDrafts call uses the latest lookups snapshot at mount time;
+    // subsequent lookup updates (e.g. new packers) are reflected reactively via
+    // the TanStack Query cache without re-fetching the pack.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId]);
 
   useEffect(() => {
@@ -415,6 +416,7 @@ export default function PackDetailClient({ packId }) {
     }
     if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
       setSelectedContainerId(filteredContainerRows[0].id);
+      setIsDirty(false);
     }
   }, [filteredContainerRows, selectedContainerId]);
 
@@ -500,6 +502,7 @@ export default function PackDetailClient({ packId }) {
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
     updateContainerById(selectedContainer.id, patch);
+    setIsDirty(true);
   }
 
   function persistPackRowToStore(nextRow, workDraft) {
@@ -762,7 +765,12 @@ export default function PackDetailClient({ packId }) {
   function refreshPack() {
     fetchPack(packId).then((row) => {
       setPackRow(row || null);
-      if (row) setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
+      if (row) {
+        // Pass current lookups so refreshed containers resolve park/transporter
+        // names from the latest TanStack Query cache.
+        setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
+        setIsDirty(false);
+      }
     }).catch(() => {});
   }
 
@@ -779,6 +787,7 @@ export default function PackDetailClient({ packId }) {
         updateContainerById(updated.id, updated);
       }
       setContainerSaveStatus("saved");
+      setIsDirty(false);
     } catch (err) {
       setContainerSaveStatus(err?.status === 404 ? "not-found" : "error");
     } finally {
@@ -1064,7 +1073,7 @@ export default function PackDetailClient({ packId }) {
                   <button
                     key={container.id}
                     type="button"
-                    onClick={() => setSelectedContainerId(container.id)}
+                    onClick={() => { setSelectedContainerId(container.id); setIsDirty(false); }}
                     className={cn(
                       "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                       selectedContainerId === container.id
@@ -1126,6 +1135,25 @@ export default function PackDetailClient({ packId }) {
                 >
                   {containerStage(selectedContainer)}
                 </span>
+                <div className="ms-auto flex shrink-0 items-center gap-2">
+                  {isDirty ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-300">
+                      <AlertCircle className="size-3 shrink-0" aria-hidden />
+                      Unsaved changes
+                    </span>
+                  ) : containerSaveStatus === "saved" ? (
+                    <span className="text-[11px] font-medium text-emerald-700">Saved</span>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 px-4 text-sm"
+                    disabled={isSavingContainer}
+                    onClick={saveSelectedContainer}
+                  >
+                    {isSavingContainer ? "Saving…" : "Save"}
+                  </Button>
+                </div>
               </div>
               <div className="border-t border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/95 to-amber-100/70 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
                 <div className="flex flex-wrap items-start gap-2">
@@ -1168,24 +1196,15 @@ export default function PackDetailClient({ packId }) {
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
 
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                size="sm"
-                className="h-10 px-5 text-sm"
-                disabled={isSavingContainer}
-                onClick={saveSelectedContainer}
-              >
-                {isSavingContainer ? "Saving…" : "Save Container"}
-              </Button>
-              {containerSaveStatus === "saved" ? (
-                <span className="text-sm font-medium text-emerald-700">Container saved.</span>
-              ) : containerSaveStatus === "not-found" ? (
-                <span className="text-sm font-medium text-rose-700">Container not found — use Refresh to reload the pack.</span>
-              ) : containerSaveStatus === "error" ? (
-                <span className="text-sm font-medium text-rose-700">Save failed — check connection.</span>
-              ) : null}
-            </div>
+            {containerSaveStatus === "not-found" ? (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                Container not found — use Refresh to reload the pack.
+              </p>
+            ) : containerSaveStatus === "error" ? (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                Save failed — check connection.
+              </p>
+            ) : null}
 
             <div className={cn("rounded-xl border px-3 py-2 text-sm", missingChecks.length ? "border-rose-300 bg-rose-50 text-rose-900" : "border-emerald-300 bg-emerald-50 text-emerald-800")}>
               {missingChecks.length ? `Missing checks before completion: ${missingChecks.join(", ")}.` : "All mandatory checks complete for this container."}

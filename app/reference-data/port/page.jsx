@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -120,6 +121,8 @@ function buildDraft(row) {
 }
 
 export default function PortPage() {
+  const invalidateReferenceData = useInvalidateReferenceData();
+
   const [rows, setRows] = useState([]);
   const [countryOptions, setCountryOptions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -253,6 +256,7 @@ export default function PortPage() {
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
         setNotice("Port created successfully.");
+        await invalidateReferenceData("ports");
         setModalMode(null);
         return;
       }
@@ -266,6 +270,7 @@ export default function PortPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice("Port updated successfully.");
+        await invalidateReferenceData("ports");
         setModalMode(null);
       }
     } catch (err) {
@@ -288,6 +293,7 @@ export default function PortPage() {
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
       setNotice("Port deleted successfully.");
+      await invalidateReferenceData("ports");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete port.");
     } finally {

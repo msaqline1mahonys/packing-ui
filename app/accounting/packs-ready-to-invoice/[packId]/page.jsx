@@ -10,7 +10,7 @@ import {
   formatCurrency,
   formatTon,
 } from "@/lib/packs-ready-to-invoice-dummy";
-import { findPackReadyToInvoice } from "@/lib/packs-ready-to-invoice";
+import { findPackReadyToInvoice, packDisplayRef, packScheduleEditPath } from "@/lib/packs-ready-to-invoice";
 import { createInvoice } from "@/lib/api/accounting";
 
 export default function PackInvoiceBreakdownPage() {
@@ -99,13 +99,19 @@ export default function PackInvoiceBreakdownPage() {
         <div>
           <p className="text-xs text-slate-500">Accounting / Ready To Invoice / Breakdown</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">
-            Invoice Breakdown - {selectedPack.id}
+            Invoice Breakdown - {packDisplayRef(selectedPack)}
           </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Unit prices are brought back as guideline values and can be edited before finalizing the breakdown.
+            Unit prices are guideline values from accounting pricing rules and can be edited before generating the invoice.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={packScheduleEditPath(selectedPack.id)}
+            className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Open in Packing Schedule
+          </Link>
           <Link
             href="/accounting/packs-ready-to-invoice"
             className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
@@ -157,9 +163,12 @@ export default function PackInvoiceBreakdownPage() {
           </span>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <MetricCard label="Job Ref" value={packDisplayRef(selectedPack)} />
           <MetricCard label="Containers" value={selectedPack.totalContainers} />
           <MetricCard label="Total Weight" value={formatTon(selectedPack.totalWeightTon)} />
+          <MetricCard label="Terminal" value={selectedPack.terminal || "—"} />
+          <MetricCard label="Container Park" value={selectedPack.containerPark || "—"} />
           <MetricCard
             label="Fumigation"
             value={selectedPack.fumigationRequired ? "Required" : "Not required"}

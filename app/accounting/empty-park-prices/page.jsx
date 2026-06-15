@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { getEmptyParkPrices, saveEmptyParkPrices } from "@/lib/api/accounting";
@@ -35,8 +36,9 @@ export default function EmptyParkPricesPage() {
       .then((data) => {
         setRows(Array.isArray(data?.rows) ? data.rows : []);
       })
-      .catch(() => {
+      .catch((err) => {
         setRows([]);
+        setErrorText(err?.message || "Failed to load empty park prices.");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -77,7 +79,11 @@ export default function EmptyParkPricesPage() {
         <p className="text-xs text-slate-500">Accounting / Empty Park Prices</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">Empty Park Prices</h1>
         <p className="text-xs leading-relaxed text-slate-500">
-          Set the revenue price (used for invoicing) and expense price for each container park.
+          Set the revenue price (used for invoicing) and expense price for each container park. Park records are shared from{" "}
+          <Link href="/reference-data/container-park" className="font-semibold text-brand hover:underline">
+            Reference Data → Container Park
+          </Link>
+          .
         </p>
       </div>
 
@@ -91,7 +97,16 @@ export default function EmptyParkPricesPage() {
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading container parks…</p>
         ) : rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No container parks found.</p>
+          <div className="py-8 text-center text-sm text-slate-500">
+            <p>No container parks found for this site.</p>
+            <p className="mt-2">
+              Add parks in{" "}
+              <Link href="/reference-data/container-park" className="font-semibold text-brand hover:underline">
+                Reference Data → Container Park
+              </Link>
+              , then return here to set prices.
+            </p>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">

@@ -12,6 +12,8 @@ import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
+import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
+import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +28,7 @@ const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
   { key: "commodity", label: "Commodity" },
   { key: "status", label: "Status" },
+  { key: "vesselScheduleUpdate", label: "Sched." },
   { key: "jobReference", label: "Job Ref" },
   { key: "vessel", label: "Vessel" },
   { key: "etd", label: "ETD", date: true },
@@ -240,6 +243,32 @@ export default function PackingSchedulePage() {
   }, [rows, importExportFilter, selectedStatuses, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
   const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
+  const pendingVesselUpdateCount = useMemo(
+    () => filtered.filter((row) => hasPendingVesselScheduleUpdate(row)).length,
+    [filtered],
+  );
+
+  const acknowledgeSelectedVesselUpdate = useCallback(async () => {
+    if (!selected || !hasPendingVesselScheduleUpdate(selected)) return;
+    try {
+      const result = await acknowledgeVesselScheduleUpdate(selected.id);
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === selected.id
+            ? {
+                ...row,
+                vessel_schedule_updated_at: result.vesselScheduleUpdatedAt,
+                vesselScheduleUpdatedAt: result.vesselScheduleUpdatedAt,
+                vessel_schedule_acknowledged_at: result.vesselScheduleAcknowledgedAt,
+                vesselScheduleAcknowledgedAt: result.vesselScheduleAcknowledgedAt,
+              }
+            : row,
+        ),
+      );
+    } catch (err) {
+      window.alert(err?.message || "Failed to acknowledge vessel schedule update.");
+    }
+  }, [selected]);
 
   const dateRangeValue = useMemo(
     () => [dateFrom ? dayjs(dateFrom) : null, dateTo ? dayjs(dateTo) : null],
@@ -267,6 +296,27 @@ export default function PackingSchedulePage() {
       }
       if (column.key === "commodity") {
         return { ...base, valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "" };
+      }
+      if (column.key === "vesselScheduleUpdate") {
+        return {
+          ...base,
+          type: "text",
+          sortable: false,
+          filterable: false,
+          width: 56,
+          valueGetter: (row) => (hasPendingVesselScheduleUpdate(row) ? "Updated" : ""),
+          renderCell: ({ row, formattedValue }) =>
+            formattedValue ? (
+              <span
+                title="Vessel schedule updated — ETD, cut-off, or terminal refreshed from latest schedule"
+                className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+              >
+                Updated
+              </span>
+            ) : (
+              ""
+            ),
+        };
       }
       if (column.key === "vessel") {
         return {
@@ -429,6 +479,25 @@ export default function PackingSchedulePage() {
 
   function openEditPage() {
     if (!selected) return;
+    if (hasPendingVesselScheduleUpdate(selected)) {
+      acknowledgeVesselScheduleUpdate(selected.id)
+        .then((result) => {
+          setRows((prev) =>
+            prev.map((row) =>
+              row.id === selected.id
+                ? {
+                    ...row,
+                    vessel_schedule_updated_at: result.vesselScheduleUpdatedAt,
+                    vesselScheduleUpdatedAt: result.vesselScheduleUpdatedAt,
+                    vessel_schedule_acknowledged_at: result.vesselScheduleAcknowledgedAt,
+                    vesselScheduleAcknowledgedAt: result.vesselScheduleAcknowledgedAt,
+                  }
+                : row,
+            ),
+          );
+        })
+        .catch(() => {});
+    }
     router.push(`/packing-schedule/new-pack-form?mode=edit&id=${selected.id}`);
   }
 
@@ -562,12 +631,14 @@ export default function PackingSchedulePage() {
               const ie = row.import_export ?? row.importExport;
               const rowClasses = [];
               if (ie === "Import") rowClasses.push("clutch-row-import");
+              if (hasPendingVesselScheduleUpdate(row)) rowClasses.push("clutch-row-vessel-updated");
               if (row.id === selectedId) rowClasses.push("clutch-row-selected");
               return rowClasses.join(" ") || undefined;
             }}
             getRowStyle={({ row }) => {
               const ie = row.import_export ?? row.importExport;
               if (row.id === selectedId) return { backgroundColor: "#dbeafe" };
+              if (hasPendingVesselScheduleUpdate(row)) return { backgroundColor: "#fffbeb" };
               if (ie === "Import") return { backgroundColor: "#eff6ff" };
               return undefined;
             }}
@@ -606,7 +677,7 @@ export default function PackingSchedulePage() {
                   Delete
                 </Button>
                 <span className="ms-auto text-[11px] text-slate-500">
-                  {loading ? "Loading…" : "View: All Orders"}
+                  {loading ? "Loading…" : pendingVesselUpdateCount > 0 ? `${pendingVesselUpdateCount} vessel update${pendingVesselUpdateCount === 1 ? "" : "s"} pending` : "View: All Orders"}
                 </span>
               </div>
             }
@@ -622,6 +693,16 @@ export default function PackingSchedulePage() {
               <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
             </div>
             <div className="space-y-3 p-3 text-xs">
+              {hasPendingVesselScheduleUpdate(selected) ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                  <p className="text-[11px] leading-snug">
+                    Vessel schedule updated. ETD, cut-off, and terminal on this pack were refreshed from the latest voyage schedule.
+                  </p>
+                  <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={acknowledgeSelectedVesselUpdate}>
+                    Dismiss
+                  </Button>
+                </div>
+              ) : null}
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
               <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? selected.customer ?? ""} />

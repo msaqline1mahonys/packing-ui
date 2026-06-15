@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { useMemo } from "react";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
@@ -113,6 +115,18 @@ export default function ContainerFormSections({
   // AO sign-off action gating
   const canAoSignoff = hasPermission("packing.container.ao-signoff");
   const packerOptions = packerSelectOptions ?? packerNames ?? [];
+  const releaseSelectOptions = useMemo(
+    () => packReleases.map((r, idx) => ({ value: r.releaseRef, label: r.releaseRef, key: r.id ?? idx })),
+    [packReleases]
+  );
+  const parkSelectOptions = useMemo(
+    () => containerParkOptions.map((park) => ({ value: park.id, label: park.name })),
+    [containerParkOptions]
+  );
+  const transporterSelectOptions = useMemo(
+    () => transporterOptions.map((t) => ({ value: t.id, label: t.name })),
+    [transporterOptions]
+  );
 
   function handleReleaseSelect(releaseRef) {
     const release = packReleases.find((r) => r.releaseRef === releaseRef);
@@ -215,54 +229,33 @@ export default function ContainerFormSections({
           {packReleases.length > 0 ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-600">Release Number</label>
-              <select
-                suppressHydrationWarning
-                className={cn(inputClass, "block w-full")}
-                value={getValue(container, names, "releaseNumber")}
-                onChange={(e) => handleReleaseSelect(e.target.value)}
-              >
-                <option value="">- Select release -</option>
-                {packReleases.map((r, idx) => (
-                  <option key={r.id ?? idx} value={r.releaseRef}>
-                    {r.releaseRef}
-                  </option>
-                ))}
-              </select>
+              <ClutchSelect
+                options={releaseSelectOptions}
+                value={releaseSelectOptions.find((o) => o.value === getValue(container, names, "releaseNumber")) ?? null}
+                onChange={(option) => handleReleaseSelect(option ? option.value : "")}
+                placeholder="- Select release -"
+              />
             </div>
           ) : (
             <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} />
           )}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
-            <select
-              suppressHydrationWarning
-              className={cn(inputClass, "block w-full")}
-              value={String(container?.emptyContainerParkId ?? "")}
-              onChange={(e) => handleParkSelect(e.target.value)}
-            >
-              <option value="">- Select park -</option>
-              {containerParkOptions.map((park) => (
-                <option key={park.id} value={park.id}>
-                  {park.name}
-                </option>
-              ))}
-            </select>
+            <ClutchSelect
+              options={parkSelectOptions}
+              value={parkSelectOptions.find((o) => String(o.value) === String(container?.emptyContainerParkId ?? "")) ?? null}
+              onChange={(option) => handleParkSelect(option ? option.value : "")}
+              placeholder="- Select park -"
+            />
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Transporter</label>
-            <select
-              suppressHydrationWarning
-              className={cn(inputClass, "block w-full")}
-              value={String(container?.transporterId ?? "")}
-              onChange={(e) => handleTransporterSelect(e.target.value)}
-            >
-              <option value="">- Select transporter -</option>
-              {transporterOptions.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+            <ClutchSelect
+              options={transporterSelectOptions}
+              value={transporterSelectOptions.find((o) => String(o.value) === String(container?.transporterId ?? "")) ?? null}
+              onChange={(option) => handleTransporterSelect(option ? option.value : "")}
+              placeholder="- Select transporter -"
+            />
           </div>
         </div>
       </div>
@@ -366,18 +359,25 @@ function PemsInput({ label, value, onChange, type = "text", readOnly = false, st
   );
 }
 
-function PemsSelect({ label, value, options, onChange, inputClass }) {
+function PemsSelect({ label, value, options, onChange }) {
+  const opts = useMemo(() => normalizeSelectOptions(options), [options]);
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
-      <select suppressHydrationWarning className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)}>
-        <option value="">{options.length ? "Select option" : ""}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+      <ClutchSelect
+        options={opts}
+        value={opts.find((o) => String(o.value) === String(value ?? "")) ?? null}
+        onChange={(option) => onChange?.(option ? option.value : "")}
+        placeholder={opts.length ? "Select option" : ""}
+      />
     </div>
   );
+}
+
+function normalizeSelectOptions(options = []) {
+  if (!options.length) return [];
+  if (typeof options[0] === "object" && options[0] !== null && "value" in options[0]) {
+    return options;
+  }
+  return toOptions(options);
 }

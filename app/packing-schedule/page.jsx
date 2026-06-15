@@ -36,6 +36,8 @@ const TABLE_COLUMNS = [
   { key: "vesselCutoffDate", label: "Cut-off" },
   { key: "emptyPark", label: "Empty park" },
   { key: "containersRequired", label: "Cnt", numeric: true },
+  { key: "onSiteContainers", label: "On site", numeric: true },
+  { key: "releaseContainers", label: "Rel. ctrs" },
   { key: "mtTotal", label: "MT", numeric: true },
   { key: "id", label: "ID", numeric: true },
   { key: "importExport", label: "I/E" },
@@ -145,6 +147,60 @@ function emptyParkRaw(row) {
 
 function emptyParkDisplay(row) {
   return emptyParkRaw(row) || "";
+}
+
+function rowReleases(row) {
+  return Array.isArray(row.releases) ? row.releases
+    : Array.isArray(row.release_details) ? row.release_details
+    : Array.isArray(row.releaseDetails) ? row.releaseDetails
+    : [];
+}
+
+function rowContainers(row) {
+  return Array.isArray(row.containers) ? row.containers : [];
+}
+
+// Count of filled containers (those with a container number) assigned to each release ref on
+// the pack, keyed by upper-cased ref.
+function containerCountsByRelease(row) {
+  const counts = new Map();
+  for (const c of rowContainers(row)) {
+    const num = String(c.container_number ?? c.containerNumber ?? "").trim();
+    if (!num) continue;
+    const ref = String(c.release_number ?? c.releaseNumber ?? "").trim().toUpperCase();
+    if (!ref) continue;
+    counts.set(ref, (counts.get(ref) || 0) + 1);
+  }
+  return counts;
+}
+
+// Per-release container breakdown: [{ ref, count }] in release-line order (deduped by ref).
+function releaseContainerBreakdown(row) {
+  const counts = containerCountsByRelease(row);
+  const seen = new Set();
+  const items = [];
+  for (const r of rowReleases(row)) {
+    const ref = String(r.release_ref ?? r.releaseRef ?? r.release_number ?? r.releaseNumber ?? "").trim();
+    if (!ref) continue;
+    const key = ref.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ ref, count: counts.get(key) || 0 });
+  }
+  return items;
+}
+
+function releaseContainerTotal(row) {
+  return releaseContainerBreakdown(row).reduce((sum, item) => sum + item.count, 0);
+}
+
+// How many of the pack's containers are physically on site (ready to pack).
+function onSiteContainerCount(row) {
+  let n = 0;
+  for (const c of rowContainers(row)) {
+    if (c.on_site ?? c.onSite) n += 1;
+  }
+  return n;
 }
 
 function getDateOnlyValue(rawValue) {
@@ -360,6 +416,50 @@ export default function PackingSchedulePage() {
           type: "text",
           valueGetter: (row) => emptyParkRaw(row),
           format: (v) => (v ? String(v) : ""),
+        };
+      }
+      if (column.key === "onSiteContainers") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => onSiteContainerCount(row),
+          renderCell: ({ row }) => {
+            const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
+            const onSite = onSiteContainerCount(row);
+            return (
+              <span
+                className="tabular-nums"
+                title={`${onSite} container${onSite === 1 ? "" : "s"} on site${required ? ` of ${required} required` : ""}`}
+              >
+                {required ? `${onSite}/${required}` : String(onSite)}
+              </span>
+            );
+          },
+        };
+      }
+      if (column.key === "releaseContainers") {
+        return {
+          ...base,
+          type: "number",
+          sortable: true,
+          valueGetter: (row) => releaseContainerTotal(row),
+          renderCell: ({ row }) => {
+            const items = releaseContainerBreakdown(row);
+            if (!items.length) return "";
+            const full = items.map((i) => `${i.ref}: ${i.count}`).join(" · ");
+            return (
+              <span className="inline-flex flex-wrap gap-1" title={full}>
+                {items.map((i) => (
+                  <span
+                    key={i.ref}
+                    className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
+                  >
+                    {i.ref}: {i.count}
+                  </span>
+                ))}
+              </span>
+            );
+          },
         };
       }
       if (BOOL_COLUMN_KEYS.has(column.key)) {
@@ -723,6 +823,29 @@ export default function PackingSchedulePage() {
               <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packing_start_date ?? selected.packingStartDate ?? "")} />
               <Field label="Empty park" value={emptyParkDisplay(selected)} />
               <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
+              <Field
+                label="On site to pack"
+                value={`${onSiteContainerCount(selected)}${
+                  selected.containers_required ?? selected.containersRequired
+                    ? ` / ${selected.containers_required ?? selected.containersRequired}`
+                    : ""
+                }`}
+              />
+              {releaseContainerBreakdown(selected).length ? (
+                <div className="space-y-0.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Containers per release
+                  </div>
+                  <div className="space-y-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    {releaseContainerBreakdown(selected).map((item) => (
+                      <div key={item.ref} className="flex items-center justify-between text-[11px] text-slate-700">
+                        <span className="truncate pr-2">{item.ref}</span>
+                        <span className="shrink-0 tabular-nums font-medium">{item.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <Field label="MT" value={selected.mt_total != null ? Number(selected.mt_total).toFixed(1) : selected.mtTotal?.toFixed(1)} />
             </div>
           </div>

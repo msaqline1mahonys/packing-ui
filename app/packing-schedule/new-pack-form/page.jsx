@@ -15,7 +15,7 @@ import {
   REFERENCE_CONTAINER_CODE_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
-import BulkContainerImportDialog from "@/components/packing-schedule/bulk-container-import-dialog";
+import BulkContainerImportPanel from "@/components/packing-schedule/bulk-container-import-dialog";
 import { ensureReleaseLineOnPack } from "@/lib/container-bulk-import";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import {
@@ -57,7 +57,7 @@ import {
 } from "@/lib/pems-container-fields";
 import { normalizePackAttachmentFiles } from "@/lib/pack-attachments";
 import { readSiteRows } from "@/lib/site-data";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import ClutchSelect from "@/components/custom/ClutchSelect";
@@ -1003,11 +1003,11 @@ function NewPackFormPageInner() {
 
   const [saveError, setSaveError] = useState("");
   const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
+  const [quickReleaseMode, setQuickReleaseMode] = useState("add");
   const [quickReleaseDraft, setQuickReleaseDraft] = useState(() => blankRelease());
   const [quickReleaseError, setQuickReleaseError] = useState("");
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
-  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportSaving, setBulkImportSaving] = useState(false);
   const [bulkImportError, setBulkImportError] = useState("");
 
@@ -1015,15 +1015,56 @@ function NewPackFormPageInner() {
 
   function openQuickAddRelease(targetIndex = null) {
     setQuickReleaseError("");
+    setQuickReleaseMode("add");
     setQuickReleaseTargetIndex(targetIndex);
     setQuickReleaseDraft(blankRelease());
     setQuickReleaseOpen(true);
+  }
+
+  // Open the combined modal in edit mode for an existing pack release line. Loads the full
+  // release record (dates, free days, all parks) when it matches a Reference Data release so
+  // edits PUT back to that record; falls back to the line's own park/transporter otherwise.
+  function openEditRelease(lineIndex) {
+    const line = releaseRows[lineIndex];
+    if (!line) return;
+    const releaseRef = String(line.releaseRef ?? line.release_ref ?? "").trim();
+    const fullRecord = queryLookups.releases.find(
+      (r) => String(r.releaseNumber ?? r.release_number ?? "").trim() === releaseRef
+    );
+    const draft = fullRecord
+      ? { ...blankRelease(), ...fullRecord, releaseNumber: releaseRef }
+      : {
+          ...blankRelease(),
+          releaseNumber: releaseRef,
+          parks: [
+            {
+              containerParkId: line.emptyContainerParkId ?? "",
+              transporterIds: line.transporterId ? [line.transporterId] : [],
+            },
+          ],
+        };
+    setQuickReleaseError("");
+    setQuickReleaseMode("edit");
+    setQuickReleaseTargetIndex(lineIndex);
+    setQuickReleaseDraft(draft);
+    setQuickReleaseOpen(true);
+  }
+
+  // Detach (remove) a release line from this pack. The Reference Data release record is left
+  // untouched — this only unlinks it from the current pack.
+  function detachReleaseLine(lineIndex) {
+    setPack((prev) => {
+      const list = Array.isArray(prev.releaseDetails) ? prev.releaseDetails : [];
+      return { ...prev, releaseDetails: list.filter((_, idx) => idx !== lineIndex) };
+    });
+    closeQuickAddRelease();
   }
 
   function closeQuickAddRelease() {
     setQuickReleaseOpen(false);
     setQuickReleaseError("");
     setQuickReleaseTargetIndex(null);
+    setQuickReleaseMode("add");
   }
 
   function setQuickReleaseField(key, value) {
@@ -1395,8 +1436,7 @@ function NewPackFormPageInner() {
       // form; it will persist when the user creates the pack.
       setPack(nextPack);
       setBulkImportError("Create the pack first — imported containers will save with it.");
-      setBulkImportOpen(false);
-      return;
+      return true;
     }
 
     setBulkImportSaving(true);
@@ -1405,11 +1445,12 @@ function NewPackFormPageInner() {
       const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
       await savePack({ ...rowToSave, id: packId });
       // Only reflect the import in the form once it is safely persisted, so a failed
-      // save leaves the dialog in a clean, retryable state.
+      // import leaves the panel in a clean, retryable state.
       setPack(nextPack);
-      setBulkImportOpen(false);
+      return true;
     } catch (err) {
       setBulkImportError(err?.message || "Failed to save imported containers.");
+      return false;
     } finally {
       setBulkImportSaving(false);
     }
@@ -1582,6 +1623,21 @@ function NewPackFormPageInner() {
     });
   }, [portOptions, pack.destinationCountry, destinationCountryId]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  // Count of filled containers (those with a container number) assigned to each release ref,
+  // keyed by upper-cased ref. Used for the per-release count badges on the release lines.
+  const containerCountByReleaseRef = useMemo(() => {
+    const map = {};
+    for (const c of packContainers) {
+      const num = String(c.containerNumber ?? c.container_number ?? "").trim();
+      if (!num) continue;
+      const ref = String(c.releaseNumber ?? c.release_number ?? "").trim().toUpperCase();
+      if (!ref) continue;
+      map[ref] = (map[ref] || 0) + 1;
+    }
+    return map;
+  }, [packContainers]);
+  const countForReleaseRef = (ref) =>
+    containerCountByReleaseRef[String(ref ?? "").trim().toUpperCase()] || 0;
   const filteredPemsPackContainers = useMemo(() => {
     const q = pemsContainerSearch.trim().toLowerCase();
     if (!q) return packContainers;
@@ -2662,16 +2718,27 @@ function NewPackFormPageInner() {
                             />
                           );
                         })()}
-                        <Button
-                          variant="destructive"
-                          type="button"
-                          onClick={() => {
-                            const next = baseRows.filter((_, idx) => idx !== index);
-                            set("releaseDetails", next);
-                          }}
-                        >
-                          Remove
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {entry.releaseRef ? (
+                            <span
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-600"
+                              title="Containers assigned to this release on this pack"
+                            >
+                              {countForReleaseRef(entry.releaseRef)} ctr
+                            </span>
+                          ) : null}
+                          {entry.releaseRef ? (
+                            <button
+                              type="button"
+                              className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-brand"
+                              title="Edit release, import containers, or remove from pack"
+                              aria-label="Edit release"
+                              onClick={() => openEditRelease(index)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       );
                     })}
@@ -2685,16 +2752,6 @@ function NewPackFormPageInner() {
                         title="Create a full Release record and attach it to this pack"
                       >
                         + Quick add Release
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        disabled={!releaseRows.some((r) => r.releaseRef) && !releaseOptions.length}
-                        onClick={() => setBulkImportOpen(true)}
-                        title="Paste container numbers and assign them to a release"
-                      >
-                        Bulk import containers
                       </Button>
                     </div>
                   </div>
@@ -4851,11 +4908,16 @@ function NewPackFormPageInner() {
           </div>
         </footer>
 
-        <QuickAddReleaseModal
+        <ReleaseModal
           open={quickReleaseOpen}
+          mode={quickReleaseMode}
           draft={quickReleaseDraft}
           error={quickReleaseError}
+          saving={quickReleaseSaving}
           lookups={quickReleaseLookups}
+          assignedContainerCount={countForReleaseRef(quickReleaseDraft.releaseNumber)}
+          canDetach={quickReleaseMode === "edit" && quickReleaseTargetIndex != null}
+          onDetach={() => detachReleaseLine(quickReleaseTargetIndex)}
           onClose={closeQuickAddRelease}
           onSave={saveQuickAddRelease}
           onChangeField={setQuickReleaseField}
@@ -4863,6 +4925,12 @@ function NewPackFormPageInner() {
           onAddPark={addQuickReleasePark}
           onRemovePark={removeQuickReleasePark}
           onToggleTransporter={toggleQuickReleaseTransporter}
+          bulkContainers={packContainers}
+          containerParkOptions={containerParkOptions}
+          transporterOptions={transporterOptions}
+          onBulkApply={applyBulkContainerImport}
+          bulkApplying={bulkImportSaving}
+          bulkProgress={bulkImportSaving ? "Saving imported containers…" : ""}
         />
 
         <QuickAddVesselModal
@@ -4874,21 +4942,6 @@ function NewPackFormPageInner() {
           portOptions={portOptions}
         />
 
-        <BulkContainerImportDialog
-          key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
-          open={bulkImportOpen}
-          onClose={() => !bulkImportSaving && setBulkImportOpen(false)}
-          packReleases={releaseRows}
-          referenceReleases={releaseOptions}
-          containers={packContainers}
-          containerNumberField="containerNumber"
-          containerParkOptions={containerParkOptions}
-          transporterOptions={transporterOptions}
-          onApply={applyBulkContainerImport}
-          isApplying={bulkImportSaving}
-          applyProgress={bulkImportSaving ? "Saving imported containers…" : ""}
-          isLoadingReleases={queryLookups.isLoading}
-        />
         {bulkImportError ? (
           <div className="fixed bottom-4 right-4 z-[70] max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">
             {bulkImportError}
@@ -4905,11 +4958,16 @@ function NewPackFormPageInner() {
       );
 }
 
-function QuickAddReleaseModal({
+function ReleaseModal({
   open,
+  mode = "add",
   draft,
   error,
+  saving = false,
   lookups,
+  assignedContainerCount = 0,
+  canDetach = false,
+  onDetach,
   onClose,
   onSave,
   onChangeField,
@@ -4917,8 +4975,15 @@ function QuickAddReleaseModal({
   onAddPark,
   onRemovePark,
   onToggleTransporter,
+  bulkContainers = [],
+  containerParkOptions: bulkContainerParkOptions = [],
+  transporterOptions: bulkTransporterOptions = [],
+  onBulkApply,
+  bulkApplying = false,
+  bulkProgress = "",
 }) {
   if (!open) return null;
+  const isEdit = mode === "edit";
   const parks = Array.isArray(draft?.parks) && draft.parks.length
     ? draft.parks
     : [{ containerParkId: "", transporterIds: [] }];
@@ -4927,18 +4992,19 @@ function QuickAddReleaseModal({
   const containerParkOptions = lookups?.containerParks || [];
   const transporterOptions = lookups?.transporters || [];
   const containerCodeOptions = lookups?.containerCodes || [];
+  const releaseRef = String(draft?.releaseNumber || "").trim();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="quick-release-title"
+        aria-labelledby="release-modal-title"
         className="relative max-h-[min(92vh,820px)] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
-          <h2 id="quick-release-title" className="text-sm font-semibold text-slate-900">
-            Quick Add Release
+          <h2 id="release-modal-title" className="text-sm font-semibold text-slate-900">
+            {isEdit ? `Edit release${releaseRef ? ` · ${releaseRef}` : ""}` : "Add release"}
           </h2>
           <button
             type="button"
@@ -4951,6 +5017,14 @@ function QuickAddReleaseModal({
         <div className="p-4">
           {error ? (
             <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</div>
+          ) : null}
+          {isEdit ? (
+            <div className="mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <span className="rounded-full bg-brand/10 px-2 py-0.5 font-semibold tabular-nums text-brand-ink">
+                {assignedContainerCount}
+              </span>
+              container{assignedContainerCount === 1 ? "" : "s"} on this release for this pack.
+            </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
@@ -5119,16 +5193,57 @@ function QuickAddReleaseModal({
           </div>
 
           <p className="mt-3 text-[10px] text-slate-500">
-            Saving creates a Release record in Reference Data and adds the release reference + first park/transporter to this pack.
+            {isEdit
+              ? "Saving updates this Release record in Reference Data and refreshes the release reference + first park/transporter on this pack."
+              : "Saving creates a Release record in Reference Data and adds the release reference + first park/transporter to this pack."}
           </p>
 
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="button" size="sm" onClick={onSave}>
-              Create & attach
-            </Button>
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Bulk import containers
+            </p>
+            <BulkContainerImportPanel
+              release={{ releaseRef, parks }}
+              containers={bulkContainers}
+              containerNumberField="containerNumber"
+              containerParkOptions={bulkContainerParkOptions}
+              transporterOptions={bulkTransporterOptions}
+              onApply={onBulkApply}
+              isApplying={bulkApplying}
+              applyProgress={bulkProgress}
+              disabled={!isEdit || !releaseRef}
+              disabledReason={
+                !releaseRef
+                  ? "Enter a release number first."
+                  : "Save the release first, then import containers for it."
+              }
+            />
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-2 border-t border-slate-200 pt-4">
+            <div>
+              {isEdit && canDetach ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={saving}
+                  onClick={onDetach}
+                  title="Remove this release from the pack (the Release record is kept)"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  Remove from pack
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" disabled={saving} onClick={onSave}>
+                {saving ? "Saving…" : isEdit ? "Save changes" : "Create & attach"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -11,6 +11,7 @@ import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchContainerRows } from "@/lib/pack-schedule-store";
+import { updateContainer } from "@/lib/api/packing";
 import { getCompletionMissingChecks } from "@/lib/packers-container-validation";
 import { containerStage } from "@/lib/packers-work-store";
 import {
@@ -31,6 +32,7 @@ const config = {
 
 const TABLE_COLUMNS = [
   { key: "containerNumber", label: "Container #" },
+  { key: "onSite", label: "On site" },
   { key: "stage", label: "Stage" },
   { key: "packNumber", label: "Pack No." },
   { key: "jobReference", label: "Job Ref" },
@@ -139,8 +141,25 @@ export default function PackingScheduleContainersPage() {
   const [selectedPackStatuses, setSelectedPackStatuses] = useState(() => [...ACTIVE_PACK_STATUSES]);
   const [selectedStages, setSelectedStages] = useState(() => [...CONTAINER_STAGE_OPTIONS]);
   const [selectedId, setSelectedId] = useState(null);
+  const [savingOnSiteId, setSavingOnSiteId] = useState(null);
   const tableRef = useRef(null);
   const detailsRef = useRef(null);
+
+  // Quick on-site toggle: optimistic flip, PATCH, revert on failure.
+  const toggleOnSite = useCallback(async (row) => {
+    if (!row?.id || !row?.packId || savingOnSiteId) return;
+    const next = !(row.onSite ?? false);
+    setSavingOnSiteId(row.id);
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: next } : r)));
+    try {
+      await updateContainer(row.packId, row.id, { onSite: next });
+    } catch (err) {
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: !next } : r)));
+      window.alert(err?.message || "Failed to update on-site status.");
+    } finally {
+      setSavingOnSiteId(null);
+    }
+  }, [savingOnSiteId]);
 
   useEffect(() => {
     if (selectedId == null) return;
@@ -270,6 +289,32 @@ export default function PackingScheduleContainersPage() {
         hidden: column.hidden ?? false,
       };
 
+      if (column.key === "onSite") {
+        return {
+          ...base,
+          type: "text",
+          valueGetter: (row) => (row.onSite ? "On site" : "Off site"),
+          renderCell: ({ row }) => (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleOnSite(row);
+              }}
+              disabled={savingOnSiteId === row.id}
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-60",
+                row.onSite
+                  ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+              )}
+              title="Toggle whether this container is on site to pack"
+            >
+              {row.onSite ? "On site" : "Off site"}
+            </button>
+          ),
+        };
+      }
       if (column.key === "stage") {
         return {
           ...base,
@@ -358,7 +403,7 @@ export default function PackingScheduleContainersPage() {
       }
       return base;
     });
-  }, []);
+  }, [toggleOnSite, savingOnSiteId]);
 
   const missingChecks = useMemo(
     () => (selected ? getCompletionMissingChecks(selected) : []),
@@ -520,6 +565,23 @@ export default function PackingScheduleContainersPage() {
                 <Field label="Order" value={String(selected.order ?? "")} />
                 <Field label="ISO Code" value={selected.containerIsoCode || selected.isoCode || ""} />
                 <Field label="Seal" value={selected.sealNumber || ""} />
+                <div className="space-y-0.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">On site to pack</div>
+                  <button
+                    type="button"
+                    onClick={() => toggleOnSite(selected)}
+                    disabled={savingOnSiteId === selected.id}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
+                      selected.onSite
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100",
+                    )}
+                  >
+                    <span className={cn("h-2 w-2 rounded-full", selected.onSite ? "bg-emerald-500" : "bg-slate-400")} />
+                    {selected.onSite ? "On site — click to mark off site" : "Off site — click to mark on site"}
+                  </button>
+                </div>
               </SidebarSection>
 
               <SidebarSection title="Pack">

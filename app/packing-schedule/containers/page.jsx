@@ -32,6 +32,7 @@ const config = {
 const TABLE_COLUMNS = [
   { key: "containerNumber", label: "Container #" },
   { key: "stage", label: "Stage" },
+  { key: "packNumber", label: "Pack No." },
   { key: "jobReference", label: "Job Ref" },
   { key: "packId", label: "Pack ID" },
   { key: "customerName", label: "Customer" },
@@ -522,6 +523,7 @@ export default function PackingScheduleContainersPage() {
               </SidebarSection>
 
               <SidebarSection title="Pack">
+                <Field label="Pack No." value={selected.packNumber || ""} />
                 <Field label="Job Ref" value={selected.jobReference || ""} />
                 <Field label="Pack ID" value={String(selected.packId ?? "")} />
                 <Field label="Pack Status" value={selected.packStatus || ""} />

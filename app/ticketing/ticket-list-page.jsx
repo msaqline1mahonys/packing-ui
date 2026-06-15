@@ -126,6 +126,14 @@ export default function TicketListPage({
   const gridColumns = useMemo(
     () => [
       {
+        key: "ticketReference",
+        header: "Ticket No.",
+        type: "text",
+        sortable: true,
+        filterable: true,
+        resizable: true,
+      },
+      {
         key: "id",
         header: "ID",
         type: "text",
@@ -133,6 +141,7 @@ export default function TicketListPage({
         sortable: true,
         filterable: true,
         resizable: true,
+        hidden: true,
         renderCell: ({ value }) => <span title={value}>{String(value).slice(0, 8)}</span>,
       },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },

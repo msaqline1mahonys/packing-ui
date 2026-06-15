@@ -26,6 +26,7 @@ const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
   { key: "commodity", label: "Commodity" },
   { key: "status", label: "Status" },
+  { key: "packNumber", label: "Pack No." },
   { key: "jobReference", label: "Job Ref" },
   { key: "vessel", label: "Vessel" },
   { key: "etd", label: "ETD", date: true },
@@ -203,6 +204,9 @@ export default function PackersScheduleClient() {
       if (column.key === "jobReference") {
         return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
       }
+      if (column.key === "packNumber") {
+        return { ...base, valueGetter: (row) => row.pack_number ?? row.packNumber ?? "" };
+      }
       return base;
     });
   }, [parkIdToName]);
@@ -334,6 +338,7 @@ export default function PackersScheduleClient() {
               <Field label="Status" value={selected.status} />
               <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? (typeof selected.customer === "string" ? selected.customer : "")} />
               <Field label="Commodity" value={selected.commodity?.description ?? selected.commodity_description ?? (typeof selected.commodity === "string" ? selected.commodity : "")} />
+              <Field label="Pack No." value={selected.pack_number ?? selected.packNumber ?? ""} />
               <Field label="Job Ref" value={selected.job_reference ?? selected.jobReference ?? ""} />
               <Field label="Vessel" value={selected.vessel_voyage?.vessel?.vessel_name ?? selected.vesselVoyage?.vessel?.vesselName ?? (typeof selected.vessel === "string" ? selected.vessel : "") ?? ""} />
               <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd ?? selected.vessel_voyage?.vessel_etd ?? "")} />

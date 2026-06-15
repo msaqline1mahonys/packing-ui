@@ -188,6 +188,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [newTruck, setNewTruck] = useState({ name: "", driver: "", tare: "" });
 
   const ticketNumericId = ticket.id ?? routeTicketId ?? null;
+  const ticketDisplayRef = ticket.ticketReference || "";
   const isCompleted = ticket.status === "completed";
   const printHref = ticketNumericId ? `${detailPathBase}/${ticketNumericId}/print?print=1` : null;
 
@@ -542,7 +543,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[#0f1e3d] md:text-[1.35rem]">
-            {isCompleted ? "Completed" : isCreate ? "New" : "Edit"} {ticketLabel} {ticketNumericId ? `#${ticketNumericId}` : ""}
+            {isCompleted ? "Completed" : isCreate ? "New" : "Edit"} {ticketLabel}{ticketDisplayRef ? ` — ${ticketDisplayRef}` : ""}
           </h1>
           <p className="mt-0.5 text-xs text-slate-500">{ticketSubtitle}</p>
         </div>
@@ -924,15 +925,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 onChange={(e) => set("date", e.target.value)}
               />
             </FormRow>
-            <FormRow label="Ticket Reference">
-              <input
-                className={inputClass}
-                value={ticket.ticketReference}
-                disabled={isCompleted}
-                onChange={(e) => set("ticketReference", e.target.value)}
-                placeholder="Enter ticket reference..."
-              />
-            </FormRow>
+            {ticketDisplayRef ? (
+              <FormRow label="Ticket number">
+                <input className={`${inputClass} bg-slate-50 text-slate-600`} value={ticketDisplayRef} readOnly disabled />
+              </FormRow>
+            ) : isCreate ? (
+              <FormRow label="Ticket number">
+                <input className={`${inputClass} bg-slate-50 text-slate-500`} value="" readOnly disabled placeholder="Assigned on save" />
+              </FormRow>
+            ) : null}
             <FormRow label="Additional Reference">
               <input
                 className={inputClass}

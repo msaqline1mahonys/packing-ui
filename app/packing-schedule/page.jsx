@@ -29,6 +29,7 @@ const TABLE_COLUMNS = [
   { key: "commodity", label: "Commodity" },
   { key: "status", label: "Status" },
   { key: "vesselScheduleUpdate", label: "Sched." },
+  { key: "packNumber", label: "Pack No." },
   { key: "jobReference", label: "Job Ref" },
   { key: "vessel", label: "Vessel" },
   { key: "etd", label: "ETD", date: true },
@@ -296,6 +297,12 @@ export default function PackingSchedulePage() {
       }
       if (column.key === "commodity") {
         return { ...base, valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "" };
+      }
+      if (column.key === "packNumber") {
+        return { ...base, valueGetter: (row) => row.pack_number ?? row.packNumber ?? "" };
+      }
+      if (column.key === "jobReference") {
+        return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
       }
       if (column.key === "vesselScheduleUpdate") {
         return {
@@ -703,6 +710,7 @@ export default function PackingSchedulePage() {
                   </Button>
                 </div>
               ) : null}
+              <Field label="Pack No." value={selected.pack_number ?? selected.packNumber ?? ""} />
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
               <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? selected.customer ?? ""} />
@@ -726,7 +734,7 @@ export default function PackingSchedulePage() {
         onClose={() => setHistoryOpen(false)}
         subjectType="pack"
         subjectId={selected?.id}
-        title={selected ? `Pack ${selected.job_reference ?? selected.jobReference ?? selected.id}` : "History"}
+        title={selected ? `Pack ${selected.pack_number ?? selected.packNumber ?? selected.job_reference ?? selected.jobReference ?? selected.id}` : "History"}
       />
     </div>
   );

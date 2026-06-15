@@ -547,6 +547,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     commodityTypeId: resolvedCommodityTypeId,
     shippingLineId: resolvedShippingLineId,
     jobReference: (row.job_reference ?? row.jobReference) || "",
+    packNumber: (row.pack_number ?? row.packNumber) || "",
     containersRequired: (row.containers_required ?? row.containersRequired) ?? "",
     mtTotal: (row.mt_total ?? row.mtTotal) ?? "",
     containerCode: (typeof row.container_code === "object" ? row.container_code?.iso_code : row.container_code) ?? row.containerCode ?? "",
@@ -1936,7 +1937,7 @@ function NewPackFormPageInner() {
         <div className="flex flex-wrap items-center justify-between gap-1">
           <h1 className="text-base font-semibold leading-tight text-slate-900">
             {mode === "edit"
-              ? `Edit Pack${pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
+              ? `Edit Pack${pack.packNumber ? ` — ${pack.packNumber}` : pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.packNumber ? ` — ${editingRow.packNumber}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
               : "Add Pack"}
           </h1>
         </div>
@@ -2334,6 +2335,11 @@ function NewPackFormPageInner() {
                     );
                   })()}
                 </FormRow>
+                {mode === "edit" && pack.packNumber ? (
+                  <FormRow label="Pack number">
+                    <input className={`${inputClass} bg-slate-50 text-slate-600`} value={pack.packNumber} readOnly disabled />
+                  </FormRow>
+                ) : null}
                 <FormRow label="Job reference">
                   <input className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
                 </FormRow>

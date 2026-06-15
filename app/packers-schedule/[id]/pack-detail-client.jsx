@@ -53,6 +53,8 @@ import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from 
 import { fetchPack } from "@/lib/pack-schedule-store";
 import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
+import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
+import TestResultsSection from "@/components/quality-tests/TestResultsSection";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
@@ -296,6 +298,7 @@ function packContainerFromWorkContainer(container, packRow) {
     gppirSubmitted: Boolean(container.gppirSubmitted),
     gppirLastSubmittedAt: container.gppirLastSubmittedAt || "",
     gppirLastBatchId: container.gppirLastBatchId || "",
+    tests: container.tests && typeof container.tests === "object" ? container.tests : {},
     status: containerStage(container),
   };
 }
@@ -315,6 +318,7 @@ export default function PackDetailClient({ packId }) {
   // on window focus so switching back from a tab where reference data was updated
   // (packers, customers, ISO codes, etc.) silently picks up the new options.
   const lookups = useAllPackLookups();
+  const testsCatalog = useTestsCatalog();
 
   const [activeTab, setActiveTab] = useState("Packing");
   const [packRow, setPackRow] = useState(null);
@@ -480,6 +484,21 @@ export default function PackDetailClient({ packId }) {
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
     [filteredContainerRows, selectedContainerId]
   );
+
+  const packCommodity = useMemo(() => {
+    if (!packRow?.commodityId) return null;
+    return (lookups.commodities || []).find((c) => String(c.id) === String(packRow.commodityId)) ?? null;
+  }, [packRow, lookups.commodities]);
+
+  const packCommodityTypeId = useMemo(
+    () => packRow?.commodityTypeId ?? packCommodity?.commodityTypeId ?? packCommodity?.commodity_type_id ?? null,
+    [packRow?.commodityTypeId, packCommodity]
+  );
+
+  const allowedCommodityIds = useMemo(() => {
+    if (!packRow?.commodityId) return null;
+    return new Set([packRow.commodityId]);
+  }, [packRow?.commodityId]);
   const stagedContainers = useMemo(
     () => containerRows.filter((container) => pemsDraft.stagedContainerIds.includes(container.id)),
     [containerRows, pemsDraft.stagedContainerIds]
@@ -1177,32 +1196,6 @@ export default function PackDetailClient({ packId }) {
             </div>
           </div>
         </div>
-        {Array.isArray(packRow?.packTests) && packRow.packTests.length > 0 ? (
-          <div className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Quality tests</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {packRow.packTests.map((test) => {
-                const status = String(test.status || "pending").toLowerCase();
-                const badgeClass =
-                  status === "pass"
-                    ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
-                    : status === "fail"
-                      ? "bg-rose-100 text-rose-800 ring-rose-200"
-                      : "bg-slate-100 text-slate-600 ring-slate-200";
-                return (
-                  <span
-                    key={test.id || test.testName}
-                    className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1", badgeClass)}
-                    title={test.notes || undefined}
-                  >
-                    {test.testName}
-                    {test.value ? `: ${test.value}${test.unit ? ` ${test.unit}` : ""}` : ""}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-2">
@@ -1427,6 +1420,29 @@ export default function PackDetailClient({ packId }) {
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
             />
+
+            {packCommodityTypeId ? (
+              <div className={cn(sectionCardClass, "mt-4")}>
+                <div className={sectionHeaderClass}>Test results</div>
+                <div className="p-3">
+                  <TestResultsSection
+                    commodityTypeId={packCommodityTypeId}
+                    commodities={lookups.commodities || []}
+                    allowedCommodityIds={allowedCommodityIds}
+                    testsCatalog={testsCatalog}
+                    surface="Outgoing Containers"
+                    testValues={selectedContainer.tests ?? {}}
+                    onChange={(name, value) =>
+                      updateSelectedContainer({
+                        tests: { ...(selectedContainer.tests ?? {}), [name]: value },
+                      })
+                    }
+                    inputClass={inputClass}
+                    emptyMessage="No tests are configured for this commodity."
+                  />
+                </div>
+              </div>
+            ) : null}
           </section>
         )}
         </div>

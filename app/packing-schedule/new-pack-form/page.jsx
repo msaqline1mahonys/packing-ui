@@ -38,8 +38,9 @@ import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
 import { packAssignedPackerOptions } from "@/lib/api/packing";
-import { getApplicablePackTests, mergePackTests } from "@/lib/pack-tests";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
+import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
+import TestResultsSection from "@/components/quality-tests/TestResultsSection";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import {
   RELEASE_STATUSES,
@@ -407,6 +408,7 @@ function createDraftContainer(pack, index, existing = {}) {
     gppirSubmitted: Boolean(existing.gppirSubmitted),
     gppirLastSubmittedAt: existing.gppirLastSubmittedAt ?? "",
     gppirLastBatchId: existing.gppirLastBatchId ?? "",
+    tests: existing.tests && typeof existing.tests === "object" ? existing.tests : {},
     status: existing.status || "Draft",
   };
 }
@@ -449,7 +451,6 @@ const blankPack = (siteId) => ({
   sampleSentDates: [],
   sampleStatuses: [],
   sampleEntries: [],
-  packTests: [],
   packingInstructionFiles: [],
   pemsDraft: defaultPemsDraft(),
   pemsSubmissions: [],
@@ -650,21 +651,6 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
         status: status || SAMPLE_STATUSES[0] || "Pending",
         notes: "",
       })),
-    packTests: Array.isArray(row.pack_tests ?? row.packTests)
-      ? (row.pack_tests ?? row.packTests).map((t) => ({
-          id: t.id ?? null,
-          testId: t.test_id ?? t.testId ?? null,
-          testName: t.test_name ?? t.testName ?? "",
-          testType: t.test_type ?? t.testType ?? "Percentage",
-          unit: t.unit ?? "",
-          thresholdMin: t.threshold_min ?? t.thresholdMin ?? null,
-          thresholdMax: t.threshold_max ?? t.thresholdMax ?? null,
-          value: t.value ?? "",
-          findings: Array.isArray(t.findings) ? t.findings : [],
-          status: t.status ?? "pending",
-          notes: t.notes ?? "",
-        }))
-      : [],
     importPermitFiles: normalizeFileItems(
       row.importPermitFiles ??
       (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importPermit") : null)
@@ -821,20 +807,6 @@ function packToScheduleRow(pack, existingRow) {
       }
       return ids.map((id) => ({ id, name: "", status: "Active" }));
     })(),
-    pack_tests: Array.isArray(pack.packTests)
-      ? pack.packTests.map((t) => ({
-          test_id: t.testId ?? null,
-          test_name: t.testName,
-          test_type: t.testType ?? "Percentage",
-          unit: t.unit ?? "",
-          threshold_min: t.thresholdMin ?? null,
-          threshold_max: t.thresholdMax ?? null,
-          value: t.value ?? "",
-          findings: t.findings ?? null,
-          status: t.status ?? "pending",
-          notes: t.notes ?? "",
-        }))
-      : [],
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
   };
@@ -948,7 +920,7 @@ function NewPackFormPageInner() {
     [queryLookups.referencePackers, queryLookups.packers]
   );
   const packerNames = queryLookups.packerNames;
-  const [testsCatalog, setTestsCatalog] = useState([]);
+  const testsCatalog = useTestsCatalog();
   const terminalOptions = queryLookups.terminals;
   const vesselVoyageOptions = queryLookups.vesselVoyages;
   const countryOptions = useMemo(
@@ -979,15 +951,10 @@ function NewPackFormPageInner() {
     () => packAssignedPackerOptions(pack, queryLookups.referencePackers ?? queryLookups.packers ?? []),
     [pack, queryLookups.referencePackers, queryLookups.packers]
   );
-  const selectedCommodity = useMemo(
-    () => commodityOptions.find((c) => String(c.id) === String(pack.commodityId)) ?? null,
-    [commodityOptions, pack.commodityId]
-  );
-  const applicablePackTests = useMemo(
-    () => getApplicablePackTests(selectedCommodity, testsCatalog),
-    [selectedCommodity, testsCatalog]
-  );
-  const showPackTestsSection = applicablePackTests.length > 0 || pack.testRequired || (pack.packTests || []).length > 0;
+  const allowedCommodityIds = useMemo(() => {
+    if (!pack.commodityId) return null;
+    return new Set([pack.commodityId]);
+  }, [pack.commodityId]);
   const [editingRow, setEditingRow] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
     ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
@@ -1852,32 +1819,6 @@ function NewPackFormPageInner() {
   }, [currentSite, mode]);
 
   useEffect(() => {
-    let cancelled = false;
-    const base = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/+$/, "");
-    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
-    fetch(`${base}/product-settings/tests?per_page=500`, {
-      headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    })
-      .then((res) => res.json())
-      .then((result) => {
-        if (cancelled) return;
-        const rows = Array.isArray(result?.data?.data)
-          ? result.data.data
-          : Array.isArray(result?.data)
-            ? result.data
-            : [];
-        setTestsCatalog(rows);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!pack.fumigationRequired && activeTab === "fumigation") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("general");
@@ -2332,49 +2273,6 @@ function NewPackFormPageInner() {
                   ) : null}
                 </div>
               </section>
-
-              {showPackTestsSection ? (
-                <section className={flushSectionClass} aria-label="Pack tests">
-                  <div className={cn(flushSectionBodyClass, sectionStackClass)}>
-                    <FormRow label="Tests on pack">
-                      <p className="text-xs text-slate-500">
-                        Tests are created on the pack from commodity thresholds. Results can be updated on the Ticketing pack tests page.
-                      </p>
-                    </FormRow>
-                    {(pack.packTests || []).length === 0 ? (
-                      <p className="text-xs text-slate-400">No tests apply for the selected commodity.</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {(pack.packTests || []).map((test, index) => (
-                          <div key={test.testName || index} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-slate-900">{test.testName}</span>
-                              <span className="text-slate-500">{test.testType}{test.unit ? ` · ${test.unit}` : ""}</span>
-                              {(test.thresholdMin != null && test.thresholdMin !== "") || (test.thresholdMax != null && test.thresholdMax !== "") ? (
-                                <span className="text-slate-500">
-                                  Threshold
-                                  {test.thresholdMin != null && test.thresholdMin !== "" ? ` min ${test.thresholdMin}` : ""}
-                                  {test.thresholdMax != null && test.thresholdMax !== "" ? ` max ${test.thresholdMax}` : ""}
-                                </span>
-                              ) : null}
-                            </div>
-                            <input
-                              className={cn(inputClass, "mt-1.5 !h-9 text-xs")}
-                              value={test.notes || ""}
-                              onChange={(e) => {
-                                const next = [...(pack.packTests || [])];
-                                next[index] = { ...next[index], notes: e.target.value };
-                                set("packTests", next);
-                              }}
-                              placeholder="Schedule notes (optional)"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </section>
-              ) : null}
             </div>
 
             <section className={sectionClass} aria-label="Basic details">
@@ -2416,12 +2314,10 @@ function NewPackFormPageInner() {
                         onChange={(option) => {
                           const id = option ? option.value : "";
                           const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
-                          const nextApplicable = row ? getApplicablePackTests(row, testsCatalog) : [];
                           setPack((prev) => ({
                             ...prev,
                             commodityId: id,
                             commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
-                            packTests: nextApplicable.length ? mergePackTests(prev.packTests, nextApplicable) : [],
                           }));
                         }}
                       />
@@ -4863,6 +4759,31 @@ function NewPackFormPageInner() {
                     onMarkPacked={selectedEditContainerActions?.onMarkPacked}
                     onSubmitPra={selectedEditContainerActions?.onSubmitPra}
                   />
+
+                  {pack.commodityTypeId ? (
+                    <div className="mt-3 rounded-lg border border-slate-200/90 bg-slate-50/30">
+                      <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
+                        Test results
+                      </div>
+                      <div className="p-3">
+                        <TestResultsSection
+                          commodityTypeId={pack.commodityTypeId}
+                          commodities={commodityOptions}
+                          allowedCommodityIds={allowedCommodityIds}
+                          testsCatalog={testsCatalog}
+                          surface="Outgoing Containers"
+                          testValues={selectedEditContainer.tests ?? {}}
+                          onChange={(name, value) =>
+                            updatePackContainer(selectedEditContainer.id, {
+                              tests: { ...(selectedEditContainer.tests ?? {}), [name]: value },
+                            })
+                          }
+                          inputClass={inputClass}
+                          emptyMessage="No tests are configured for this commodity."
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="mt-3 flex justify-end gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => setEditingContainerId(null)}>

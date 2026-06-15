@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import TestResultsSection from "@/components/quality-tests/TestResultsSection";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -30,14 +31,19 @@ const MOCK_CUSTOMERS = [
 const MOCK_COMMODITIES = [
   {
     id: 1,
+    commodityTypeId: 1,
     description: "Wheat",
+    status: "active",
     testThresholds: [
       { test: "Moisture", min: "", max: "12.5" },
-      { test: "Type 1", min: "", max: "4" },
+      { test: "Type 1", min: "", max: "4", parentGroupId: 5, isGroupRoot: true },
+      { test: "Double Gees", min: "", max: "", parentGroupId: 5, isGroupRoot: false },
+      { test: "Poppy seed", min: "", max: "", parentGroupId: 5, isGroupRoot: false },
+      { test: "Jute", min: "", max: "", parentGroupId: 5, isGroupRoot: false },
     ],
   },
-  { id: 2, description: "Chickpeas", testThresholds: [] },
-  { id: 3, description: "Canola", testThresholds: [] },
+  { id: 2, commodityTypeId: 2, description: "Chickpeas", status: "active", testThresholds: [] },
+  { id: 3, commodityTypeId: 3, description: "Canola", status: "active", testThresholds: [] },
 ];
 
 const MOCK_TESTS = [
@@ -47,68 +53,6 @@ const MOCK_TESTS = [
   { id: 4, testName: "Jute", type: "Count", unit: "seeds", appliesTo: ["Outgoing Containers"], status: "Active" },
   { id: 5, testName: "Type 1", type: "Group", unit: "seeds", members: [2, 3, 4], appliesTo: ["Outgoing Containers"], status: "Active" },
 ];
-
-function getApplicableTests(commodity) {
-  const thresholds = commodity?.testThresholds ?? [];
-  if (thresholds.length === 0) return [];
-  return thresholds
-    .map((t) => {
-      const def = MOCK_TESTS.find((d) => d.testName === t.test);
-      if (!def) return null;
-      if (def.status !== "Active") return null;
-      if (!(def.appliesTo ?? []).includes("Outgoing Containers")) return null;
-      return { def, threshold: t };
-    })
-    .filter(Boolean);
-}
-
-function getGroupMembers(groupDef) {
-  return (groupDef.members ?? []).map((mid) => MOCK_TESTS.find((d) => d.id === mid)).filter(Boolean);
-}
-
-function evaluateIndividual(rawValue, min, max) {
-  if (rawValue === "" || rawValue == null) return { status: "empty" };
-  const v = Number(rawValue);
-  if (Number.isNaN(v)) return { status: "empty" };
-  const minN = min !== "" && min != null ? Number(min) : null;
-  const maxN = max !== "" && max != null ? Number(max) : null;
-  if (minN != null && !Number.isNaN(minN) && v < minN) return { status: "fail" };
-  if (maxN != null && !Number.isNaN(maxN) && v > maxN) return { status: "fail" };
-  return { status: "pass" };
-}
-
-function sumFindings(findings) {
-  return (findings ?? []).reduce((s, f) => s + (Number(f.count) || 0), 0);
-}
-
-function evaluateGroup(findings, max) {
-  const total = sumFindings(findings);
-  const maxN = max !== "" && max != null ? Number(max) : null;
-  if (findings == null || findings.length === 0) return { status: "empty", total: 0 };
-  if (maxN != null && !Number.isNaN(maxN) && total > maxN) return { status: "fail", total };
-  return { status: "pass", total };
-}
-
-function summarizeContainerTests(container, applicableTests) {
-  let pass = 0;
-  let fail = 0;
-  let empty = 0;
-  for (const { def, threshold } of applicableTests) {
-    const entry = container?.tests?.[def.testName];
-    if (def.type === "Group") {
-      const r = evaluateGroup(entry?.findings, threshold.max);
-      if (r.status === "pass") pass++;
-      else if (r.status === "fail") fail++;
-      else empty++;
-    } else {
-      const r = evaluateIndividual(entry?.value, threshold.min, threshold.max);
-      if (r.status === "pass") pass++;
-      else if (r.status === "fail") fail++;
-      else empty++;
-    }
-  }
-  return { pass, fail, empty, total: applicableTests.length };
-}
 const MOCK_TRANSPORTERS = [
   { id: 1, name: "Fast Freight" },
   { id: 2, name: "Coastal Haulage" },
@@ -186,6 +130,10 @@ export default function ContainerPackingPage() {
   const allVerified = VERIFY_ITEMS.every((v) => !!verification[v.key]);
   const customer = selectedPack ? MOCK_CUSTOMERS.find((c) => c.id === selectedPack.customerId) : null;
   const commodity = selectedPack ? MOCK_COMMODITIES.find((c) => c.id === selectedPack.commodityId) : null;
+  const allowedCommodityIds = useMemo(
+    () => (commodity?.id ? new Set([commodity.id]) : null),
+    [commodity]
+  );
 
   function setVerification(key, value) {
     if (!selectedPackId) return;
@@ -476,11 +424,26 @@ export default function ContainerPackingPage() {
       <Field label="Remark"><input suppressHydrationWarning className={inputClass} value={containerForm.grainInspectionRemark || ""} onChange={(e) => set("grainInspectionRemark", e.target.value)} placeholder="Remark" /></Field>
     </div>
 
-    <TestsSection
-      commodity={commodity}
-      tests={containerForm.tests || {}}
-      onChange={(nextTests) => set("tests", nextTests)}
-    />
+    {commodity ? (
+      <>
+        <p className="mt-4 text-xs font-bold text-slate-600">Tests</p>
+        <div className="mt-2">
+          <TestResultsSection
+            commodityTypeId={commodity.commodityTypeId}
+            commodities={MOCK_COMMODITIES}
+            allowedCommodityIds={allowedCommodityIds}
+            testsCatalog={MOCK_TESTS}
+            surface="Outgoing Containers"
+            testValues={containerForm.tests || {}}
+            onChange={(name, value) =>
+              set("tests", { ...(containerForm.tests || {}), [name]: value })
+            }
+            inputClass={inputClass}
+            emptyMessage="No tests are configured for this commodity."
+          />
+        </div>
+      </>
+    ) : null}
 
     <p className="mt-4 text-xs font-bold text-slate-600">Authorised officer sign-off</p>
     <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -504,219 +467,6 @@ function Field({ label, children }) {
     <div className="space-y-1">
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
       {children}
-    </div>
-  );
-}
-
-function StatusBadgeSmall({ status, label }) {
-  const cls = status === "pass"
-    ? "bg-emerald-100 text-emerald-700"
-    : status === "fail"
-      ? "bg-red-100 text-red-700"
-      : "bg-slate-100 text-slate-500";
-  const icon = status === "pass" ? "✓" : status === "fail" ? "✗" : "·";
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", cls)}>
-      {icon} {label}
-    </span>
-  );
-}
-
-function TestsSection({ commodity, tests, onChange }) {
-  const applicable = commodity ? getApplicableTests(commodity) : [];
-  if (applicable.length === 0) return null;
-
-  function setIndividual(name, value) {
-    onChange({ ...tests, [name]: { value } });
-  }
-
-  function setGroupFindings(name, findings) {
-    onChange({ ...tests, [name]: { findings } });
-  }
-
-  return (
-    <>
-      <p className="mt-4 text-xs font-bold text-slate-600">Tests</p>
-      <div className="mt-2 space-y-3">
-        {applicable.map(({ def, threshold }) => {
-          if (def.type === "Group") {
-            const findings = tests?.[def.testName]?.findings ?? [];
-            return (
-              <GroupTestPanel
-                key={def.id}
-                def={def}
-                threshold={threshold}
-                findings={findings}
-                onChange={(next) => setGroupFindings(def.testName, next)}
-              />
-            );
-          }
-          const value = tests?.[def.testName]?.value ?? "";
-          const result = evaluateIndividual(value, threshold.min, threshold.max);
-          return (
-            <IndividualTestRow
-              key={def.id}
-              def={def}
-              threshold={threshold}
-              value={value}
-              status={result.status}
-              onChange={(v) => setIndividual(def.testName, v)}
-            />
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-function thresholdLabel(threshold, unit) {
-  const parts = [];
-  if (threshold.min !== "" && threshold.min != null) parts.push(`min ${threshold.min}`);
-  if (threshold.max !== "" && threshold.max != null) parts.push(`max ${threshold.max}`);
-  if (parts.length === 0) return "";
-  return `${parts.join(" · ")}${unit ? ` ${unit}` : ""}`;
-}
-
-function IndividualTestRow({ def, threshold, value, status, onChange }) {
-  return (
-    <div className={cn(
-      "flex items-center gap-3 rounded-lg border px-3 py-2.5",
-      status === "fail" ? "border-red-200 bg-red-50/40" : "border-slate-200 bg-white"
-    )}>
-      <div className="min-w-[140px]">
-        <p className="text-sm font-semibold text-slate-800">{def.testName}</p>
-        <p className="text-[11px] text-slate-500">{def.type}{def.unit ? ` · ${def.unit}` : ""}</p>
-      </div>
-      <span className="text-xs text-slate-500 min-w-[120px]">{thresholdLabel(threshold, def.unit) || "—"}</span>
-      <input
-        type="number"
-        className={cn(inputClass, "max-w-[120px]")}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Enter value"
-      />
-      <div className="ml-auto">
-        <StatusBadgeSmall
-          status={status}
-          label={status === "pass" ? "Pass" : status === "fail" ? "Out of range" : "Not entered"}
-        />
-      </div>
-    </div>
-  );
-}
-
-function GroupTestPanel({ def, threshold, findings, onChange }) {
-  const [addOpen, setAddOpen] = useState(false);
-  const allMembers = getGroupMembers(def);
-  const usedNames = new Set(findings.map((f) => f.name));
-  const available = allMembers.filter((m) => !usedNames.has(m.testName));
-
-  const { status, total } = evaluateGroup(findings, threshold.max);
-  const maxLabel = threshold.max !== "" && threshold.max != null ? threshold.max : "—";
-
-  function addFinding(memberName) {
-    onChange([...findings, { name: memberName, count: "" }]);
-    setAddOpen(false);
-  }
-
-  function updateCount(idx, count) {
-    onChange(findings.map((f, i) => (i === idx ? { ...f, count } : f)));
-  }
-
-  function removeFinding(idx) {
-    onChange(findings.filter((_, i) => i !== idx));
-  }
-
-  return (
-    <div className={cn(
-      "rounded-lg border",
-      status === "fail" ? "border-red-200 bg-red-50/40" : "border-slate-200 bg-white"
-    )}>
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
-        <div>
-          <p className="text-sm font-semibold text-slate-800">
-            {def.testName} <span className="text-[11px] font-normal text-slate-500">(Group)</span>
-          </p>
-          <p className="text-[11px] text-slate-500">max {maxLabel}{def.unit ? ` ${def.unit}` : ""}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={cn(
-            "text-sm font-bold tabular-nums",
-            status === "fail" ? "text-red-600" : "text-slate-700"
-          )}>
-            Sum: {total} / {maxLabel}
-          </span>
-          <StatusBadgeSmall
-            status={status}
-            label={status === "pass" ? "Pass" : status === "fail" ? "Over max" : "Not entered"}
-          />
-        </div>
-      </div>
-
-      <div className="space-y-1.5 p-3">
-        {findings.length === 0 ? (
-          <p className="px-1 text-xs text-slate-400">No findings recorded.</p>
-        ) : (
-          findings.map((f, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <span className="flex-1 text-sm text-slate-700">{f.name}</span>
-              <input
-                type="number"
-                min="0"
-                value={f.count}
-                onChange={(e) => updateCount(idx, e.target.value)}
-                className={cn(inputClass, "max-w-[100px] text-center")}
-                placeholder="0"
-              />
-              <button
-                type="button"
-                onClick={() => removeFinding(idx)}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                title="Remove finding"
-              >
-                ×
-              </button>
-            </div>
-          ))
-        )}
-
-        {available.length > 0 ? (
-          <div className="pt-1">
-            {!addOpen ? (
-              <button
-                type="button"
-                onClick={() => setAddOpen(true)}
-                className="text-xs font-semibold text-brand hover:underline"
-              >
-                + Add finding
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <select
-                  autoFocus
-                  className={inputClass}
-                  defaultValue=""
-                  onChange={(e) => { if (e.target.value) addFinding(e.target.value); }}
-                >
-                  <option value="" disabled>Select a member…</option>
-                  {available.map((m) => (
-                    <option key={m.id} value={m.testName}>{m.testName}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setAddOpen(false)}
-                  className="text-xs text-slate-500 hover:underline"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-        ) : findings.length > 0 ? (
-          <p className="pt-1 text-[11px] text-slate-400">All members recorded.</p>
-        ) : null}
-      </div>
     </div>
   );
 }

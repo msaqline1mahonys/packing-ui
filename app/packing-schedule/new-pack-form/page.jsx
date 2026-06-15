@@ -168,6 +168,52 @@ function vesselDisplayName(voyage) {
   return voyage.vesselName ?? voyage.vessel_name ?? "";
 }
 
+function vesselImportScheduleFields(voyage) {
+  if (!voyage) return {};
+  return {
+    vesselEta: voyage.vessel_eta ?? voyage.vesselEta ?? "",
+    firstFreeImportDate: voyage.first_free_import_date ?? voyage.firstFreeImportDate ?? "",
+    importStorageStartDate: voyage.import_storage_start_date ?? voyage.importStorageStartDate ?? "",
+    vesselFreeDays: voyage.vessel_free_days ?? voyage.vesselFreeDays ?? null,
+  };
+}
+
+function applySelectedVoyageToPack(prev, voyage, isImportJob) {
+  if (!voyage) {
+    return {
+      ...prev,
+      vesselDepartureId: null,
+      vesselName: "",
+    };
+  }
+  const terminalId = voyage.terminal_id ?? voyage.terminalId ?? prev.terminalId ?? "";
+  const shippingLineId =
+    voyage.shipping_line_id ??
+    voyage.shippingLineId ??
+    voyage.vessel?.shipping_line_id ??
+    voyage.vessel?.shippingLineId ??
+    prev.shippingLineId ??
+    "";
+  const importFields = vesselImportScheduleFields(voyage);
+  const nextFreeDays =
+    isImportJob && importFields.vesselFreeDays != null && importFields.vesselFreeDays !== ""
+      ? importFields.vesselFreeDays
+      : prev.freeDays;
+
+  return {
+    ...prev,
+    vesselDepartureId: voyage.id ?? prev.vesselDepartureId,
+    vesselName: vesselDisplayName(voyage),
+    voyageNumber: voyage.voyage_number ?? voyage.voyageNumber ?? prev.voyageNumber,
+    lloydId: voyage.vessel?.lloyds_number ?? voyage.vessel?.lloydsNumber ?? prev.lloydId,
+    terminalId: terminalId || prev.terminalId,
+    shippingLineId: shippingLineId || prev.shippingLineId,
+    freeDays: nextFreeDays,
+    vesselCutoffDate: toDateInputValue(voyage.vessel_cutoff_date ?? voyage.vesselCutoffDate) || prev.vesselCutoffDate,
+    etd: toDateInputValue(voyage.vessel_etd ?? voyage.vesselEtd ?? voyage.etd) || prev.etd,
+  };
+}
+
 function toDateInputValue(value) {
   if (!value) return "";
   const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/);
@@ -476,6 +522,18 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     packType: (row.pack_type ?? row.packType) || "container",
     testRequired: Boolean(row.test_required ?? row.testRequired),
     shrinkTaken: Boolean(row.shrink_taken ?? row.shrinkTaken),
+    plannedInspectionDate: formatDateTimeInput(row.planned_inspection_date ?? row.plannedInspectionDate) || "",
+    daffInspectionBooked: row.daff_inspection_booked ?? row.daffInspectionBooked ?? null,
+    daffConfirmedDate: formatDateTimeInput(row.daff_confirmed_date ?? row.daffConfirmedDate) || "",
+    unloadingLocation: (row.unloading_location ?? row.unloadingLocation) || "",
+    importDirectionsReceived: row.import_directions_received ?? row.importDirectionsReceived ?? null,
+    importDirectionCode: (row.import_direction_code ?? row.importDirectionCode) || "",
+    edoReceived: row.edo_received ?? row.edoReceived ?? null,
+    dateCollected: formatDateTimeInput(row.date_collected ?? row.dateCollected) || "",
+    freeDays: (row.free_days ?? row.freeDays) ?? "",
+    dehireByDate: formatDateTimeInput(row.dehire_by_date ?? row.dehireByDate) || "",
+    finalDehireDate: formatDateTimeInput(row.final_dehire_date ?? row.finalDehireDate) || "",
+    importPackNotes: (row.import_pack_notes ?? row.importPackNotes) || "",
     sampleRequired: Boolean(row.sample_required ?? row.sampleRequired),
     quantityPerContainer: (row.quantity_per_container ?? row.quantityPerContainer) ?? "",
     maxQtyPerContainer: (row.max_qty_per_container ?? row.maxQtyPerContainer) ?? "",
@@ -588,7 +646,23 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     rfpAdditionalDeclarationRequired: Boolean(row.rfp_additional_declaration_required ?? row.rfpAdditionalDeclarationRequired),
     packingInstructionFiles: normalizeFileItems(
       row.packingInstructionFiles ??
-      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "packingInstruction") : null)
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "packingInstruction") : row.files?.packingInstruction)
+    ),
+    importOrderFiles: normalizeFileItems(
+      row.importOrderFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importOrder") : row.files?.importOrder)
+    ),
+    importPackingListFiles: normalizeFileItems(
+      row.importPackingListFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importPackingList") : row.files?.importPackingList)
+    ),
+    importAdditionalFiles: normalizeFileItems(
+      row.importAdditionalFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importAdditional") : row.files?.importAdditional)
+    ),
+    importContainerListFiles: normalizeFileItems(
+      row.importContainerListFiles ??
+      (Array.isArray(row.files) ? row.files.filter((f) => f.category === "importContainerList") : row.files?.importContainerList)
     ),
     pemsDraft: { ...defaultPemsDraft(), ...((row.pems_draft ?? row.pemsDraft) || {}) },
     pemsSubmissions: Array.isArray(row.pems_submissions ?? row.pemsSubmissions) ? (row.pems_submissions ?? row.pemsSubmissions) : [],
@@ -648,6 +722,18 @@ function packToScheduleRow(pack, existingRow) {
     fumigationDetail: detail,
     testRequired: Boolean(pack.testRequired),
     shrinkTaken: Boolean(pack.shrinkTaken),
+    plannedInspectionDate: pack.plannedInspectionDate || null,
+    daffInspectionBooked: pack.daffInspectionBooked ?? null,
+    daffConfirmedDate: pack.daffConfirmedDate || null,
+    unloadingLocation: pack.unloadingLocation || "",
+    importDirectionsReceived: pack.importDirectionsReceived ?? null,
+    importDirectionCode: pack.importDirectionCode || "",
+    edoReceived: pack.edoReceived ?? null,
+    dateCollected: pack.dateCollected || null,
+    freeDays: pack.freeDays === "" || pack.freeDays == null ? null : Number(pack.freeDays),
+    dehireByDate: pack.dehireByDate || null,
+    finalDehireDate: pack.finalDehireDate || null,
+    importPackNotes: pack.importPackNotes || "",
     sampleRequired: Boolean(pack.sampleRequired),
     daffPermission: pack.daffPermission || "N/A",
     edn: pack.edn || "",
@@ -664,8 +750,16 @@ function packToScheduleRow(pack, existingRow) {
       rfp: normalizeFileItems(pack.rfpFiles),
       packingInstruction: normalizeFileItems(pack.packingInstructionFiles),
       additionalDeclaration: normalizeFileItems(pack.additionalDeclarationFiles),
+      importOrder: normalizeFileItems(pack.importOrderFiles),
+      importPackingList: normalizeFileItems(pack.importPackingListFiles),
+      importAdditional: normalizeFileItems(pack.importAdditionalFiles),
+      importContainerList: normalizeFileItems(pack.importContainerListFiles),
     },
     importPermitFiles: normalizeFileItems(pack.importPermitFiles),
+    importOrderFiles: normalizeFileItems(pack.importOrderFiles),
+    importPackingListFiles: normalizeFileItems(pack.importPackingListFiles),
+    importAdditionalFiles: normalizeFileItems(pack.importAdditionalFiles),
+    importContainerListFiles: normalizeFileItems(pack.importContainerListFiles),
     additionalDeclarationFiles: normalizeFileItems(pack.additionalDeclarationFiles),
     rfp: pack.rfp || "",
     rfpAdditionalDeclarationRequired: Boolean(pack.rfpAdditionalDeclarationRequired),
@@ -1390,6 +1484,8 @@ function NewPackFormPageInner() {
     if (!pack.vesselDepartureId) return null;
     return vesselVoyageOptions.find((v) => String(v.id) === String(pack.vesselDepartureId)) || null;
   }, [pack.vesselDepartureId, vesselVoyageOptions]);
+  const isImportJob = pack.importExport === "Import";
+  const vesselImportDates = useMemo(() => vesselImportScheduleFields(selectedVessel), [selectedVessel]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const destinationCountryId = useMemo(() => {
     const raw = String(pack.destinationCountry || "").trim();
@@ -1662,30 +1758,20 @@ function NewPackFormPageInner() {
     if (!selectedVessel) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPack((prev) => {
-      const nextVoyage = selectedVessel.voyage_number ?? selectedVessel.voyageNumber ?? "";
-      const nextCutoff = toDateInputValue(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate);
-      const nextEtd = toDateInputValue(selectedVessel.vessel_etd ?? selectedVessel.vesselEtd ?? selectedVessel.etd);
-      const nextVesselName = vesselDisplayName(selectedVessel);
-      const nextLloyd = selectedVessel.vessel?.lloyds_number ?? selectedVessel.vessel?.lloydsNumber ?? prev.lloydId;
-      const nextCutoffValue = nextCutoff || prev.vesselCutoffDate;
-      const nextEtdValue = nextEtd || prev.etd;
+      const next = applySelectedVoyageToPack(prev, selectedVessel, prev.importExport === "Import");
       if (
-        prev.voyageNumber === nextVoyage &&
-        prev.vesselCutoffDate === nextCutoffValue &&
-        prev.vesselName === nextVesselName &&
-        prev.etd === nextEtdValue &&
-        prev.lloydId === nextLloyd
+        prev.voyageNumber === next.voyageNumber &&
+        prev.vesselCutoffDate === next.vesselCutoffDate &&
+        prev.vesselName === next.vesselName &&
+        prev.etd === next.etd &&
+        prev.lloydId === next.lloydId &&
+        prev.terminalId === next.terminalId &&
+        prev.shippingLineId === next.shippingLineId &&
+        prev.freeDays === next.freeDays
       ) {
         return prev;
       }
-      return {
-        ...prev,
-        vesselName: nextVesselName,
-        voyageNumber: nextVoyage,
-        lloydId: nextLloyd,
-        vesselCutoffDate: nextCutoffValue,
-        etd: nextEtdValue,
-      };
+      return next;
     });
   }, [selectedVessel]);
 
@@ -1711,11 +1797,19 @@ function NewPackFormPageInner() {
       resolvedAdditionalDeclarationFiles,
       resolvedRfpFiles,
       resolvedPackingInstructionFiles,
+      resolvedImportOrderFiles,
+      resolvedImportPackingListFiles,
+      resolvedImportAdditionalFiles,
+      resolvedImportContainerListFiles,
     ] = await Promise.all([
       resolveFileItemsForSave(pack.importPermitFiles),
       resolveFileItemsForSave(pack.additionalDeclarationFiles),
       resolveFileItemsForSave(pack.rfpFiles),
       resolveFileItemsForSave(pack.packingInstructionFiles),
+      resolveFileItemsForSave(pack.importOrderFiles),
+      resolveFileItemsForSave(pack.importPackingListFiles),
+      resolveFileItemsForSave(pack.importAdditionalFiles),
+      resolveFileItemsForSave(pack.importContainerListFiles),
     ]);
 
     const normalized = {
@@ -1754,6 +1848,11 @@ function NewPackFormPageInner() {
       additionalDeclarationFiles: resolvedAdditionalDeclarationFiles,
       rfpFiles: resolvedRfpFiles,
       packingInstructionFiles: resolvedPackingInstructionFiles,
+      importOrderFiles: resolvedImportOrderFiles,
+      importPackingListFiles: resolvedImportPackingListFiles,
+      importAdditionalFiles: resolvedImportAdditionalFiles,
+      importContainerListFiles: resolvedImportContainerListFiles,
+      freeDays: pack.freeDays === "" || pack.freeDays == null ? null : Number(pack.freeDays),
     };
     setSaveError("");
     try {
@@ -1914,14 +2013,16 @@ function NewPackFormPageInner() {
                       />
                     </FormRow>
                   ) : null}
-                  <FormRow label="Shrink taken (Import jobs)">
-                    <ClutchSelect
-                      isClearable={false}
-                      options={YES_NO_OPTIONS}
-                      value={YES_NO_OPTIONS.find((o) => o.value === (pack.shrinkTaken ? "yes" : "no")) ?? null}
-                      onChange={(option) => set("shrinkTaken", option?.value === "yes")}
-                    />
-                  </FormRow>
+                  {isImportJob ? (
+                    <FormRow label="Shrink taken">
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.shrinkTaken ? "yes" : "no")) ?? null}
+                        onChange={(option) => set("shrinkTaken", option?.value === "yes")}
+                      />
+                    </FormRow>
+                  ) : null}
                 </div>
               </section>
 
@@ -2510,47 +2611,51 @@ function NewPackFormPageInner() {
                 </div>
               </section>
 
-              <section className={flushSectionClass} aria-label="Destination and shipping">
-                <div className={cn(flushSectionBodyClass, "gap-1")}>
+              <section className={flushSectionClass} aria-label={isImportJob ? "Import vessel" : "Destination and shipping"}>
+                <div className={cn(flushSectionBodyClass, "gap-1", isImportJob && "rounded-md bg-emerald-50/60 p-2")}>
                   <div className={shippingGridClass}>
-                    <FormRow label="Destination country">
-                      {(() => {
-                        const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
-                        return (
-                          <ClutchSelect
-                            placeholder="- Select country -"
-                            options={countrySelectOpts}
-                            value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
-                            onChange={(option) =>
-                              setPack((prev) => ({
-                                ...prev,
-                                destinationCountry: option ? option.value : "",
-                                destinationPort: "",
-                              }))
-                            }
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label="Destination port">
-                      {(() => {
-                        const destPortOpts = [
-                          ...(pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort)
-                            ? [{ value: pack.destinationPort, label: pack.destinationPort }]
-                            : []),
-                          ...destinationPortOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
-                        ];
-                        return (
-                          <ClutchSelect
-                            placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
-                            options={destPortOpts}
-                            value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
-                            onChange={(option) => set("destinationPort", option ? option.value : "")}
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label="Shipping line">
+                    {!isImportJob ? (
+                      <>
+                        <FormRow label="Destination country">
+                          {(() => {
+                            const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select country -"
+                                options={countrySelectOpts}
+                                value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
+                                onChange={(option) =>
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    destinationCountry: option ? option.value : "",
+                                    destinationPort: "",
+                                  }))
+                                }
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                        <FormRow label="Destination port">
+                          {(() => {
+                            const destPortOpts = [
+                              ...(pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort)
+                                ? [{ value: pack.destinationPort, label: pack.destinationPort }]
+                                : []),
+                              ...destinationPortOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                            ];
+                            return (
+                              <ClutchSelect
+                                placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
+                                options={destPortOpts}
+                                value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
+                                onChange={(option) => set("destinationPort", option ? option.value : "")}
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                      </>
+                    ) : null}
+                    <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>
                       {(() => {
                         const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
                         return (
@@ -2563,7 +2668,7 @@ function NewPackFormPageInner() {
                         );
                       })()}
                     </FormRow>
-                    <FormRow label="Terminal (port of loading)">
+                    <FormRow label={isImportJob ? "Terminal" : "Terminal (port of loading)"}>
                       {(() => {
                         const terminalSelectOpts = terminalOptions.map((t) => ({
                           value: String(t.id),
@@ -2590,45 +2695,58 @@ function NewPackFormPageInner() {
                         );
                       })()}
                     </FormRow>
-                    <FormRow label="Transshipment port">
-                      {(() => {
-                        const transshipmentPortOpts = [
-                          ...(pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort)
-                            ? [{ value: pack.transshipmentPort, label: pack.transshipmentPort }]
-                            : []),
-                          ...portOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
-                        ];
-                        return (
-                          <ClutchSelect
-                            placeholder="- Select port -"
-                            options={transshipmentPortOpts}
-                            value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
-                            onChange={(option) => {
-                              const name = option ? option.value : "";
-                              const matched = portOptions.find((p) => p.name === name);
-                              setPack((prev) => ({
-                                ...prev,
-                                transshipmentPort: name,
-                                transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
-                              }));
-                            }}
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label="Transshipment port code">
-                      <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
-                    </FormRow>
-                    <FormRow label="Vessel departure">
+                    {!isImportJob ? (
+                      <>
+                        <FormRow label="Transshipment port">
+                          {(() => {
+                            const transshipmentPortOpts = [
+                              ...(pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort)
+                                ? [{ value: pack.transshipmentPort, label: pack.transshipmentPort }]
+                                : []),
+                              ...portOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                            ];
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select port -"
+                                options={transshipmentPortOpts}
+                                value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
+                                onChange={(option) => {
+                                  const name = option ? option.value : "";
+                                  const matched = portOptions.find((p) => p.name === name);
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    transshipmentPort: name,
+                                    transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
+                                  }));
+                                }}
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                        <FormRow label="Transshipment port code">
+                          <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
+                        </FormRow>
+                      </>
+                    ) : null}
+                    {isImportJob ? (
+                      <FormRow label="Vessel">
+                        <input className={inputClass} value={pack.vesselName || ""} readOnly placeholder="Select a voyage below" />
+                      </FormRow>
+                    ) : null}
+                    <FormRow label={isImportJob ? "Vessel search" : "Vessel departure"}>
                       <div className="flex items-center gap-1.5">
                         {(() => {
                           const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
                             const name = vesselDisplayName(vd);
                             const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
                             const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
+                            const eta = vd.vessel_eta ?? vd.vesselEta ?? "";
+                            const suffix = isImportJob
+                              ? (eta ? ` - ETA ${formatDateDisplay(eta)}` : "")
+                              : (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : "");
                             return {
                               value: String(vd.id),
-                              label: name + (voyageNo ? ` (${voyageNo})` : "") + (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : ""),
+                              label: name + (voyageNo ? ` (${voyageNo})` : "") + suffix,
                             };
                           });
                           return (
@@ -2639,15 +2757,7 @@ function NewPackFormPageInner() {
                               onChange={(option) => {
                                 const nextId = option ? option.value : null;
                                 const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
-                                setPack((prev) => ({
-                                  ...prev,
-                                  vesselDepartureId: nextId,
-                                  vesselName: vesselDisplayName(voyage),
-                                  voyageNumber: voyage?.voyage_number ?? voyage?.voyageNumber ?? prev.voyageNumber,
-                                  lloydId: voyage?.vessel?.lloyds_number ?? voyage?.vessel?.lloydsNumber ?? prev.lloydId,
-                                  vesselCutoffDate: toDateInputValue(voyage?.vessel_cutoff_date ?? voyage?.vesselCutoffDate) || prev.vesselCutoffDate,
-                                  etd: toDateInputValue(voyage?.vessel_etd ?? voyage?.vesselEtd ?? voyage?.etd) || prev.etd,
-                                }));
+                                setPack((prev) => applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob));
                               }}
                             />
                           );
@@ -2660,38 +2770,220 @@ function NewPackFormPageInner() {
                           onClick={() => setQuickVesselOpen(true)}
                           title="Create a new vessel and voyage"
                         >
-                          + Quick add
+                          {isImportJob ? "Vessel search" : "+ Quick add"}
                         </Button>
+                        {isImportJob && pack.vesselDepartureId ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 whitespace-nowrap"
+                            onClick={() => router.push("/shipping-details/vessel-voyage")}
+                            title="Edit vessel details in Shipping Details"
+                          >
+                            Edit vessel
+                          </Button>
+                        ) : null}
                       </div>
                     </FormRow>
                     <FormRow label="Voyage number">
                       <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
                     </FormRow>
-                    <FormRow label="Lloyd ID">
-                      <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder="Lloyd ID" />
+                    <FormRow label={isImportJob ? "Lloyds number" : "Lloyd ID"}>
+                      <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder={isImportJob ? "Lloyds number" : "Lloyd ID"} />
                     </FormRow>
-                    <FormRow label="Cut-off">
-                      <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
-                    </FormRow>
-                    <FormRow label="ETD">
-                      <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
-                    </FormRow>
+                    {isImportJob ? (
+                      <>
+                        <FormRow label="Estimated arrival date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.vesselEta)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                        <FormRow label="First free date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.firstFreeImportDate)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                        <FormRow label="Storage start date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.importStorageStartDate)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                      </>
+                    ) : (
+                      <>
+                        <FormRow label="Cut-off">
+                          <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
+                        </FormRow>
+                        <FormRow label="ETD">
+                          <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
+                        </FormRow>
+                      </>
+                    )}
                   </div>
                   {selectedVessel ? (
                     <p className="shrink-0 text-[10px] leading-snug text-slate-500">
                       <span className="font-semibold text-slate-700">Vessel schedule:</span>{" "}
                       {vesselDisplayName(selectedVessel)}{" "}
                       {(selectedVessel.voyage_number ?? selectedVessel.voyageNumber) ? `(${selectedVessel.voyage_number ?? selectedVessel.voyageNumber})` : ""}
-                      {(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)
-                        ? ` · Cut-off ${formatDateDisplay(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)}`
-                        : ""}
+                      {isImportJob && vesselImportDates.vesselEta
+                        ? ` · ETA ${formatDateDisplay(vesselImportDates.vesselEta)}`
+                        : (selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)
+                          ? ` · Cut-off ${formatDateDisplay(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)}`
+                          : ""}
                     </p>
                   ) : null}
                 </div>
               </section>
+
+              {isImportJob ? (
+                <section className={flushSectionClass} aria-label="Import schedule details">
+                  <div className={cn(flushSectionBodyClass, "gap-1")}>
+                    <div className={shippingGridClass}>
+                      <FormRow label="Planned inspection date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.plannedInspectionDate)}
+                          onChange={(e) => set("plannedInspectionDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF inspection booked">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.daffInspectionBooked === null ? "" : pack.daffInspectionBooked ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("daffInspectionBooked", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF confirmed date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.daffConfirmedDate)}
+                          onChange={(e) => set("daffConfirmedDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Tonnes per container">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          step="0.0001"
+                          value={pack.quantityPerContainer ?? ""}
+                          onChange={(e) => set("quantityPerContainer", e.target.value)}
+                          placeholder="Tonnes"
+                        />
+                      </FormRow>
+                      <FormRow label="Total tonnage">
+                        <input className={cn(inputClass, "bg-slate-50")} type="number" step="0.0001" value={computedMtTotal ?? pack.mtTotal ?? 0} readOnly tabIndex={-1} />
+                      </FormRow>
+                      <FormRow label="Unloading location">
+                        {(() => {
+                          const unloadingOpts = [
+                            ...(pack.unloadingLocation && !terminalOptions.some((t) => (t.terminal_name ?? t.terminalName ?? t.name) === pack.unloadingLocation)
+                              ? [{ value: pack.unloadingLocation, label: pack.unloadingLocation }]
+                              : []),
+                            ...terminalOptions.map((t) => ({
+                              value: t.terminal_name ?? t.terminalName ?? t.name,
+                              label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                            })),
+                          ];
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select location -"
+                              options={unloadingOpts}
+                              value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
+                              onChange={(option) => set("unloadingLocation", option ? option.value : "")}
+                            />
+                          );
+                        })()}
+                      </FormRow>
+                      <FormRow label="Import directions received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.importDirectionsReceived === null ? "" : pack.importDirectionsReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("importDirectionsReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Import direction code">
+                        <input className={inputClass} value={pack.importDirectionCode || ""} onChange={(e) => set("importDirectionCode", e.target.value)} placeholder="Direction code" />
+                      </FormRow>
+                      <FormRow label="EDO received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.edoReceived === null ? "" : pack.edoReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("edoReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Date collected">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dateCollected)}
+                          onChange={(e) => set("dateCollected", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Free days">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={pack.freeDays ?? ""}
+                          onChange={(e) => set("freeDays", e.target.value)}
+                          placeholder="Days"
+                        />
+                      </FormRow>
+                      <FormRow label="Dehire by date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dehireByDate)}
+                          onChange={(e) => set("dehireByDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Final dehire date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.finalDehireDate)}
+                          onChange={(e) => set("finalDehireDate", e.target.value)}
+                        />
+                      </FormRow>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
             </div>
 
             <div className={importPermitRfpRowClass}>
+              {!isImportJob ? (
               <section className={flushSectionClass} aria-label="Import permit">
                 <div className={cn(flushSectionBodyClass, "gap-2")}>
                   <div className={sectionStackClass}>
@@ -2724,7 +3016,9 @@ function NewPackFormPageInner() {
                   </FormRow>
                 </div>
               </section>
+              ) : null}
 
+              {!isImportJob ? (
               <section className={flushSectionClass} aria-label="RFP">
                 <div className={flushSectionBodyClass}>
                   <div className={rfpGridClass}>
@@ -2798,8 +3092,71 @@ function NewPackFormPageInner() {
                   </div>
                 </div>
               </section>
+              ) : null}
             </div>
 
+            {isImportJob ? (
+              <section className={sectionClass} aria-label="Import documents and notes">
+                <div className="grid gap-2 xl:grid-cols-2 2xl:grid-cols-4">
+                  <FormRow label="Import order file">
+                    <input
+                      className={inputClass}
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        addFiles("importOrderFiles", e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <PackFileList items={normalizeFileItems(pack.importOrderFiles)} onRemove={(id) => removeFile("importOrderFiles", id)} />
+                  </FormRow>
+                  <FormRow label="Packing list file">
+                    <input
+                      className={inputClass}
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        addFiles("importPackingListFiles", e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <PackFileList items={normalizeFileItems(pack.importPackingListFiles)} onRemove={(id) => removeFile("importPackingListFiles", id)} />
+                  </FormRow>
+                  <FormRow label="Additional file">
+                    <input
+                      className={inputClass}
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        addFiles("importAdditionalFiles", e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <PackFileList items={normalizeFileItems(pack.importAdditionalFiles)} onRemove={(id) => removeFile("importAdditionalFiles", id)} />
+                  </FormRow>
+                  <FormRow label="Import container list">
+                    <input
+                      className={inputClass}
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        addFiles("importContainerListFiles", e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <PackFileList items={normalizeFileItems(pack.importContainerListFiles)} onRemove={(id) => removeFile("importContainerListFiles", id)} />
+                  </FormRow>
+                </div>
+                <FormRow label="Import pack notes" className="mt-2">
+                  <textarea
+                    className={`${inputClass} min-h-[4rem] resize-y`}
+                    value={pack.importPackNotes}
+                    onChange={(e) => set("importPackNotes", e.target.value)}
+                    placeholder="Import pack notes..."
+                  />
+                </FormRow>
+              </section>
+            ) : (
             <section className={sectionClass} aria-label="Packing and notes">
               <div className="grid gap-2 xl:grid-cols-2">
                 <FormRow label="Packing instruction file(s)">
@@ -2822,6 +3179,7 @@ function NewPackFormPageInner() {
                 </FormRow>
               </div>
             </section>
+            )}
           </>
         ) : null}
 

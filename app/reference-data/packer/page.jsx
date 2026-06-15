@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
@@ -544,14 +545,13 @@ function FormField({ field, value, onChange, disabled }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select suppressHydrationWarning className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Select...</option>
-          {field.options?.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <ClutchSelect
+          options={toOptions(field.options ?? [])}
+          value={value ? { value, label: value } : null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select..."
+        />
       ) : field.type === "textarea" ? (
         <textarea suppressHydrationWarning className={cn(inputClass, "min-h-20 resize-y")} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
       ) : (

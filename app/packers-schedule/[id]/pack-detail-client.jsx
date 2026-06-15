@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, X } from "lucide-react";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
@@ -1878,14 +1879,17 @@ function PemsTab({
                 <Field label="Establishment Name" value={safeValue(siteRow?.name)} />
                 <Field label="Establishment Number" value={safeValue(siteRow?.yardNo)} />
                 <PemsStagingFormField label="Exporter Name">
-                  <select className={stagingInputClass} value={exporterCustomerId} onChange={(e) => setExporterCustomerId(e.target.value)}>
-                    <option value="">- Select -</option>
-                    {customerOptions.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const exporterOpts = customerOptions.map((customer) => ({ value: String(customer.id), label: customer.name }));
+                    return (
+                      <ClutchSelect
+                        options={exporterOpts}
+                        value={exporterOpts.find((o) => o.value === exporterCustomerId) ?? null}
+                        onChange={(option) => setExporterCustomerId(option ? option.value : "")}
+                        placeholder="- Select -"
+                      />
+                    );
+                  })()}
                 </PemsStagingFormField>
               </div>
               <div className={stagingGrid6Class}>
@@ -1898,18 +1902,17 @@ function PemsTab({
               </div>
               <div className={stagingGrid6Class}>
                 <PemsStagingFormField label="Destination Country">
-                  <select
-                    className={stagingInputClass}
-                    value={packRow?.destinationCountry || ""}
-                    onChange={(e) => setPackField("destinationCountry", e.target.value)}
-                  >
-                    <option value="">- Select country -</option>
-                    {countryOptions.map((country) => (
-                      <option key={country} value={country}>
-                        {country}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const countryOpts = countryOptions.map((country) => ({ value: country, label: country }));
+                    return (
+                      <ClutchSelect
+                        options={countryOpts}
+                        value={countryOpts.find((o) => o.value === (packRow?.destinationCountry || "")) ?? null}
+                        onChange={(option) => setPackField("destinationCountry", option ? option.value : "")}
+                        placeholder="- Select country -"
+                      />
+                    );
+                  })()}
                 </PemsStagingFormField>
                 <PemsStagingFormField label="Import Permit No.">
                   {!packRow?.importPermitRequired ? (
@@ -1989,14 +1992,17 @@ function PemsTab({
               </div>
               <div className={stagingGrid3Class}>
                 <PemsStagingFormField label="Additional Declaration">
-                  <select
-                    className={stagingInputClass}
-                    value={packRow?.rfpAdditionalDeclarationRequired ? "yes" : "no"}
-                    onChange={(e) => setPackField("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
-                  >
-                    <option value="no">N/A</option>
-                    <option value="yes">Yes</option>
-                  </select>
+                  {(() => {
+                    const additionalDeclOpts = [{ value: "no", label: "N/A" }, { value: "yes", label: "Yes" }];
+                    return (
+                      <ClutchSelect
+                        options={additionalDeclOpts}
+                        value={additionalDeclOpts.find((o) => o.value === (packRow?.rfpAdditionalDeclarationRequired ? "yes" : "no")) ?? null}
+                        onChange={(option) => setPackField("rfpAdditionalDeclarationRequired", option?.value === "yes")}
+                        isClearable={false}
+                      />
+                    );
+                  })()}
                 </PemsStagingFormField>
                 <Field label="Total Passed" value={gppirPassedWeight.toFixed(4)} />
                 <Field label="Unit" value={GPPIR_WEIGHT_UNIT} />
@@ -2110,17 +2116,17 @@ function LabeledInput({ label, value, onChange, type = "text", readOnly = false,
 }
 
 function LabeledSelect({ label, value, options, onChange, placeholder = "Select option" }) {
+  const opts = options.map((option) => ({ value: option, label: option }));
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
-      <select suppressHydrationWarning className={cn(inputClass, "block w-full")} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{options.length ? placeholder : "—"}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+      <ClutchSelect
+        options={opts}
+        value={opts.find((o) => o.value === (value ?? "")) ?? null}
+        onChange={(option) => onChange(option ? option.value : "")}
+        placeholder={options.length ? placeholder : "—"}
+        className="block w-full"
+      />
     </div>
   );
 }

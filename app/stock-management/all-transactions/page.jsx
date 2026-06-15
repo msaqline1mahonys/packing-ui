@@ -5,6 +5,7 @@ import Link from "next/link";
 import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   computeTransactionTotals,
@@ -16,8 +17,18 @@ import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 import AdjustmentModal from "./_components/adjustment-modal";
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+const FILTER_TYPE_OPTIONS = [
+  { value: "all", label: "All Types" },
+  { value: "in", label: "Incoming" },
+  { value: "out", label: "Outgoing" },
+];
+
+const FILTER_STATUS_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  { value: "active", label: "Active" },
+  { value: "adjusted", label: "Adjusted" },
+  { value: "reversed", label: "Reversed" },
+];
 
 export default function AllTransactionsPage() {
   const [rows, setRows] = useState([]);
@@ -117,17 +128,22 @@ export default function AllTransactionsPage() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-        <select suppressHydrationWarning className={cn(inputClass, "w-36")} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All Types</option>
-          <option value="in">Incoming</option>
-          <option value="out">Outgoing</option>
-        </select>
-        <select suppressHydrationWarning className={cn(inputClass, "w-36")} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="all">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="adjusted">Adjusted</option>
-          <option value="reversed">Reversed</option>
-        </select>
+        <ClutchSelect
+          className="w-36"
+          options={FILTER_TYPE_OPTIONS}
+          value={FILTER_TYPE_OPTIONS.find((o) => o.value === filterType) ?? null}
+          onChange={(option) => setFilterType(option ? option.value : "all")}
+          isClearable={false}
+          placeholder="All Types"
+        />
+        <ClutchSelect
+          className="w-36"
+          options={FILTER_STATUS_OPTIONS}
+          value={FILTER_STATUS_OPTIONS.find((o) => o.value === filterStatus) ?? null}
+          onChange={(option) => setFilterStatus(option ? option.value : "all")}
+          isClearable={false}
+          placeholder="All Statuses"
+        />
         <div className="w-72">
           <CustomDateRangePicker value={dateRange} onChange={setDateRange} />
         </div>

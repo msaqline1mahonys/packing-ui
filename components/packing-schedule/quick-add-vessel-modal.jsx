@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createVessel, createVesselVoyage } from "@/lib/api/shipping";
 import { cn } from "@/lib/utils";
 
@@ -48,14 +49,13 @@ function FormField({ field, value, onChange, disabled }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select className={inputClass} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Select...</option>
-          {(field.options || []).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <ClutchSelect
+          placeholder="Select..."
+          options={field.options || []}
+          value={(field.options || []).find((o) => String(o.value) === String(value)) ?? null}
+          isDisabled={disabled}
+          onChange={(option) => onChange(option ? option.value : "")}
+        />
       ) : (
         <input
           type={field.type || "text"}

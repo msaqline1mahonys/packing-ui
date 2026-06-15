@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { VesselIngestDialog } from "@/components/ingest/vessel-ingest-dialog";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -408,14 +409,13 @@ function FormField({ field, value, onChange, disabled }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Select...</option>
-          {field.options?.map((option) => (
-            <option key={option.value ?? option} value={option.value ?? option}>
-              {option.label ?? option}
-            </option>
-          ))}
-        </select>
+        <ClutchSelect
+          options={toOptions(field.options ?? [])}
+          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select..."
+        />
       ) : (
         <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
       )}

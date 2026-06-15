@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DEFAULT_CONTAINER_SIZES, GENERAL_TRANSPORT_PRICE_ROWS, TRANSPORTER_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const MOBILE_BREAKPOINT = 900;
 const CONTAINER_SIZES = DEFAULT_CONTAINER_SIZES.map((size) => size.toLowerCase());
+const CONTAINER_SIZE_OPTS = CONTAINER_SIZES.map((size) => ({ value: size, label: size }));
 
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
@@ -57,6 +59,11 @@ export default function GeneralTransportPricesPage() {
         label: item.name,
       })),
     []
+  );
+
+  const transporterSelectOpts = useMemo(
+    () => transporterOptions.map((item) => ({ value: item.id, label: item.label })),
+    [transporterOptions]
   );
 
   useEffect(() => {
@@ -335,30 +342,22 @@ export default function GeneralTransportPricesPage() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit transporter transport price" : "Add transporter transport price"} width={520}>
         <FormRow label="Transporter" required>
-          <Select
-            value={formData.transporterId}
-            onChange={(event) => setFormData({ ...formData, transporterId: event.target.value })}
-          >
-            <option value="">Select transporter</option>
-            {transporterOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </Select>
+          <ClutchSelect
+            options={transporterSelectOpts}
+            value={transporterSelectOpts.find((o) => String(o.value) === String(formData.transporterId)) ?? null}
+            onChange={(option) => setFormData({ ...formData, transporterId: option ? option.value : "" })}
+            placeholder="Select transporter"
+          />
         </FormRow>
 
         <FormRow label="Container size" required>
-          <Select
-            value={formData.containerSize}
-            onChange={(event) => setFormData({ ...formData, containerSize: event.target.value })}
-          >
-            {CONTAINER_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </Select>
+          <ClutchSelect
+            options={CONTAINER_SIZE_OPTS}
+            value={CONTAINER_SIZE_OPTS.find((o) => o.value === formData.containerSize) ?? null}
+            onChange={(option) => setFormData({ ...formData, containerSize: option ? option.value : "10ft" })}
+            isClearable={false}
+            placeholder="Select size"
+          />
         </FormRow>
 
         <FormRow label="Line-item description">
@@ -422,10 +421,6 @@ function FormRow({ label, required, children }) {
 
 function Input({ className, ...props }) {
   return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
-}
-
-function Select({ className, ...props }) {
-  return <select suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

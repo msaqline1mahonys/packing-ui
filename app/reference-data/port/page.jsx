@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
@@ -444,18 +445,13 @@ function FormField({ field, value, onChange, disabled, selectOptions }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select suppressHydrationWarning className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Select...</option>
-          {options.map((option) => {
-            const optValue = typeof option === "object" ? option.value : option;
-            const optLabel = typeof option === "object" ? option.label : option;
-            return (
-              <option key={optValue} value={optValue}>
-                {optLabel}
-              </option>
-            );
-          })}
-        </select>
+        <ClutchSelect
+          options={toOptions(options ?? [])}
+          value={toOptions(options ?? []).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select..."
+        />
       ) : field.type === "textarea" ? (
         <textarea suppressHydrationWarning className={cn(inputClass, "min-h-20 resize-y")} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
       ) : (

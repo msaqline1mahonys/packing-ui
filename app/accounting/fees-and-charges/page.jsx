@@ -4,11 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createCharge, deleteCharge, listCharges, updateCharge } from "@/lib/api/accounting";
 import { CHARGE_CLASSIFICATIONS, CHARGE_TYPES, FEES_AND_CHARGES_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
+
+const APPLY_TO_ALL_PACKS_OPTS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
 
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
@@ -367,26 +373,23 @@ export default function FeesAndChargesPage() {
           </FormRow>
 
           <FormRow label="Charge Type">
-            <Select value={formData.chargeType} onChange={(event) => setFormData({ ...formData, chargeType: event.target.value })}>
-              {CHARGE_TYPES.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+            <ClutchSelect
+              options={CHARGE_TYPES}
+              value={CHARGE_TYPES.find((o) => o.value === formData.chargeType) ?? null}
+              onChange={(option) => setFormData({ ...formData, chargeType: option ? option.value : "Per Container" })}
+              isClearable={false}
+              placeholder="Select type"
+            />
           </FormRow>
 
           <FormRow label="Revenue / Expense">
-            <Select
-              value={formData.chargeClassification}
-              onChange={(event) => setFormData({ ...formData, chargeClassification: event.target.value })}
-            >
-              {CHARGE_CLASSIFICATIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+            <ClutchSelect
+              options={CHARGE_CLASSIFICATIONS}
+              value={CHARGE_CLASSIFICATIONS.find((o) => o.value === formData.chargeClassification) ?? null}
+              onChange={(option) => setFormData({ ...formData, chargeClassification: option ? option.value : "revenue" })}
+              isClearable={false}
+              placeholder="Select classification"
+            />
           </FormRow>
 
           <FormRow label="Account Code">
@@ -398,13 +401,13 @@ export default function FeesAndChargesPage() {
           </FormRow>
 
           <FormRow label="Apply to all packs">
-            <Select
-              value={formData.applyToAllPacks ? "yes" : "no"}
-              onChange={(event) => setFormData({ ...formData, applyToAllPacks: event.target.value === "yes" })}
-            >
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
+            <ClutchSelect
+              options={APPLY_TO_ALL_PACKS_OPTS}
+              value={APPLY_TO_ALL_PACKS_OPTS.find((o) => o.value === (formData.applyToAllPacks ? "yes" : "no")) ?? null}
+              onChange={(option) => setFormData({ ...formData, applyToAllPacks: option?.value === "yes" })}
+              isClearable={false}
+              placeholder="Select"
+            />
           </FormRow>
         </div>
 
@@ -458,8 +461,4 @@ function FormRow({ label, required, className, children }) {
 
 function Input({ className, ...props }) {
   return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
-}
-
-function Select({ className, ...props }) {
-  return <select suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }

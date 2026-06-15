@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -919,19 +920,13 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
           {field.label}
           {field.required ? <span className="text-red-500"> *</span> : null}
         </label>
-        <select
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">Select site…</option>
-          {siteOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        <ClutchSelect
+          options={toOptions(siteOptions)}
+          value={toOptions(siteOptions).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select site…"
+        />
       </div>
     );
   }
@@ -943,26 +938,13 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select
-          suppressHydrationWarning
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">Select…</option>
-          {(field.options ?? []).map((opt) =>
-            typeof opt === "object" ? (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ) : (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            )
-          )}
-        </select>
+        <ClutchSelect
+          options={toOptions(field.options ?? [])}
+          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select…"
+        />
       ) : (
         <input
           type={field.type || "text"}

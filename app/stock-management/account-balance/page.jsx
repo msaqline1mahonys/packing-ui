@@ -4,9 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { fetchAccountBalances, fetchShrinkAccounts } from "@/lib/transactions-api";
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const TABS = [
   { id: "byAccount", label: "By Account" },
@@ -464,24 +462,33 @@ export default function AccountBalancePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="min-w-0">
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Account</label>
-            <select suppressHydrationWarning className={cn(inputClass, "w-full")} value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
-              <option value="">All Accounts</option>
-              {accounts.map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}
-            </select>
+            <ClutchSelect
+              options={accounts.map((c) => ({ value: c.key, label: c.name }))}
+              value={accounts.map((c) => ({ value: c.key, label: c.name })).find((o) => o.value === filterAccount) ?? null}
+              onChange={(option) => setFilterAccount(option ? option.value : "")}
+              placeholder="All Accounts"
+              className="w-full"
+            />
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity</label>
-            <select suppressHydrationWarning className={cn(inputClass, "w-full")} value={filterCommodity} onChange={(e) => setFilterCommodity(e.target.value)}>
-              <option value="">All Commodities</option>
-              {commodities.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-            </select>
+            <ClutchSelect
+              options={commodities.map((c) => ({ value: String(c.id), label: c.name }))}
+              value={commodities.map((c) => ({ value: String(c.id), label: c.name })).find((o) => o.value === filterCommodity) ?? null}
+              onChange={(option) => setFilterCommodity(option ? option.value : "")}
+              placeholder="All Commodities"
+              className="w-full"
+            />
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Location</label>
-            <select suppressHydrationWarning className={cn(inputClass, "w-full")} value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)}>
-              <option value="">All Locations</option>
-              {locations.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
-            </select>
+            <ClutchSelect
+              options={locations.map((l) => ({ value: String(l.id), label: l.name }))}
+              value={locations.map((l) => ({ value: String(l.id), label: l.name })).find((o) => o.value === filterLocation) ?? null}
+              onChange={(option) => setFilterLocation(option ? option.value : "")}
+              placeholder="All Locations"
+              className="w-full"
+            />
           </div>
         </div>
 

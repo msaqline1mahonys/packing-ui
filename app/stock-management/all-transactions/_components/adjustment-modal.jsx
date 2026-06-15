@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createAdjustment } from "@/lib/adjustments-api";
 import { fetchStockTransferFormData, getDefaultSiteId } from "@/lib/stock-transfers-api";
 import { commodityLabel, nowDatetimeLocalDate } from "../../stock-transfer/_components/form-primitives";
@@ -169,23 +170,22 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
             <div className="grid gap-3 sm:grid-cols-2">
               {sites.length > 1 ? (
                 <Field label="Site">
-                  <select
-                    suppressHydrationWarning
-                    className={inputClass}
-                    value={form.siteId}
-                    disabled={submitting}
-                    onChange={(e) => {
-                      set("siteId", e.target.value);
-                      set("locationId", "");
-                    }}
-                  >
-                    <option value="">Select site...</option>
-                    {sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const siteOptions = sites.map((s) => ({ value: s.id, label: s.name }));
+                    return (
+                      <ClutchSelect
+                        options={siteOptions}
+                        value={siteOptions.find((o) => String(o.value) === String(form.siteId)) ?? null}
+                        onChange={(option) => {
+                          const v = option ? option.value : "";
+                          set("siteId", v);
+                          set("locationId", "");
+                        }}
+                        isDisabled={submitting}
+                        placeholder="Select site..."
+                      />
+                    );
+                  })()}
                 </Field>
               ) : null}
 
@@ -202,60 +202,53 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
               </Field>
 
               <Field label="Customer" required>
-                <select
-                  suppressHydrationWarning
-                  className={inputClass}
-                  value={form.customerId}
-                  disabled={submitting}
-                  onChange={(e) => set("customerId", e.target.value)}
-                  onBlur={() => touch("customerId")}
-                >
-                  <option value="">Select customer...</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.code ? ` (${c.code})` : ""}
-                    </option>
-                  ))}
-                </select>
+                {(() => {
+                  const customerOptions = customers.map((c) => ({ value: c.id, label: c.name + (c.code ? ` (${c.code})` : "") }));
+                  return (
+                    <ClutchSelect
+                      options={customerOptions}
+                      value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
+                      onChange={(option) => { const v = option ? option.value : ""; set("customerId", v); }}
+                      onBlur={() => touch("customerId")}
+                      isDisabled={submitting}
+                      placeholder="Select customer..."
+                    />
+                  );
+                })()}
                 {touched.customerId && errors.customerId ? <ErrorText>{errors.customerId}</ErrorText> : null}
               </Field>
 
               <Field label="Commodity" required>
-                <select
-                  suppressHydrationWarning
-                  className={inputClass}
-                  value={form.commodityId}
-                  disabled={submitting}
-                  onChange={(e) => set("commodityId", e.target.value)}
-                  onBlur={() => touch("commodityId")}
-                >
-                  <option value="">Select commodity...</option>
-                  {commodities.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {commodityLabel(c)}
-                    </option>
-                  ))}
-                </select>
+                {(() => {
+                  const commodityOptions = commodities.map((c) => ({ value: c.id, label: commodityLabel(c) }));
+                  return (
+                    <ClutchSelect
+                      options={commodityOptions}
+                      value={commodityOptions.find((o) => String(o.value) === String(form.commodityId)) ?? null}
+                      onChange={(option) => { const v = option ? option.value : ""; set("commodityId", v); }}
+                      onBlur={() => touch("commodityId")}
+                      isDisabled={submitting}
+                      placeholder="Select commodity..."
+                    />
+                  );
+                })()}
                 {touched.commodityId && errors.commodityId ? <ErrorText>{errors.commodityId}</ErrorText> : null}
               </Field>
 
               <Field label="Stock Location" required>
-                <select
-                  suppressHydrationWarning
-                  className={inputClass}
-                  value={form.locationId}
-                  disabled={submitting}
-                  onChange={(e) => set("locationId", e.target.value)}
-                  onBlur={() => touch("locationId")}
-                >
-                  <option value="">Select location...</option>
-                  {siteLocations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                {(() => {
+                  const locationOptions = siteLocations.map((l) => ({ value: l.id, label: l.name }));
+                  return (
+                    <ClutchSelect
+                      options={locationOptions}
+                      value={locationOptions.find((o) => String(o.value) === String(form.locationId)) ?? null}
+                      onChange={(option) => { const v = option ? option.value : ""; set("locationId", v); }}
+                      onBlur={() => touch("locationId")}
+                      isDisabled={submitting}
+                      placeholder="Select location..."
+                    />
+                  );
+                })()}
                 {touched.locationId && errors.locationId ? <ErrorText>{errors.locationId}</ErrorText> : null}
               </Field>
 

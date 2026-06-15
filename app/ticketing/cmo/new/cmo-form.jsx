@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 import {
   fetchCmo,
@@ -220,53 +221,59 @@ export default function CmoForm() {
             </Field>
 
             <Field label="Direction" required>
-              <select suppressHydrationWarning className={inputClass} value={form.direction} onChange={(e) => setField("direction", e.target.value)}>
-                {DIRECTION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <ClutchSelect
+                options={DIRECTION_OPTIONS}
+                value={DIRECTION_OPTIONS.find((o) => o.value === form.direction) ?? null}
+                onChange={(option) => { const v = option ? option.value : ""; setField("direction", v); }}
+                isClearable={false}
+                placeholder="Select direction..."
+              />
             </Field>
 
             <Field label="Customer / Account" required>
-              <select suppressHydrationWarning className={inputClass} value={form.customerId} onChange={(e) => setField("customerId", e.target.value)}>
-                <option value="">Select customer / account...</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const customerOptions = customers.map((c) => ({ value: c.id, label: c.name }));
+                return (
+                  <ClutchSelect
+                    options={customerOptions}
+                    value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
+                    onChange={(option) => { const v = option ? option.value : ""; setField("customerId", v); }}
+                    placeholder="Select customer / account..."
+                  />
+                );
+              })()}
             </Field>
 
             <Field label="Status" required>
-              <select suppressHydrationWarning className={inputClass} value={form.status} onChange={(e) => setField("status", e.target.value)}>
-                <option value="">Select status...</option>
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const statusOptions = STATUS_OPTIONS.map((s) => ({ value: s, label: s }));
+                return (
+                  <ClutchSelect
+                    options={statusOptions}
+                    value={statusOptions.find((o) => o.value === form.status) ?? null}
+                    onChange={(option) => { const v = option ? option.value : ""; setField("status", v); }}
+                    placeholder="Select status..."
+                  />
+                );
+              })()}
             </Field>
 
             <Field label="Commodity Type" required>
-              <select
-                className={inputClass}
-                value={form.commodityTypeId}
-                onChange={(e) => {
-                  setField("commodityTypeId", e.target.value);
-                  setField("commodityIds", []);
-                }}
-              >
-                <option value="">Select commodity type...</option>
-                {commodityTypes.map((ct) => (
-                  <option key={ct.id} value={ct.id}>
-                    {ct.name}
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const commodityTypeOptions = commodityTypes.map((ct) => ({ value: ct.id, label: ct.name }));
+                return (
+                  <ClutchSelect
+                    options={commodityTypeOptions}
+                    value={commodityTypeOptions.find((o) => String(o.value) === String(form.commodityTypeId)) ?? null}
+                    onChange={(option) => {
+                      const v = option ? option.value : "";
+                      setField("commodityTypeId", v);
+                      setField("commodityIds", []);
+                    }}
+                    placeholder="Select commodity type..."
+                  />
+                );
+              })()}
             </Field>
 
             <Field label={`Estimated Amount${selectedCommodityUnit ? ` (${weightUnitLabel(selectedCommodityUnit)})` : ""}`}>

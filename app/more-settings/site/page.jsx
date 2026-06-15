@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { refreshAuthPayload } from "@/lib/site-switch";
@@ -560,13 +561,13 @@ function FormSelect({ label, required, value, onChange, disabled, options }) {
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
       </label>
-      <select className={inputClass} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <ClutchSelect
+        options={options}
+        value={options.find((o) => String(o.value) === String(value)) ?? null}
+        onChange={(option) => onChange(option ? option.value : "")}
+        isDisabled={disabled}
+        isClearable={false}
+      />
     </div>
   );
 }

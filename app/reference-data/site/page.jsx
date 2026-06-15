@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -642,29 +643,13 @@ function FormField({ field, value, onChange, disabled }) {
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {options.length && typeof options[0] === "object" ? (
-            options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))
-          ) : (
-            <>
-              <option value="">Select…</option>
-              {options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </>
-          )}
-        </select>
+        <ClutchSelect
+          options={toOptions(options)}
+          value={toOptions(options).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select..."
+        />
       ) : field.type === "textarea" ? (
         <textarea
           className={cn(inputClass, "min-h-20 resize-y")}

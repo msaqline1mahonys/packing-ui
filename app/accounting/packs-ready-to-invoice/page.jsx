@@ -6,6 +6,7 @@ import dayjs from "dayjs";
 
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import {
   calculateLineItemAmount,
   formatCurrency,
@@ -21,6 +22,8 @@ const DATE_FILTER_MODES = [
   { key: "specific", label: "Specific Date" },
   { key: "range", label: "Date Range" },
 ];
+
+const DATE_MODE_OPTS = DATE_FILTER_MODES.map((m) => ({ value: m.key, label: m.label }));
 
 export default function PacksReadyToInvoicePage() {
   const [invoicePacks, setInvoicePacks] = useState([]);
@@ -54,6 +57,16 @@ export default function PacksReadyToInvoicePage() {
   const commodityOptions = useMemo(
     () => [...new Set(packsWithBreakdown.map((pack) => pack.commodity).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [packsWithBreakdown]
+  );
+
+  const customerSelectOpts = useMemo(
+    () => [{ value: "all", label: "All customers" }, ...customerOptions.map((c) => ({ value: c, label: c }))],
+    [customerOptions]
+  );
+
+  const commoditySelectOpts = useMemo(
+    () => [{ value: "all", label: "All commodities" }, ...commodityOptions.map((c) => ({ value: c, label: c }))],
+    [commodityOptions]
   );
 
   const filteredPacks = useMemo(() => {
@@ -117,35 +130,36 @@ export default function PacksReadyToInvoicePage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[170px]">
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Customer</label>
-            <select className={`${inputClass} w-full`} value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}>
-              <option value="all">All customers</option>
-              {customerOptions.map((customer) => (
-                <option key={customer} value={customer}>
-                  {customer}
-                </option>
-              ))}
-            </select>
+            <ClutchSelect
+              className="w-full"
+              options={customerSelectOpts}
+              value={customerSelectOpts.find((o) => o.value === customerFilter) ?? null}
+              onChange={(option) => setCustomerFilter(option ? option.value : "all")}
+              isClearable={false}
+              placeholder="All customers"
+            />
           </div>
           <div className="min-w-[170px]">
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Commodity</label>
-            <select className={`${inputClass} w-full`} value={commodityFilter} onChange={(event) => setCommodityFilter(event.target.value)}>
-              <option value="all">All commodities</option>
-              {commodityOptions.map((commodity) => (
-                <option key={commodity} value={commodity}>
-                  {commodity}
-                </option>
-              ))}
-            </select>
+            <ClutchSelect
+              className="w-full"
+              options={commoditySelectOpts}
+              value={commoditySelectOpts.find((o) => o.value === commodityFilter) ?? null}
+              onChange={(option) => setCommodityFilter(option ? option.value : "all")}
+              isClearable={false}
+              placeholder="All commodities"
+            />
           </div>
           <div className="min-w-[170px]">
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Packing Start Date</label>
-            <select className={`${inputClass} w-full`} value={dateFilterMode} onChange={(event) => setDateFilterMode(event.target.value)}>
-              {DATE_FILTER_MODES.map((mode) => (
-                <option key={mode.key} value={mode.key}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
+            <ClutchSelect
+              className="w-full"
+              options={DATE_MODE_OPTS}
+              value={DATE_MODE_OPTS.find((o) => o.value === dateFilterMode) ?? null}
+              onChange={(option) => setDateFilterMode(option ? option.value : "all")}
+              isClearable={false}
+              placeholder="Any Date"
+            />
           </div>
           {dateFilterMode === "specific" ? (
             <div className="min-w-[170px]">

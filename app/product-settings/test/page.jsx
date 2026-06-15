@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -476,12 +477,13 @@ function FormField({ field, value, onChange, disabled, memberCandidates = [] }) 
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
       {field.type === "select" ? (
-        <select suppressHydrationWarning className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Select...</option>
-          {field.options?.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
+        <ClutchSelect
+          options={toOptions(field.options ?? [])}
+          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
+          onChange={(option) => onChange(option ? option.value : "")}
+          isDisabled={disabled}
+          placeholder="Select..."
+        />
       ) : field.type === "checkboxes" ? (
         <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200/95 bg-white px-3 py-2.5">
           {field.options?.map((option) => {

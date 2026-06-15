@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
 import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import {
@@ -582,12 +583,20 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             <div className="grid gap-x-4 gap-y-3 md:grid-cols-2">
               <FormRow label="CMO" required>
                 <div className="flex gap-2">
-                  <select
-                    className={inputClass}
-                    value={ticket.cmoId ?? ""}
-                    disabled={isCompleted}
-                    onChange={(e) => {
-                      const cmoId = e.target.value || null;
+                  <ClutchSelect
+                    className="min-w-0 flex-1"
+                    options={cmos
+                      .filter((c) => c.direction === cmoDirection)
+                      .map((c) => ({ value: c.id, label: `${c.cmoReference} - ${formatCmoCommoditySummary(c, commodities)}` }))}
+                    value={(() => {
+                      const filteredCmos = cmos.filter((c) => c.direction === cmoDirection);
+                      const opt = filteredCmos.find((c) => String(c.id) === String(ticket.cmoId ?? ""));
+                      return opt ? { value: opt.id, label: `${opt.cmoReference} - ${formatCmoCommoditySummary(opt, commodities)}` } : null;
+                    })()}
+                    isDisabled={isCompleted}
+                    placeholder="Select CMO"
+                    onChange={(option) => {
+                      const cmoId = option ? option.value : null;
                       const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
                       const lines = getCmoCommodityLines(selectedCmo);
                       const singleLine = lines.length === 1 ? lines[0] : null;
@@ -603,16 +612,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         commodityOverrideReason: "",
                       }));
                     }}
-                  >
-                    <option value="">Select CMO</option>
-                    {cmos
-                      .filter((c) => c.direction === cmoDirection)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.cmoReference} - {formatCmoCommoditySummary(c, commodities)}
-                        </option>
-                      ))}
-                  </select>
+                  />
                   {!isCompleted ? (
                     <button
                       type="button"
@@ -627,12 +627,25 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               </FormRow>
 
               <FormRow label="Customer / Account">
-                <select
-                  className={inputClass}
-                  value={accountSelectValue}
-                  disabled={isCompleted}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                <ClutchSelect
+                  options={[
+                    ...customers.map((c) => ({ value: `customer:${c.id}`, label: `${c.name} (${c.code})` })),
+                    ...internalAccounts.map((a) => ({ value: `internal:${a.id}`, label: a.name })),
+                  ]}
+                  value={accountSelectValue ? { value: accountSelectValue, label: (() => {
+                    if (accountSelectValue.startsWith("internal:")) {
+                      const id = accountSelectValue.slice("internal:".length);
+                      const acc = internalAccounts.find((a) => String(a.id) === String(id));
+                      return acc ? acc.name : accountSelectValue;
+                    }
+                    const id = accountSelectValue.slice("customer:".length);
+                    const cust = customers.find((c) => String(c.id) === String(id));
+                    return cust ? `${cust.name} (${cust.code})` : accountSelectValue;
+                  })() } : null}
+                  isDisabled={isCompleted}
+                  placeholder="Select customer or account"
+                  onChange={(option) => {
+                    const v = option ? option.value : "";
                     if (!v) {
                       setTicket((prev) => ({
                         ...prev,
@@ -659,75 +672,57 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       }));
                     }
                   }}
-                >
-                  <option value="">Select customer or account</option>
-                  <optgroup label="Customers">
-                    {customers.map((c) => (
-                      <option key={`cust-${c.id}`} value={`customer:${c.id}`}>
-                        {c.name} ({c.code})
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Internal Accounts">
-                    {internalAccounts.map((a) => (
-                      <option key={`int-${a.id}`} value={`internal:${a.id}`}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
+                />
               </FormRow>
 
               <FormRow label="Commodity Type">
-                <select
-                  className={inputClass}
-                  value={ticket.commodityTypeId != null && ticket.commodityTypeId !== "" ? String(ticket.commodityTypeId) : ""}
-                  disabled={isCompleted}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    set("commodityTypeId", v || null);
-                    set("commodityId", null);
-                    set("commodityConfirmed", false);
-                    set("commodityOverrideReason", "");
-                  }}
-                >
-                  <option value="">Select commodity type</option>
-                  {commodityTypes
+                {(() => {
+                  const commodityTypeOptions = commodityTypes
                     .filter((ct) => !cmo || allowedCommodityTypeIds.size === 0 || allowedCommodityTypeIds.has(ct.id))
-                    .map((ct) => (
-                    <option key={ct.id} value={ct.id}>
-                      {ct.name}
-                    </option>
-                  ))}
-                </select>
+                    .map((ct) => ({ value: ct.id, label: ct.name }));
+                  return (
+                    <ClutchSelect
+                      options={commodityTypeOptions}
+                      value={commodityTypeOptions.find((o) => String(o.value) === String(ticket.commodityTypeId ?? "")) ?? null}
+                      isDisabled={isCompleted}
+                      placeholder="Select commodity type"
+                      onChange={(option) => {
+                        const v = option ? option.value : null;
+                        set("commodityTypeId", v || null);
+                        set("commodityId", null);
+                        set("commodityConfirmed", false);
+                        set("commodityOverrideReason", "");
+                      }}
+                    />
+                  );
+                })()}
               </FormRow>
 
               <FormRow label="Identified Commodity">
-                <select
-                  className={inputClass}
-                  value={ticket.commodityId != null && ticket.commodityId !== "" ? String(ticket.commodityId) : ""}
-                  disabled={isCompleted || !ticket.commodityTypeId}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    set("commodityId", v || null);
-                    set("commodityConfirmed", false);
-                    set("commodityOverrideReason", "");
-                  }}
-                >
-                  <option value="">Select commodity</option>
-                  {commodities
+                {(() => {
+                  const identifiedCommodityOptions = commodities
                     .filter(
                       (c) =>
                         c.status === "active" &&
                         (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId) &&
                         (!cmo || allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
                     )
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.commodityCode}
-                      </option>
-                    ))}
-                </select>
+                    .map((c) => ({ value: c.id, label: c.commodityCode }));
+                  return (
+                    <ClutchSelect
+                      options={identifiedCommodityOptions}
+                      value={identifiedCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
+                      isDisabled={isCompleted || !ticket.commodityTypeId}
+                      placeholder="Select commodity"
+                      onChange={(option) => {
+                        const v = option ? option.value : null;
+                        set("commodityId", v || null);
+                        set("commodityConfirmed", false);
+                        set("commodityOverrideReason", "");
+                      }}
+                    />
+                  );
+                })()}
               </FormRow>
             </div>
 
@@ -785,22 +780,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-end">
               <FormRow label="Truck" required>
                 <div className="flex gap-2">
-                  <select
-                    className={inputClass}
-                    value={ticket.truck?.id || ""}
-                    disabled={isCompleted}
-                    onChange={(e) => {
-                      const t = trucks.find((tr) => tr.id === e.target.value);
+                  <ClutchSelect
+                    className="min-w-0 flex-1"
+                    options={trucks.map((t) => ({ value: t.id, label: `${t.name} (${t.driver})` }))}
+                    value={trucks.find((tr) => String(tr.id) === String(ticket.truck?.id ?? ""))
+                      ? { value: ticket.truck.id, label: `${ticket.truck.name} (${ticket.truck.driver})` }
+                      : null}
+                    isDisabled={isCompleted}
+                    placeholder="Select truck"
+                    onChange={(option) => {
+                      const t = option ? trucks.find((tr) => tr.id === option.value) : null;
                       setTicket((prev) => ({ ...prev, truck: t || null, truckId: t?.id ?? null }));
                     }}
-                  >
-                    <option value="">Select truck</option>
-                    {trucks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.driver})
-                      </option>
-                    ))}
-                  </select>
+                  />
                   {!isCompleted ? (
                     <button
                       type="button"
@@ -951,44 +943,30 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               />
             </FormRow>
             <FormRow label="Signoff">
-              <select
-                suppressHydrationWarning
-                className={inputClass}
-                value={ticket.signoffUserId || ""}
-                disabled={isCompleted}
-                onChange={(e) => {
-                  const userId = e.target.value;
-                  const user = users.find((u) => u.id === userId);
-                  setTicket((prev) => ({
-                    ...prev,
-                    signoffUserId: userId,
-                    signoff: user?.name ?? "",
-                  }));
-                }}
-              >
-                <option value="">Select user</option>
-                {users
-                  .filter((u) => u.active)
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-              </select>
+              {(() => {
+                const signoffOptions = users.filter((u) => u.active).map((u) => ({ value: u.id, label: u.name }));
+                return (
+                  <ClutchSelect
+                    options={signoffOptions}
+                    value={signoffOptions.find((o) => String(o.value) === String(ticket.signoffUserId ?? "")) ?? null}
+                    isDisabled={isCompleted}
+                    placeholder="Select user"
+                    onChange={(option) => {
+                      const userId = option ? option.value : "";
+                      const user = option ? users.find((u) => u.id === option.value) : null;
+                      setTicket((prev) => ({
+                        ...prev,
+                        signoffUserId: userId,
+                        signoff: user?.name ?? "",
+                      }));
+                    }}
+                  />
+                );
+              })()}
             </FormRow>
             <FormRow label={isIncoming ? "Unloaded Location" : "Loading Location"} required>
-              <select
-                className={inputClass}
-                value={locationValue === "" ? "" : String(locationValue)}
-                disabled={isCompleted || !ticket.cmoId}
-                onChange={(e) => {
-                  const locId = e.target.value || "";
-                  set(locationField, locId);
-                  setLocationWarning(locId ? validateLocationSelection(locId) : null);
-                }}
-              >
-                <option value="">Select location</option>
-                {stockLocations
+              {(() => {
+                const locationOptions = stockLocations
                   .filter((loc) => (loc.status ?? "active").toLowerCase() === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
@@ -1002,13 +980,22 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       const stockItems = getLocationStock(loc.id);
                       suffix = stockItems.length > 0 ? " — in use" : " (empty)";
                     }
-                    return (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.locationType}){suffix}
-                      </option>
-                    );
-                  })}
-              </select>
+                    return { value: loc.id, label: `${loc.name} (${loc.locationType})${suffix}` };
+                  });
+                return (
+                  <ClutchSelect
+                    options={locationOptions}
+                    value={locationOptions.find((o) => String(o.value) === String(locationValue)) ?? null}
+                    isDisabled={isCompleted || !ticket.cmoId}
+                    placeholder="Select location"
+                    onChange={(option) => {
+                      const locId = option ? option.value : "";
+                      set(locationField, locId);
+                      setLocationWarning(locId ? validateLocationSelection(locId) : null);
+                    }}
+                  />
+                );
+              })()}
               {locationWarning ? (
                 <div className="mt-2 rounded-md border border-yellow-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                   <strong className="block text-sm">Location warning</strong>
@@ -1094,42 +1081,34 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           />
         </FormRow>
         <FormRow label="Customer / Account" required>
-          <select
-            className={inputClass}
-            value={newCmo.customerId}
-            onChange={(e) => setNewCmo({ ...newCmo, customerId: e.target.value })}
-          >
-            <option value="">Select customer or account</option>
-            <optgroup label="Customers">
-              {customers.map((c) => (
-                <option key={`cust-${c.id}`} value={c.id}>
-                  {c.name} ({c.code})
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="Internal Accounts">
-              {internalAccounts.map((a) => (
-                <option key={`int-${a.id}`} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </optgroup>
-          </select>
+          {(() => {
+            const cmoCustomerOptions = [
+              ...customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
+              ...internalAccounts.map((a) => ({ value: a.id, label: a.name })),
+            ];
+            return (
+              <ClutchSelect
+                options={cmoCustomerOptions}
+                value={cmoCustomerOptions.find((o) => String(o.value) === String(newCmo.customerId)) ?? null}
+                placeholder="Select customer or account"
+                onChange={(option) => setNewCmo({ ...newCmo, customerId: option ? option.value : "" })}
+              />
+            );
+          })()}
         </FormRow>
 
         <FormRow label="Commodity Type" required>
-          <select
-            className={inputClass}
-            value={newCmo.commodityTypeId}
-            onChange={(e) => setNewCmo({ ...newCmo, commodityTypeId: e.target.value, commodityIds: [] })}
-          >
-            <option value="">Select commodity type</option>
-            {commodityTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          {(() => {
+            const cmoCommodityTypeOptions = commodityTypes.map((t) => ({ value: t.id, label: t.name }));
+            return (
+              <ClutchSelect
+                options={cmoCommodityTypeOptions}
+                value={cmoCommodityTypeOptions.find((o) => String(o.value) === String(newCmo.commodityTypeId)) ?? null}
+                placeholder="Select commodity type"
+                onChange={(option) => setNewCmo({ ...newCmo, commodityTypeId: option ? option.value : "", commodityIds: [] })}
+              />
+            );
+          })()}
         </FormRow>
         <FormRow label="Commodities" required>
           {!newCmo.commodityTypeId ? (
@@ -1624,13 +1603,8 @@ function CommodityIdentificationBody({
       </div>
 
       <FormRow label="Confirm Commodity" required>
-        <select
-          className={inputClass}
-          value={ticket.commodityId || ""}
-          onChange={(e) => set("commodityId", e.target.value || null)}
-        >
-          <option value="">Select commodity</option>
-          {commodities
+        {(() => {
+          const confirmCommodityOptions = commodities
             .filter(
               (c) =>
                 c.commodityTypeId === ticket.commodityTypeId &&
@@ -1639,14 +1613,17 @@ function CommodityIdentificationBody({
             )
             .map((comm) => {
               const isSuggested = suggestedCommodities.some((s) => s.commodityId === comm.id);
-              return (
-                <option key={comm.id} value={comm.id}>
-                  {comm.description}
-                  {isSuggested ? " (Suggested)" : ""}
-                </option>
-              );
-            })}
-        </select>
+              return { value: comm.id, label: `${comm.description}${isSuggested ? " (Suggested)" : ""}` };
+            });
+          return (
+            <ClutchSelect
+              options={confirmCommodityOptions}
+              value={confirmCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
+              placeholder="Select commodity"
+              onChange={(option) => set("commodityId", option ? option.value : null)}
+            />
+          );
+        })()}
       </FormRow>
 
       {ticket.commodityId && !suggestedCommodities.some((s) => s.commodityId === ticket.commodityId) ? (

@@ -9,6 +9,7 @@ import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar
 import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
 import { usePolling } from "@/lib/use-polling";
@@ -101,6 +102,14 @@ const DATE_FILTER_MODES = [
   { key: "specific", label: "Specific Date" },
   { key: "range", label: "Date Range" },
 ];
+
+const IE_FILTER_OPTIONS = [
+  { value: "all", label: "All (Import/Export)" },
+  { value: "Import", label: "Import" },
+  { value: "Export", label: "Export" },
+];
+
+const DATE_FIELD_OPTIONS = DATE_FILTER_OPTIONS.map((opt) => ({ value: opt.key, label: opt.label }));
 
 function formatCutoffOrEtdDisplay(value) {
   if (value == null || String(value).trim() === "") return "";
@@ -434,11 +443,13 @@ export default function PackingSchedulePage() {
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-          <select suppressHydrationWarning className={`${inputClass} w-[160px]`} value={importExportFilter} onChange={(e) => setImportExportFilter(e.target.value)}>
-            <option value="all">All (Import/Export)</option>
-            <option value="Import">Import</option>
-            <option value="Export">Export</option>
-          </select>
+          <ClutchSelect
+            className="w-[160px]"
+            isClearable={false}
+            options={IE_FILTER_OPTIONS}
+            value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
+            onChange={(option) => setImportExportFilter(option ? option.value : "all")}
+          />
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">
@@ -503,19 +514,14 @@ export default function PackingSchedulePage() {
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
             </span>
-            <select
-              suppressHydrationWarning
-              className={`${inputClass} w-[150px]`}
-              value={dateFilterField}
-              onChange={(e) => setDateFilterField(e.target.value)}
+            <ClutchSelect
+              className="w-[150px]"
+              isClearable={false}
+              options={DATE_FIELD_OPTIONS}
+              value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
+              onChange={(option) => setDateFilterField(option ? option.value : "vesselCutoffDate")}
               aria-label="Select date filter field"
-            >
-              {DATE_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.key} value={opt.key}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            />
             {dateFilterMode === "specific" ? (
               <input
                 suppressHydrationWarning

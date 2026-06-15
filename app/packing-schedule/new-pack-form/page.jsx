@@ -58,6 +58,7 @@ import { readSiteRows } from "@/lib/site-data";
 import { Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
@@ -78,7 +79,22 @@ const PEMS_RECORD_OPTIONS = ["Empty Container Inspection Record", "Grain and Pla
 const ECR_RECORD_TYPE = "Empty Container Inspection Record";
 const GPPIR_RECORD_TYPE = "Grain and Plant Product Inspection Record";
 const INSPECTION_OPTIONS = ["Pending", "Passed", "Failed"];
-const YES_NO_OPTIONS = ["No", "Yes"];
+const YES_NO_STRINGS = ["No", "Yes"];
+const YES_NO_OPTIONS = [{ value: "no", label: "No" }, { value: "yes", label: "Yes" }];
+const PACK_TYPE_OPTIONS = [{ value: "container", label: "Container" }, { value: "bulk", label: "Bulk" }];
+const IMPORT_EXPORT_OPTIONS = [{ value: "Import", label: "Import" }, { value: "Export", label: "Export" }];
+const PACK_STATUS_OPTIONS = PACK_STATUSES.map((s) => ({ value: s, label: s }));
+const DAFF_PERMISSION_SELECT_OPTIONS = DAFF_PERMISSION_OPTIONS.map((o) => ({ value: o, label: o }));
+const FUMIGATION_TIMING_OPTIONS = [{ value: "pre-pack", label: "Pre-Pack" }, { value: "post-pack", label: "Post-Pack" }];
+const FUMIGATION_RESULT_OPTIONS = [{ value: "pass", label: "Pass" }, { value: "fail", label: "Fail" }];
+const APPLICATION_METHOD_OPTIONS = PACK_FUMIGATION_APPLICATION_METHOD.map((m) => ({ value: m, label: PACK_FUMIGATION_APPLICATION_LABELS[m] || m }));
+const DOSAGE_UNIT_OPTIONS = PACK_FUMIGATION_DOSAGE_UNITS.map((u) => ({ value: u, label: u }));
+const MASS_UNIT_OPTIONS = PACK_FUMIGATION_MASS_UNITS.map((u) => ({ value: u, label: u }));
+const EXPOSURE_UNIT_OPTIONS = FUMIGATION_MIN_EXPOSURE_UNITS.map((u) => ({ value: u, label: u }));
+const PEMS_RECORD_SELECT_OPTIONS = PEMS_RECORD_OPTIONS.map((o) => ({ value: o, label: o }));
+const SAMPLE_TYPE_OPTIONS = SAMPLE_TYPES.map((t) => ({ value: t, label: t }));
+const SAMPLE_STATUS_OPTIONS = SAMPLE_STATUSES.map((s) => ({ value: s, label: s }));
+const RELEASE_STATUS_SELECT_OPTIONS = RELEASE_STATUSES.map((s) => ({ value: s, label: s }));
 const PRA_STATUS_OPTIONS = ["Pending", "Accepted", "Rejected", "Error"];
 const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
@@ -1848,32 +1864,37 @@ function NewPackFormPageInner() {
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
                   <div className="grid grid-cols-2 gap-1.5">
                     <FormRow label="Pack type">
-                      <select className={inputClass} value={pack.packType} onChange={(e) => set("packType", e.target.value)}>
-                        <option value="container">Container</option>
-                        <option value="bulk">Bulk</option>
-                      </select>
+                      <ClutchSelect
+                        isClearable={false}
+                        options={PACK_TYPE_OPTIONS}
+                        value={PACK_TYPE_OPTIONS.find((o) => o.value === pack.packType) ?? null}
+                        onChange={(option) => set("packType", option ? option.value : "")}
+                      />
                     </FormRow>
                     <FormRow label="Pack confirmed">
-                      <select className={inputClass} value={pack.packConfirmed ? "yes" : "no"} onChange={(e) => set("packConfirmed", e.target.value === "yes")}>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.packConfirmed ? "yes" : "no")) ?? null}
+                        onChange={(option) => set("packConfirmed", option?.value === "yes")}
+                      />
                     </FormRow>
                   </div>
                   <FormRow label="Import / Export">
-                    <select className={inputClass} value={pack.importExport} onChange={(e) => set("importExport", e.target.value)}>
-                      <option value="Import">Import</option>
-                      <option value="Export">Export</option>
-                    </select>
+                    <ClutchSelect
+                      isClearable={false}
+                      options={IMPORT_EXPORT_OPTIONS}
+                      value={IMPORT_EXPORT_OPTIONS.find((o) => o.value === pack.importExport) ?? null}
+                      onChange={(option) => set("importExport", option ? option.value : "")}
+                    />
                   </FormRow>
                   <FormRow label="Status">
-                    <select className={inputClass} value={pack.status} onChange={(e) => set("status", e.target.value)}>
-                      {PACK_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    <ClutchSelect
+                      isClearable={false}
+                      options={PACK_STATUS_OPTIONS}
+                      value={PACK_STATUS_OPTIONS.find((o) => o.value === pack.status) ?? null}
+                      onChange={(option) => set("status", option ? option.value : "")}
+                    />
                   </FormRow>
                 </div>
               </section>
@@ -1885,17 +1906,21 @@ function NewPackFormPageInner() {
                   </FormRow>
                   {pack.packType === "bulk" ? (
                     <FormRow label="Test required">
-                      <select className={inputClass} value={pack.testRequired ? "yes" : "no"} onChange={(e) => set("testRequired", e.target.value === "yes")}>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.testRequired ? "yes" : "no")) ?? null}
+                        onChange={(option) => set("testRequired", option?.value === "yes")}
+                      />
                     </FormRow>
                   ) : null}
                   <FormRow label="Shrink taken (Import jobs)">
-                    <select className={inputClass} value={pack.shrinkTaken ? "yes" : "no"} onChange={(e) => set("shrinkTaken", e.target.value === "yes")}>
-                      <option value="no">No</option>
-                      <option value="yes">Yes</option>
-                    </select>
+                    <ClutchSelect
+                      isClearable={false}
+                      options={YES_NO_OPTIONS}
+                      value={YES_NO_OPTIONS.find((o) => o.value === (pack.shrinkTaken ? "yes" : "no")) ?? null}
+                      onChange={(option) => set("shrinkTaken", option?.value === "yes")}
+                    />
                   </FormRow>
                 </div>
               </section>
@@ -1916,11 +1941,12 @@ function NewPackFormPageInner() {
                       )
                     }
                   >
-                    <select
-                      className={inputClass}
-                      value={pack.sampleRequired ? "yes" : "no"}
-                      onChange={(e) => {
-                        const enabled = e.target.value === "yes";
+                    <ClutchSelect
+                      isClearable={false}
+                      options={YES_NO_OPTIONS}
+                      value={YES_NO_OPTIONS.find((o) => o.value === (pack.sampleRequired ? "yes" : "no")) ?? null}
+                      onChange={(option) => {
+                        const enabled = option?.value === "yes";
                         setPack((prev) => {
                           const nextEntries = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
                           return {
@@ -1930,10 +1956,7 @@ function NewPackFormPageInner() {
                           };
                         });
                       }}
-                    >
-                      <option value="no">No</option>
-                      <option value="yes">Yes</option>
-                    </select>
+                    />
                   </FormRow>
                   {pack.sampleRequired ? (
                     <div className="space-y-1.5">
@@ -1990,38 +2013,26 @@ function NewPackFormPageInner() {
                             className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5"
                           >
                             <div className="grid grid-cols-3 gap-1">
-                              <select
-                                className={inputClass}
-                                value={entry.type}
-                                aria-label="Sample type"
-                                onChange={(e) => {
+                              <ClutchSelect
+                                isClearable={false}
+                                options={SAMPLE_TYPE_OPTIONS}
+                                value={SAMPLE_TYPE_OPTIONS.find((o) => o.value === entry.type) ?? null}
+                                onChange={(option) => {
                                   const next = [...sampleEntries];
-                                  next[index] = { ...next[index], type: e.target.value };
+                                  next[index] = { ...next[index], type: option ? option.value : "" };
                                   set("sampleEntries", next);
                                 }}
-                              >
-                                {SAMPLE_TYPES.map((type) => (
-                                  <option key={type} value={type}>
-                                    {type}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                className={inputClass}
-                                value={entry.status}
-                                aria-label="Sample status"
-                                onChange={(e) => {
+                              />
+                              <ClutchSelect
+                                isClearable={false}
+                                options={SAMPLE_STATUS_OPTIONS}
+                                value={SAMPLE_STATUS_OPTIONS.find((o) => o.value === entry.status) ?? null}
+                                onChange={(option) => {
                                   const next = [...sampleEntries];
-                                  next[index] = { ...next[index], status: e.target.value };
+                                  next[index] = { ...next[index], status: option ? option.value : "" };
                                   set("sampleEntries", next);
                                 }}
-                              >
-                                {SAMPLE_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                               <input
                                 className={inputClass}
                                 type="date"
@@ -2137,48 +2148,53 @@ function NewPackFormPageInner() {
             <section className={sectionClass} aria-label="Basic details">
               <div className={gridClass}>
                 <FormRow label="Customer">
-                  <select className={inputClass} value={pack.customerId} onChange={(e) => set("customerId", e.target.value)}>
-                    <option value="">- Select -</option>
-                    {customerOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
+                    return (
+                      <ClutchSelect
+                        placeholder="- Select -"
+                        options={customerSelectOpts}
+                        value={customerSelectOpts.find((o) => String(o.value) === String(pack.customerId)) ?? null}
+                        onChange={(option) => set("customerId", option ? option.value : "")}
+                      />
+                    );
+                  })()}
                 </FormRow>
                 <FormRow label="Exporter">
-                  <select className={inputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
-                    <option value="">- Select -</option>
-                    {customerOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
+                    return (
+                      <ClutchSelect
+                        placeholder="- Select -"
+                        options={customerSelectOpts}
+                        value={customerSelectOpts.find((o) => String(o.value) === String(pack.exporter)) ?? null}
+                        onChange={(option) => set("exporter", option ? option.value : "")}
+                      />
+                    );
+                  })()}
                 </FormRow>
                 <FormRow label="Commodity">
-                  <select
-                    className={inputClass}
-                    value={pack.commodityId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
-                      const nextApplicable = row ? getApplicablePackTests(row, testsCatalog) : [];
-                      setPack((prev) => ({
-                        ...prev,
-                        commodityId: id,
-                        commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
-                        packTests: nextApplicable.length ? mergePackTests(prev.packTests, nextApplicable) : [],
-                      }));
-                    }}
-                  >
-                    <option value="">- Select -</option>
-                    {commodityOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.description}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: c.description }));
+                    return (
+                      <ClutchSelect
+                        placeholder="- Select -"
+                        options={commoditySelectOpts}
+                        value={commoditySelectOpts.find((o) => String(o.value) === String(pack.commodityId)) ?? null}
+                        onChange={(option) => {
+                          const id = option ? option.value : "";
+                          const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
+                          const nextApplicable = row ? getApplicablePackTests(row, testsCatalog) : [];
+                          setPack((prev) => ({
+                            ...prev,
+                            commodityId: id,
+                            commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
+                            packTests: nextApplicable.length ? mergePackTests(prev.packTests, nextApplicable) : [],
+                          }));
+                        }}
+                      />
+                    );
+                  })()}
                 </FormRow>
                 <FormRow label="Job reference">
                   <input className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
@@ -2221,11 +2237,12 @@ function NewPackFormPageInner() {
                 <div className={spanFullClass}>
                   <div className={cn("grid gap-2", pack.fumigationRequired ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-1")}>
                     <FormRow label="Fumigation required">
-                      <select
-                        className={inputClass}
-                        value={pack.fumigationRequired ? "yes" : "no"}
-                        onChange={(e) => {
-                          const enabled = e.target.value === "yes";
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.fumigationRequired ? "yes" : "no")) ?? null}
+                        onChange={(option) => {
+                          const enabled = option?.value === "yes";
                           setPack((prev) => ({
                             ...prev,
                             fumigationRequired: enabled,
@@ -2236,51 +2253,46 @@ function NewPackFormPageInner() {
                             recordTemplateId: enabled ? prev.recordTemplateId : null,
                           }));
                         }}
-                      >
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
+                      />
                     </FormRow>
                     {pack.fumigationRequired ? (
                       <FormRow label="Fumigant selector">
-                        <select
-                          className={inputClass}
-                          value={pack.fumigationDetail?.fumigationNotes || pack.fumigation || ""}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
-                            setPack((prev) => ({
-                              ...prev,
-                              fumigantId: matched ? matched.id : prev.fumigantId,
-                              fumigation: value,
-                              fumigationDetail: {
-                                ...(prev.fumigationDetail || blankFumigationDetail()),
-                                fumigationNotes: value,
-                              },
-                            }));
-                          }}
-                        >
-                          <option value="">- Select fumigant -</option>
-                          {fumigants.map((item) => {
-                            const label = `${item.code} - ${item.name}`;
-                            return (
-                              <option key={item.id} value={label}>
-                                {label}
-                              </option>
-                            );
-                          })}
-                        </select>
+                        {(() => {
+                          const fumigantSelectOpts = fumigants.map((item) => {
+                            const lbl = `${item.code} - ${item.name}`;
+                            return { value: lbl, label: lbl, _id: item.id };
+                          });
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select fumigant -"
+                              options={fumigantSelectOpts}
+                              value={fumigantSelectOpts.find((o) => o.value === (pack.fumigationDetail?.fumigationNotes || pack.fumigation || "")) ?? null}
+                              onChange={(option) => {
+                                const value = option ? option.value : "";
+                                const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
+                                setPack((prev) => ({
+                                  ...prev,
+                                  fumigantId: matched ? matched.id : prev.fumigantId,
+                                  fumigation: value,
+                                  fumigationDetail: {
+                                    ...(prev.fumigationDetail || blankFumigationDetail()),
+                                    fumigationNotes: value,
+                                  },
+                                }));
+                              }}
+                            />
+                          );
+                        })()}
                       </FormRow>
                     ) : null}
                     {pack.fumigationRequired ? (
                       <FormRow label="DAFF Permission">
-                        <select className={inputClass} value={pack.daffPermission || "N/A"} onChange={(e) => set("daffPermission", e.target.value)}>
-                          {DAFF_PERMISSION_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                        <ClutchSelect
+                          isClearable={false}
+                          options={DAFF_PERMISSION_SELECT_OPTIONS}
+                          value={DAFF_PERMISSION_SELECT_OPTIONS.find((o) => o.value === (pack.daffPermission || "N/A")) ?? null}
+                          onChange={(option) => set("daffPermission", option ? option.value : "")}
+                        />
                       </FormRow>
                     ) : null}
                   </div>
@@ -2339,25 +2351,27 @@ function NewPackFormPageInner() {
                       <input className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
                     </FormRow>
                     <FormRow label="Container Code">
-                      <select className={inputClass} value={pack.containerCode || ""} onChange={(e) => {
-                          const iso = e.target.value;
-                          const matched = containerCodeOptions.find((r) => (r.iso_code ?? r.isoCode ?? "") === iso);
-                          setPack((prev) => ({ ...prev, containerCode: iso, containerCodeId: matched?.id ?? "" }));
-                        }}>
-                        <option value="">- Select container code -</option>
-                        {containerCodeOptions.map((row) => {
+                      {(() => {
+                        const containerCodeSelectOpts = containerCodeOptions.map((row) => {
                           const iso = row.iso_code ?? row.isoCode ?? "";
                           const size = row.container_size ?? row.containerSize ?? "";
                           const desc = row.description ?? "";
-                          return (
-                            <option key={row.id ?? iso} value={iso}>
-                              {iso}
-                              {size ? ` · ${size}` : ""}
-                              {desc ? ` — ${desc}` : ""}
-                            </option>
-                          );
-                        })}
-                      </select>
+                          const lbl = [iso, size ? `· ${size}` : "", desc ? `— ${desc}` : ""].filter(Boolean).join(" ");
+                          return { value: iso, label: lbl, _id: row.id };
+                        });
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select container code -"
+                            options={containerCodeSelectOpts}
+                            value={containerCodeSelectOpts.find((o) => o.value === (pack.containerCode || "")) ?? null}
+                            onChange={(option) => {
+                              const iso = option ? option.value : "";
+                              const matched = containerCodeOptions.find((r) => (r.iso_code ?? r.isoCode ?? "") === iso);
+                              setPack((prev) => ({ ...prev, containerCode: iso, containerCodeId: matched?.id ?? "" }));
+                            }}
+                          />
+                        );
+                      })()}
                     </FormRow>
                   </div>
 
@@ -2406,71 +2420,67 @@ function NewPackFormPageInner() {
                       const isKnownRelease = releaseOptions.some((r) => r.releaseNumber === entry.releaseRef);
                       return (
                       <div key={`release-row-${index}`} className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]">
-                        <select
-                          className={inputClass}
-                          value={entry.releaseRef || ""}
-                          onChange={(e) => {
-                            const num = e.target.value;
-                            const rel = releaseOptions.find((r) => r.releaseNumber === num);
-                            const firstPark = rel?.parks?.[0];
-                            const next = baseRows.map((row, idx) =>
-                              idx === index
-                                ? {
-                                    ...row,
-                                    releaseRef: num,
-                                    emptyContainerParkId: firstPark?.containerParkId || row.emptyContainerParkId || "",
-                                    transporterId: firstPark?.transporterIds?.[0] || row.transporterId || "",
-                                  }
-                                : row
-                            );
-                            // Keep a trailing blank row so more releases can be added without a separate button.
-                            if (num && index === baseRows.length - 1) {
-                              next.push({ releaseRef: "", emptyContainerParkId: "", transporterId: "" });
-                            }
-                            set("releaseDetails", next);
-                          }}
-                        >
-                          <option value="">- Select release -</option>
-                          {!isKnownRelease && entry.releaseRef ? (
-                            <option value={entry.releaseRef}>{entry.releaseRef}</option>
-                          ) : null}
-                          {releaseOptions.map((r) => (
-                            <option key={r.id} value={r.releaseNumber}>
-                              {r.releaseNumber}
-                              {r.status ? ` (${r.status})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className={inputClass}
-                          value={entry.emptyContainerParkId ?? ""}
-                          onChange={(e) => {
-                            const next = baseRows.map((row, idx) => (idx === index ? { ...row, emptyContainerParkId: e.target.value || "" } : row));
-                            set("releaseDetails", next);
-                          }}
-                        >
-                          <option value="">Empty Container Park</option>
-                          {containerParkOptions.map((park) => (
-                            <option key={park.id} value={park.id}>
-                              {park.name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className={inputClass}
-                          value={entry.transporterId ?? ""}
-                          onChange={(e) => {
-                            const next = baseRows.map((row, idx) => (idx === index ? { ...row, transporterId: e.target.value || "" } : row));
-                            set("releaseDetails", next);
-                          }}
-                        >
-                          <option value="">Select Transporter</option>
-                          {transporterOptions.map((transporter) => (
-                            <option key={transporter.id} value={transporter.id}>
-                              {transporter.name}
-                            </option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const releaseSelectOpts = [
+                            ...(!isKnownRelease && entry.releaseRef ? [{ value: entry.releaseRef, label: entry.releaseRef }] : []),
+                            ...releaseOptions.map((r) => ({ value: r.releaseNumber, label: r.releaseNumber + (r.status ? ` (${r.status})` : "") })),
+                          ];
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select release -"
+                              options={releaseSelectOpts}
+                              value={releaseSelectOpts.find((o) => o.value === (entry.releaseRef || "")) ?? null}
+                              onChange={(option) => {
+                                const num = option ? option.value : "";
+                                const rel = releaseOptions.find((r) => r.releaseNumber === num);
+                                const firstPark = rel?.parks?.[0];
+                                const next = baseRows.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        releaseRef: num,
+                                        emptyContainerParkId: firstPark?.containerParkId || row.emptyContainerParkId || "",
+                                        transporterId: firstPark?.transporterIds?.[0] || row.transporterId || "",
+                                      }
+                                    : row
+                                );
+                                // Keep a trailing blank row so more releases can be added without a separate button.
+                                if (num && index === baseRows.length - 1) {
+                                  next.push({ releaseRef: "", emptyContainerParkId: "", transporterId: "" });
+                                }
+                                set("releaseDetails", next);
+                              }}
+                            />
+                          );
+                        })()}
+                        {(() => {
+                          const parkSelectOpts = containerParkOptions.map((park) => ({ value: String(park.id), label: park.name }));
+                          return (
+                            <ClutchSelect
+                              placeholder="Empty Container Park"
+                              options={parkSelectOpts}
+                              value={parkSelectOpts.find((o) => String(o.value) === String(entry.emptyContainerParkId ?? "")) ?? null}
+                              onChange={(option) => {
+                                const next = baseRows.map((row, idx) => (idx === index ? { ...row, emptyContainerParkId: option ? option.value : "" } : row));
+                                set("releaseDetails", next);
+                              }}
+                            />
+                          );
+                        })()}
+                        {(() => {
+                          const transporterSelectOpts = transporterOptions.map((t) => ({ value: String(t.id), label: t.name }));
+                          return (
+                            <ClutchSelect
+                              placeholder="Select Transporter"
+                              options={transporterSelectOpts}
+                              value={transporterSelectOpts.find((o) => String(o.value) === String(entry.transporterId ?? "")) ?? null}
+                              onChange={(option) => {
+                                const next = baseRows.map((row, idx) => (idx === index ? { ...row, transporterId: option ? option.value : "" } : row));
+                                set("releaseDetails", next);
+                              }}
+                            />
+                          );
+                        })()}
                         <Button
                           variant="destructive"
                           type="button"
@@ -2504,136 +2514,144 @@ function NewPackFormPageInner() {
                 <div className={cn(flushSectionBodyClass, "gap-1")}>
                   <div className={shippingGridClass}>
                     <FormRow label="Destination country">
-                      <select
-                        className={inputClass}
-                        value={pack.destinationCountry}
-                        onChange={(e) =>
-                          setPack((prev) => ({
-                            ...prev,
-                            destinationCountry: e.target.value,
-                            destinationPort: "",
-                          }))
-                        }
-                      >
-                        <option value="">- Select country -</option>
-                        {countryOptions.map((country) => (
-                          <option key={country.id} value={country.name}>
-                            {country.name}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select country -"
+                            options={countrySelectOpts}
+                            value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
+                            onChange={(option) =>
+                              setPack((prev) => ({
+                                ...prev,
+                                destinationCountry: option ? option.value : "",
+                                destinationPort: "",
+                              }))
+                            }
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Destination port">
-                      <select className={inputClass} value={pack.destinationPort || ""} onChange={(e) => set("destinationPort", e.target.value)}>
-                        <option value="">{pack.destinationCountry ? "- Select port -" : "- Select country first -"}</option>
-                        {pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort) ? (
-                          <option value={pack.destinationPort}>{pack.destinationPort}</option>
-                        ) : null}
-                        {destinationPortOptions.map((port) => (
-                          <option key={port.id} value={port.name}>
-                            {port.name}
-                            {port.code ? ` (${port.code})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const destPortOpts = [
+                          ...(pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort)
+                            ? [{ value: pack.destinationPort, label: pack.destinationPort }]
+                            : []),
+                          ...destinationPortOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                        ];
+                        return (
+                          <ClutchSelect
+                            placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
+                            options={destPortOpts}
+                            value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
+                            onChange={(option) => set("destinationPort", option ? option.value : "")}
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Shipping line">
-                      <select className={inputClass} value={pack.shippingLineId} onChange={(e) => set("shippingLineId", e.target.value)}>
-                        <option value="">- Select -</option>
-                        {shippingLineOptions.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.name} ({l.code})
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select -"
+                            options={shippingLineSelectOpts}
+                            value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
+                            onChange={(option) => set("shippingLineId", option ? option.value : "")}
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Terminal (port of loading)">
-                      <select
-                        className={inputClass}
-                        value={pack.terminalId ?? ""}
-                        onChange={(e) => {
-                          const terminalId = e.target.value || "";
-                          const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
-                          setPack((prev) => ({
-                            ...prev,
-                            terminalId,
-                            portOfLoading:
-                              (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
-                                ? (matched.port_of_loading ?? matched.portOfLoading)
-                                : prev.portOfLoading,
-                          }));
-                        }}
-                      >
-                        <option value="">- Select -</option>
-                        {terminalOptions.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.terminal_name ?? t.terminalName ?? t.name} {(t.terminal_code ?? t.terminalCode) ? `(${t.terminal_code ?? t.terminalCode})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const terminalSelectOpts = terminalOptions.map((t) => ({
+                          value: String(t.id),
+                          label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                        }));
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select -"
+                            options={terminalSelectOpts}
+                            value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
+                            onChange={(option) => {
+                              const terminalId = option ? option.value : "";
+                              const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
+                              setPack((prev) => ({
+                                ...prev,
+                                terminalId,
+                                portOfLoading:
+                                  (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
+                                    ? (matched.port_of_loading ?? matched.portOfLoading)
+                                    : prev.portOfLoading,
+                              }));
+                            }}
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Transshipment port">
-                      <select
-                        className={inputClass}
-                        value={pack.transshipmentPort || ""}
-                        onChange={(e) => {
-                          const name = e.target.value;
-                          const matched = portOptions.find((p) => p.name === name);
-                          setPack((prev) => ({
-                            ...prev,
-                            transshipmentPort: name,
-                            transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
-                          }));
-                        }}
-                      >
-                        <option value="">- Select port -</option>
-                        {pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort) ? (
-                          <option value={pack.transshipmentPort}>{pack.transshipmentPort}</option>
-                        ) : null}
-                        {portOptions.map((port) => (
-                          <option key={port.id} value={port.name}>
-                            {port.name}
-                            {port.code ? ` (${port.code})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const transshipmentPortOpts = [
+                          ...(pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort)
+                            ? [{ value: pack.transshipmentPort, label: pack.transshipmentPort }]
+                            : []),
+                          ...portOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                        ];
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select port -"
+                            options={transshipmentPortOpts}
+                            value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
+                            onChange={(option) => {
+                              const name = option ? option.value : "";
+                              const matched = portOptions.find((p) => p.name === name);
+                              setPack((prev) => ({
+                                ...prev,
+                                transshipmentPort: name,
+                                transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
+                              }));
+                            }}
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Transshipment port code">
                       <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
                     </FormRow>
                     <FormRow label="Vessel departure">
                       <div className="flex items-center gap-1.5">
-                        <select
-                          className={inputClass}
-                          value={pack.vesselDepartureId ?? ""}
-                          onChange={(e) => {
-                            const nextId = e.target.value || null;
-                            const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
-                            setPack((prev) => ({
-                              ...prev,
-                              vesselDepartureId: nextId,
-                              vesselName: vesselDisplayName(voyage),
-                              voyageNumber: voyage?.voyage_number ?? voyage?.voyageNumber ?? prev.voyageNumber,
-                              lloydId: voyage?.vessel?.lloyds_number ?? voyage?.vessel?.lloydsNumber ?? prev.lloydId,
-                              vesselCutoffDate: toDateInputValue(voyage?.vessel_cutoff_date ?? voyage?.vesselCutoffDate) || prev.vesselCutoffDate,
-                              etd: toDateInputValue(voyage?.vessel_etd ?? voyage?.vesselEtd ?? voyage?.etd) || prev.etd,
-                            }));
-                          }}
-                        >
-                          <option value="">- Select vessel -</option>
-                          {vesselVoyageOptions.map((vd) => {
+                        {(() => {
+                          const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
                             const name = vesselDisplayName(vd);
                             const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
                             const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
-                            return (
-                              <option key={vd.id} value={vd.id}>
-                                {name}
-                                {voyageNo ? ` (${voyageNo})` : ""}
-                                {cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : ""}
-                              </option>
-                            );
-                          })}
-                        </select>
+                            return {
+                              value: String(vd.id),
+                              label: name + (voyageNo ? ` (${voyageNo})` : "") + (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : ""),
+                            };
+                          });
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select vessel -"
+                              options={vesselSelectOpts}
+                              value={vesselSelectOpts.find((o) => String(o.value) === String(pack.vesselDepartureId ?? "")) ?? null}
+                              onChange={(option) => {
+                                const nextId = option ? option.value : null;
+                                const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
+                                setPack((prev) => ({
+                                  ...prev,
+                                  vesselDepartureId: nextId,
+                                  vesselName: vesselDisplayName(voyage),
+                                  voyageNumber: voyage?.voyage_number ?? voyage?.voyageNumber ?? prev.voyageNumber,
+                                  lloydId: voyage?.vessel?.lloyds_number ?? voyage?.vessel?.lloydsNumber ?? prev.lloydId,
+                                  vesselCutoffDate: toDateInputValue(voyage?.vessel_cutoff_date ?? voyage?.vesselCutoffDate) || prev.vesselCutoffDate,
+                                  etd: toDateInputValue(voyage?.vessel_etd ?? voyage?.vesselEtd ?? voyage?.etd) || prev.etd,
+                                }));
+                              }}
+                            />
+                          );
+                        })()}
                         <Button
                           type="button"
                           variant="outline"
@@ -2678,14 +2696,12 @@ function NewPackFormPageInner() {
                 <div className={cn(flushSectionBodyClass, "gap-2")}>
                   <div className={sectionStackClass}>
                     <FormRow label="Import permit required">
-                      <select
-                        className={inputClass}
-                        value={pack.importPermitRequired ? "yes" : "no"}
-                        onChange={(e) => set("importPermitRequired", e.target.value === "yes")}
-                      >
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.importPermitRequired ? "yes" : "no")) ?? null}
+                        onChange={(option) => set("importPermitRequired", option?.value === "yes")}
+                      />
                     </FormRow>
                     <FormRow label="Import permit number">
                       <input className={inputClass} value={pack.importPermitNumber} onChange={(e) => set("importPermitNumber", e.target.value)} placeholder="Number" />
@@ -2719,14 +2735,12 @@ function NewPackFormPageInner() {
                       <input className={inputClass} value={pack.edn || ""} onChange={(e) => set("edn", e.target.value)} placeholder="EDN reference" />
                     </FormRow>
                     <FormRow label="RFP additional declaration required" labelClassName="normal-case tracking-normal text-[10px] leading-tight">
-                      <select
-                        className={inputClass}
-                        value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
-                        onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
-                      >
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
+                      <ClutchSelect
+                        isClearable={false}
+                        options={YES_NO_OPTIONS}
+                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.rfpAdditionalDeclarationRequired ? "yes" : "no")) ?? null}
+                        onChange={(option) => set("rfpAdditionalDeclarationRequired", option?.value === "yes")}
+                      />
                     </FormRow>
                     <FormRow label="RFP comment">
                       <input className={inputClass} value={pack.rfpComment} onChange={(e) => set("rfpComment", e.target.value)} placeholder="Comment" />
@@ -2871,29 +2885,25 @@ function NewPackFormPageInner() {
               <section className={sectionClass} aria-label="PEMs submission setup">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <FormRow label="Record type">
-                    <select
-                      className={inputClass}
-                      value={pemsDraft.recordType}
-                      onChange={(e) =>
+                    <ClutchSelect
+                      isClearable={false}
+                      options={PEMS_RECORD_SELECT_OPTIONS}
+                      value={PEMS_RECORD_SELECT_OPTIONS.find((o) => o.value === pemsDraft.recordType) ?? null}
+                      onChange={(option) => {
+                        const v = option ? option.value : "";
                         updatePemsDraft((current) => ({
                           ...current,
-                          recordType: e.target.value,
+                          recordType: v,
                           stagedContainerIds:
-                            e.target.value === GPPIR_RECORD_TYPE
+                            v === GPPIR_RECORD_TYPE
                               ? current.stagedContainerIds.filter((id) => {
                                 const target = packContainers.find((container) => container.id === id);
                                 return Boolean(target?.ecrSubmitted);
                               })
                               : current.stagedContainerIds,
-                        }))
-                      }
-                    >
-                      {PEMS_RECORD_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                        }));
+                      }}
+                    />
                   </FormRow>
                   <FormRow label="Inspection start">
                     <input
@@ -2912,15 +2922,17 @@ function NewPackFormPageInner() {
                     />
                   </FormRow>
                   <FormRow label="AO signoff">
-                    <select className={inputClass} value={pemsDraft.aoSignoff} onChange={(e) => updatePemsDraft({ aoSignoff: e.target.value })}>
-                      <option value="">Select AO…</option>
-                      {aoOptions.map((ao) => (
-                        <option key={ao.id} value={ao.name}>
-                          {ao.name}
-                          {ao.aoNumber ? ` (${ao.aoNumber})` : ""}
-                        </option>
-                      ))}
-                    </select>
+                    {(() => {
+                      const aoSelectOpts = aoOptions.map((ao) => ({ value: ao.name, label: ao.name + (ao.aoNumber ? ` (${ao.aoNumber})` : "") }));
+                      return (
+                        <ClutchSelect
+                          placeholder="Select AO…"
+                          options={aoSelectOpts}
+                          value={aoSelectOpts.find((o) => o.value === pemsDraft.aoSignoff) ?? null}
+                          onChange={(option) => updatePemsDraft({ aoSignoff: option ? option.value : "" })}
+                        />
+                      );
+                    })()}
                   </FormRow>
                 </div>
                 <PemsInspectionPanel
@@ -3135,14 +3147,17 @@ function NewPackFormPageInner() {
                           <PemsStagingField label="Establishment Name" value={safeValue(selectedPackSite?.name)} />
                           <PemsStagingField label="Establishment Number" value={safeValue(selectedPackSite?.yardNo)} />
                           <PemsStagingFormField label="Exporter Name">
-                            <select className={stagingInputClass} value={pack.exporter} onChange={(e) => set("exporter", e.target.value)}>
-                              <option value="">- Select -</option>
-                              {customerOptions.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
+                            {(() => {
+                              const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
+                              return (
+                                <ClutchSelect
+                                  placeholder="- Select -"
+                                  options={customerSelectOpts}
+                                  value={customerSelectOpts.find((o) => String(o.value) === String(pack.exporter)) ?? null}
+                                  onChange={(option) => set("exporter", option ? option.value : "")}
+                                />
+                              );
+                            })()}
                           </PemsStagingFormField>
                         </div>
                         <div className={stagingGrid6Class}>
@@ -3155,18 +3170,17 @@ function NewPackFormPageInner() {
                         </div>
                         <div className={stagingGrid6Class}>
                           <PemsStagingFormField label="Destination Country">
-                            <select
-                              className={stagingInputClass}
-                              value={pack.destinationCountry}
-                              onChange={(e) => set("destinationCountry", e.target.value)}
-                            >
-                              <option value="">- Select country -</option>
-                              {countryOptions.map((country) => (
-                                <option key={country.id} value={country.name}>
-                                  {country.name}
-                                </option>
-                              ))}
-                            </select>
+                            {(() => {
+                              const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
+                              return (
+                                <ClutchSelect
+                                  placeholder="- Select country -"
+                                  options={countrySelectOpts}
+                                  value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
+                                  onChange={(option) => set("destinationCountry", option ? option.value : "")}
+                                />
+                              );
+                            })()}
                           </PemsStagingFormField>
                           <PemsStagingFormField label="Import Permit No.">
                             {!pack.importPermitRequired ? (
@@ -3252,14 +3266,17 @@ function NewPackFormPageInner() {
                         </div>
                         <div className={stagingGrid3Class}>
                           <PemsStagingFormField label="Additional Declaration">
-                            <select
-                              className={stagingInputClass}
-                              value={pack.rfpAdditionalDeclarationRequired ? "yes" : "no"}
-                              onChange={(e) => set("rfpAdditionalDeclarationRequired", e.target.value === "yes")}
-                            >
-                              <option value="no">N/A</option>
-                              <option value="yes">Yes</option>
-                            </select>
+                            {(() => {
+                              const additionalDeclOpts = [{ value: "no", label: "N/A" }, { value: "yes", label: "Yes" }];
+                              return (
+                                <ClutchSelect
+                                  isClearable={false}
+                                  options={additionalDeclOpts}
+                                  value={additionalDeclOpts.find((o) => o.value === (pack.rfpAdditionalDeclarationRequired ? "yes" : "no")) ?? null}
+                                  onChange={(option) => set("rfpAdditionalDeclarationRequired", option?.value === "yes")}
+                                />
+                              );
+                            })()}
                           </PemsStagingFormField>
                           <PemsStagingField label="Total Passed" value={gppirStagingPassedWeight.toFixed(4)} />
                           <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
@@ -3396,93 +3413,88 @@ function NewPackFormPageInner() {
                     <div className={fumigationInnerClass} aria-label="Section A — Fumigator in charge">
                       <div className={fumigationTopGridClass}>
                         <FormRow label="Fumigant">
-                          <select
-                            className={inputClass}
-                            value={pack.fumigantId ?? ""}
-                            onChange={(e) => {
-                              const fumigantId = e.target.value ? Number(e.target.value) : null;
-                              setPack((prev) => {
-                                const nextMethodology =
-                                  prev.methodologyId && Number(prev.methodologyId)
-                                    ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
-                                    : null;
-                                return {
-                                  ...prev,
-                                  fumigantId,
-                                  methodologyId:
-                                    nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
-                                      ? prev.methodologyId
-                                      : null,
-                                };
-                              });
-                            }}
-                          >
-                            <option value="">- Select -</option>
-                            {fumigants.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.code} - {item.name}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const fumigantOpts = fumigants.map((item) => ({ value: item.id, label: `${item.code} - ${item.name}` }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select -"
+                                options={fumigantOpts}
+                                value={fumigantOpts.find((o) => o.value === (pack.fumigantId ?? null)) ?? null}
+                                onChange={(option) => {
+                                  const fumigantId = option ? option.value : null;
+                                  setPack((prev) => {
+                                    const nextMethodology =
+                                      prev.methodologyId && Number(prev.methodologyId)
+                                        ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
+                                        : null;
+                                    return {
+                                      ...prev,
+                                      fumigantId,
+                                      methodologyId:
+                                        nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
+                                          ? prev.methodologyId
+                                          : null,
+                                    };
+                                  });
+                                }}
+                              />
+                            );
+                          })()}
                         </FormRow>
                         <FormRow label="Methodology">
-                          <select
-                            className={inputClass}
-                            value={pack.methodologyId ?? ""}
-                            onChange={(e) => set("methodologyId", e.target.value ? Number(e.target.value) : null)}
-                            disabled={!pack.fumigantId}
-                          >
-                            <option value="">- Select -</option>
-                            {fumigationMethodologyOptions.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.name}
-                                {item.version ? ` (${item.version})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const methodologyOpts = fumigationMethodologyOptions.map((item) => ({
+                              value: item.id,
+                              label: item.name + (item.version ? ` (${item.version})` : ""),
+                            }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select -"
+                                options={methodologyOpts}
+                                value={methodologyOpts.find((o) => o.value === (pack.methodologyId ?? null)) ?? null}
+                                isDisabled={!pack.fumigantId}
+                                onChange={(option) => set("methodologyId", option ? option.value : null)}
+                              />
+                            );
+                          })()}
                         </FormRow>
                         <FormRow label="Fumigation timing">
-                          <select
-                            className={inputClass}
-                            value={pack.fumigationTiming ?? ""}
-                            onChange={(e) => set("fumigationTiming", e.target.value)}
-                          >
-                            <option value="">Select timing…</option>
-                            <option value="pre-pack">Pre-Pack</option>
-                            <option value="post-pack">Post-Pack</option>
-                          </select>
+                          <ClutchSelect
+                            placeholder="Select timing…"
+                            options={FUMIGATION_TIMING_OPTIONS}
+                            value={FUMIGATION_TIMING_OPTIONS.find((o) => o.value === (pack.fumigationTiming ?? "")) ?? null}
+                            onChange={(option) => set("fumigationTiming", option ? option.value : "")}
+                          />
                         </FormRow>
                       </div>
                       <div className={cn("mt-2", fumigationTopGridClass)}>
                         <FormRow label="Fumigator name">
-                          <select
-                            className={inputClass}
-                            value={fd.fumigatorName || ""}
-                            onChange={(e) => {
-                              const name = e.target.value;
-                              const matched = fumigatorOptions.find((u) => u.name === name) || null;
-                              setPack((prev) => {
-                                const detail = (prev.fumigationDetail && typeof prev.fumigationDetail === "object")
-                                  ? prev.fumigationDetail
-                                  : blankFumigationDetail();
-                                // Pre-fill accreditation (fumigatorLicence) on selection; user can still override.
-                                const accreditation = matched?.fumigatorLicence ?? prev.fumigatorAccreditationNumber ?? "";
-                                return {
-                                  ...prev,
-                                  fumigatorAccreditationNumber: accreditation,
-                                  fumigationDetail: { ...detail, fumigatorName: name },
-                                };
-                              });
-                            }}
-                          >
-                            <option value="">- Select fumigator -</option>
-                            {fumigatorOptions.map((u) => (
-                              <option key={u.id} value={u.name}>
-                                {u.name}
-                                {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const fumigatorSelectOpts = fumigatorOptions.map((u) => ({ value: u.name, label: u.name + (u.fumigatorLicence ? ` (${u.fumigatorLicence})` : "") }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select fumigator -"
+                                options={fumigatorSelectOpts}
+                                value={fumigatorSelectOpts.find((o) => o.value === (fd.fumigatorName || "")) ?? null}
+                                onChange={(option) => {
+                                  const name = option ? option.value : "";
+                                  const matched = fumigatorOptions.find((u) => u.name === name) || null;
+                                  setPack((prev) => {
+                                    const detail = (prev.fumigationDetail && typeof prev.fumigationDetail === "object")
+                                      ? prev.fumigationDetail
+                                      : blankFumigationDetail();
+                                    // Pre-fill accreditation (fumigatorLicence) on selection; user can still override.
+                                    const accreditation = matched?.fumigatorLicence ?? prev.fumigatorAccreditationNumber ?? "";
+                                    return {
+                                      ...prev,
+                                      fumigatorAccreditationNumber: accreditation,
+                                      fumigationDetail: { ...detail, fumigatorName: name },
+                                    };
+                                  });
+                                }}
+                              />
+                            );
+                          })()}
                         </FormRow>
                         <FormRow label="Accreditation number">
                           <input
@@ -3805,16 +3817,13 @@ function NewPackFormPageInner() {
                             value={fd.dosageValue ?? ""}
                             onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
                           />
-                          <select
-                            className={inputClass}
-                            style={{ maxWidth: "5.5rem" }}
-                            value={fd.dosageUnit || "g/m3"}
-                            onChange={(e) => updateFumigationDetail({ dosageUnit: e.target.value })}
-                          >
-                            {PACK_FUMIGATION_DOSAGE_UNITS.map((unit) => (
-                              <option key={unit} value={unit}>{unit}</option>
-                            ))}
-                          </select>
+                          <ClutchSelect
+                            isClearable={false}
+                            options={DOSAGE_UNIT_OPTIONS}
+                            value={DOSAGE_UNIT_OPTIONS.find((o) => o.value === (fd.dosageUnit || "g/m3")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ dosageUnit: option ? option.value : "g/m3" })}
+                            className="w-[5.5rem]"
+                          />
                         </div>
                       </FormRow>
                       <FormRow label="Applied exposure">
@@ -3826,30 +3835,22 @@ function NewPackFormPageInner() {
                             value={fd.exposureTimeValue ?? ""}
                             onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
                           />
-                          <select
-                            className={inputClass}
-                            style={{ maxWidth: "5.5rem" }}
-                            value={fd.exposureTimeUnit || "hours"}
-                            onChange={(e) => updateFumigationDetail({ exposureTimeUnit: e.target.value })}
-                          >
-                            {FUMIGATION_MIN_EXPOSURE_UNITS.map((unit) => (
-                              <option key={unit} value={unit}>{unit}</option>
-                            ))}
-                          </select>
+                          <ClutchSelect
+                            isClearable={false}
+                            options={EXPOSURE_UNIT_OPTIONS}
+                            value={EXPOSURE_UNIT_OPTIONS.find((o) => o.value === (fd.exposureTimeUnit || "hours")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ exposureTimeUnit: option ? option.value : "hours" })}
+                            className="w-[5.5rem]"
+                          />
                         </div>
                       </FormRow>
                       <FormRow label="Application method">
-                        <select
-                          className={inputClass}
-                          value={fd.applicationMethod || "in-container"}
-                          onChange={(e) => updateFumigationDetail({ applicationMethod: e.target.value })}
-                        >
-                          {PACK_FUMIGATION_APPLICATION_METHOD.map((method) => (
-                            <option key={method} value={method}>
-                              {PACK_FUMIGATION_APPLICATION_LABELS[method] || method}
-                            </option>
-                          ))}
-                        </select>
+                        <ClutchSelect
+                          isClearable={false}
+                          options={APPLICATION_METHOD_OPTIONS}
+                          value={APPLICATION_METHOD_OPTIONS.find((o) => o.value === (fd.applicationMethod || "in-container")) ?? null}
+                          onChange={(option) => updateFumigationDetail({ applicationMethod: option ? option.value : "in-container" })}
+                        />
                       </FormRow>
                       <FormRow label="Calculated dose">
                         <div className="flex gap-2">
@@ -3860,16 +3861,13 @@ function NewPackFormPageInner() {
                             value={fd.calculatedDosageValue ?? ""}
                             onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
                           />
-                          <select
-                            className={inputClass}
-                            style={{ maxWidth: "4.5rem" }}
-                            value={fd.calculatedDosageUnit || "g"}
-                            onChange={(e) => updateFumigationDetail({ calculatedDosageUnit: e.target.value })}
-                          >
-                            {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
-                              <option key={unit} value={unit}>{unit}</option>
-                            ))}
-                          </select>
+                          <ClutchSelect
+                            isClearable={false}
+                            options={MASS_UNIT_OPTIONS}
+                            value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.calculatedDosageUnit || "g")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ calculatedDosageUnit: option ? option.value : "g" })}
+                            className="w-[4.5rem]"
+                          />
                         </div>
                       </FormRow>
                       <FormRow label="Amount of fumigant applied">
@@ -3881,16 +3879,13 @@ function NewPackFormPageInner() {
                             value={fd.actualDosageAppliedValue ?? ""}
                             onChange={(e) => updateFumigationDetail({ actualDosageAppliedValue: e.target.value })}
                           />
-                          <select
-                            className={inputClass}
-                            style={{ maxWidth: "4.5rem" }}
-                            value={fd.actualDosageAppliedUnit || "g"}
-                            onChange={(e) => updateFumigationDetail({ actualDosageAppliedUnit: e.target.value })}
-                          >
-                            {PACK_FUMIGATION_MASS_UNITS.map((unit) => (
-                              <option key={unit} value={unit}>{unit}</option>
-                            ))}
-                          </select>
+                          <ClutchSelect
+                            isClearable={false}
+                            options={MASS_UNIT_OPTIONS}
+                            value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.actualDosageAppliedUnit || "g")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ actualDosageAppliedUnit: option ? option.value : "g" })}
+                            className="w-[4.5rem]"
+                          />
                         </div>
                       </FormRow>
                       <FormRow label="Actual tonnage (MT)">
@@ -4174,30 +4169,25 @@ function NewPackFormPageInner() {
                     <div className={fumigationInnerClass} aria-label="Section E — Result and declaration">
                       <div className={fumigationGridClass}>
                         <FormRow label="Fumigation result">
-                          <select
-                            className={inputClass}
-                            value={fd.fumigationResult ?? ""}
-                            onChange={(e) => updateFumigationDetail({ fumigationResult: e.target.value })}
-                          >
-                            <option value="">— select —</option>
-                            <option value="pass">Pass</option>
-                            <option value="fail">Fail</option>
-                          </select>
+                          <ClutchSelect
+                            placeholder="— select —"
+                            options={FUMIGATION_RESULT_OPTIONS}
+                            value={FUMIGATION_RESULT_OPTIONS.find((o) => o.value === (fd.fumigationResult ?? "")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ fumigationResult: option ? option.value : "" })}
+                          />
                         </FormRow>
                         <FormRow label="Authorised officer (if supervised)">
-                          <select
-                            className={inputClass}
-                            value={fd.governmentOfficerName ?? ""}
-                            onChange={(e) => updateFumigationDetail({ governmentOfficerName: e.target.value })}
-                          >
-                            <option value="">- Select AO -</option>
-                            {aoOptions.map((u) => (
-                              <option key={u.id} value={u.name}>
-                                {u.name}
-                                {u.aoNumber ? ` (${u.aoNumber})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const aoSelectOpts = aoOptions.map((u) => ({ value: u.name, label: u.name + (u.aoNumber ? ` (${u.aoNumber})` : "") }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select AO -"
+                                options={aoSelectOpts}
+                                value={aoSelectOpts.find((o) => o.value === (fd.governmentOfficerName ?? "")) ?? null}
+                                onChange={(option) => updateFumigationDetail({ governmentOfficerName: option ? option.value : "" })}
+                              />
+                            );
+                          })()}
                         </FormRow>
                         <FormRow className={spanFullClass} label="Additional declarations (free text)">
                           <textarea
@@ -4226,36 +4216,30 @@ function NewPackFormPageInner() {
                     </summary>
                     <div className={fumigationGridClass}>
                       <FormRow label="Certificate template">
-                        <select
-                          className={inputClass}
-                          value={pack.certificateTemplateId ?? ""}
-                          onChange={(e) =>
-                            set("certificateTemplateId", e.target.value ? Number(e.target.value) : null)
-                          }
-                        >
-                          <option value="">- Select -</option>
-                          {certificateTemplates.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const certTemplateOpts = certificateTemplates.map((item) => ({ value: item.id, label: item.name }));
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select -"
+                              options={certTemplateOpts}
+                              value={certTemplateOpts.find((o) => o.value === (pack.certificateTemplateId ?? null)) ?? null}
+                              onChange={(option) => set("certificateTemplateId", option ? option.value : null)}
+                            />
+                          );
+                        })()}
                       </FormRow>
                       <FormRow label="Record template">
-                        <select
-                          className={inputClass}
-                          value={pack.recordTemplateId ?? ""}
-                          onChange={(e) =>
-                            set("recordTemplateId", e.target.value ? Number(e.target.value) : null)
-                          }
-                        >
-                          <option value="">- Select -</option>
-                          {recordTemplates.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const recTemplateOpts = recordTemplates.map((item) => ({ value: item.id, label: item.name }));
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select -"
+                              options={recTemplateOpts}
+                              value={recTemplateOpts.find((o) => o.value === (pack.recordTemplateId ?? null)) ?? null}
+                              onChange={(option) => set("recordTemplateId", option ? option.value : null)}
+                            />
+                          );
+                        })()}
                       </FormRow>
                     </div>
                   </details>
@@ -4324,7 +4308,7 @@ function NewPackFormPageInner() {
                     onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
                     packerNames={packerNames}
                     packerSelectOptions={packerSelectOptions}
-                    yesNoOptions={YES_NO_OPTIONS}
+                    yesNoOptions={YES_NO_STRINGS}
                     inspectionOptions={INSPECTION_OPTIONS}
                     praTemplateOptions={PRA_TEMPLATE_OPTIONS}
                     praStatusOptions={PRA_STATUS_OPTIONS}
@@ -4475,17 +4459,12 @@ function QuickAddReleaseModal({
             </div>
             <div className="space-y-1">
               <label className={fieldLabel}>Release Status</label>
-              <select
-                className={inputClass}
-                value={draft.status}
-                onChange={(e) => onChangeField("status", e.target.value)}
-              >
-                {RELEASE_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
+              <ClutchSelect
+                isClearable={false}
+                options={RELEASE_STATUS_SELECT_OPTIONS}
+                value={RELEASE_STATUS_SELECT_OPTIONS.find((o) => o.value === draft.status) ?? null}
+                onChange={(option) => onChangeField("status", option ? option.value : "")}
+              />
             </div>
             <div className="space-y-1">
               <label className={fieldLabel}>Release Available</label>
@@ -4539,25 +4518,22 @@ function QuickAddReleaseModal({
             </div>
             <div className="space-y-1">
               <label className={fieldLabel}>Container Type</label>
-              <select
-                className={inputClass}
-                value={draft.containerCodeIsoCode}
-                onChange={(e) => onChangeField("containerCodeIsoCode", e.target.value)}
-              >
-                <option value="">
-                  {lookupsLoading ? "Loading…" : "Select container type..."}
-                </option>
-                {containerCodeOptions.map((row) => {
+              {(() => {
+                const containerTypeOpts = containerCodeOptions.map((row) => {
                   const iso = row.iso_code ?? row.isoCode ?? "";
                   const size = row.container_size ?? row.containerSize ?? "";
                   const desc = row.description ?? "";
-                  return (
-                    <option key={row.id} value={iso}>
-                      {[iso, size, desc].filter(Boolean).join(" · ")}
-                    </option>
-                  );
-                })}
-              </select>
+                  return { value: iso, label: [iso, size, desc].filter(Boolean).join(" · ") };
+                });
+                return (
+                  <ClutchSelect
+                    placeholder={lookupsLoading ? "Loading…" : "Select container type..."}
+                    options={containerTypeOpts}
+                    value={containerTypeOpts.find((o) => o.value === draft.containerCodeIsoCode) ?? null}
+                    onChange={(option) => onChangeField("containerCodeIsoCode", option ? option.value : "")}
+                  />
+                );
+              })()}
             </div>
           </div>
 
@@ -4584,20 +4560,17 @@ function QuickAddReleaseModal({
                     ) : null}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                    <select
-                      className={inputClass}
-                      value={park.containerParkId === "" ? "" : String(park.containerParkId)}
-                      onChange={(e) => onUpdatePark(index, "containerParkId", e.target.value || "")}
-                    >
-                      <option value="">
-                        {lookupsLoading ? "Loading…" : "Select empty container park..."}
-                      </option>
-                      {containerParkOptions.map((cp) => (
-                        <option key={cp.id} value={cp.id}>
-                          {cp.name}
-                        </option>
-                      ))}
-                    </select>
+                    {(() => {
+                      const parkOpts = containerParkOptions.map((cp) => ({ value: String(cp.id), label: cp.name }));
+                      return (
+                        <ClutchSelect
+                          placeholder={lookupsLoading ? "Loading…" : "Select empty container park..."}
+                          options={parkOpts}
+                          value={parkOpts.find((o) => o.value === (park.containerParkId === "" ? "" : String(park.containerParkId))) ?? null}
+                          onChange={(option) => onUpdatePark(index, "containerParkId", option ? option.value : "")}
+                        />
+                      );
+                    })()}
                     <div className="rounded-md border border-slate-200 bg-white p-2">
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Transporters

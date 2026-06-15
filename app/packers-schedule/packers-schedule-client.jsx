@@ -11,9 +11,16 @@ import { getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-w
 import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { cn } from "@/lib/utils";
+import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const inputClass =
   "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+
+const IMPORT_EXPORT_OPTIONS = [
+  { value: "all", label: "All (Import/Export)" },
+  { value: "Import", label: "Import" },
+  { value: "Export", label: "Export" },
+];
 
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
@@ -216,11 +223,13 @@ export default function PackersScheduleClient() {
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-          <select suppressHydrationWarning className={`${inputClass} w-[160px]`} value={importExportFilter} onChange={(event) => setImportExportFilter(event.target.value)}>
-            <option value="all">All (Import/Export)</option>
-            <option value="Import">Import</option>
-            <option value="Export">Export</option>
-          </select>
+          <ClutchSelect
+            options={IMPORT_EXPORT_OPTIONS}
+            value={IMPORT_EXPORT_OPTIONS.find((o) => o.value === importExportFilter) ?? null}
+            onChange={(option) => setImportExportFilter(option ? option.value : "all")}
+            isClearable={false}
+            className="w-[160px]"
+          />
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
               <label className="cursor-pointer">

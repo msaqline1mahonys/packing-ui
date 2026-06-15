@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, X } from "lucide-react";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 
+import BulkContainerImportDialog from "@/components/packing-schedule/bulk-container-import-dialog";
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { loadContactUsers } from "@/lib/contact-users-store";
@@ -40,7 +41,7 @@ import {
   containerInspectionRemarkPatch,
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
-import { fetchPack, savePack } from "@/lib/pack-schedule-store";
+import { ensureReleaseLineOnPack, normalizeReferenceReleaseOption } from "@/lib/container-bulk-import";
 import {
   applyContainerPatch,
   getCompletionMissingChecks,
@@ -48,6 +49,7 @@ import {
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
 import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { fetchPack } from "@/lib/pack-schedule-store";
 import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { readSiteRows } from "@/lib/site-data";
@@ -350,6 +352,10 @@ export default function PackDetailClient({ packId }) {
     }, delayMs);
   }, [clearContainerValidationFeedback]);
   const [isDirty, setIsDirty] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportApplying, setBulkImportApplying] = useState(false);
+  const [bulkImportProgress, setBulkImportProgress] = useState("");
+  const [bulkImportError, setBulkImportError] = useState("");
   const [filePreview, setFilePreview] = useState(null);
   const previewRevokeRef = useRef(null);
 
@@ -369,10 +375,16 @@ export default function PackDetailClient({ packId }) {
     if (packRow.fumigationRequired && !packRow.fumigationTiming) return "Required";
     return packRow.fumigationTiming || packRow.fumigation || "—";
   }, [packRow]);
-  const packReleases = useMemo(
-    () => (Array.isArray(packRow?.releaseDetails) ? packRow.releaseDetails : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [packRow?.releaseDetails]
+  const packReleases = useMemo(() => {
+    const details = packRow?.releaseDetails;
+    const releases = packRow?.releases;
+    if (Array.isArray(details) && details.length) return details;
+    if (Array.isArray(releases) && releases.length) return releases;
+    return [];
+  }, [packRow?.releaseDetails, packRow?.releases]);
+  const referenceReleaseOptions = useMemo(
+    () => (lookups.releases || []).map(normalizeReferenceReleaseOption).filter((r) => r.releaseRef),
+    [lookups.releases]
   );
   const containerParkOptions = useMemo(() => {
     const allParks = (lookups.containerParks || []).map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" }));
@@ -878,6 +890,75 @@ export default function PackDetailClient({ packId }) {
     }
   }
 
+  async function handleBulkImportApply(updatedContainers, appliedRows, logistics) {
+    if (!packRow || !appliedRows?.length) return;
+
+    setBulkImportApplying(true);
+    setBulkImportError("");
+    setBulkImportProgress("");
+
+    updateSelectedPack((current) => ({
+      ...current,
+      containers: current.containers.map((container) => {
+        const next = updatedContainers.find((row) => row.id === container.id);
+        if (!next) return container;
+        const tare = next.tare != null && next.tare !== "" ? toRoundedNumber(next.tare) : null;
+        const grossWeight = next.grossWeight != null && next.grossWeight !== "" ? toRoundedNumber(next.grossWeight) : null;
+        const nettWeight =
+          tare != null && grossWeight != null ? toRoundedNumber(Math.max(grossWeight - tare, 0)) : null;
+        const normalized = { ...container, ...next, tare, grossWeight, nettWeight };
+        return { ...normalized, status: containerStage(normalized) };
+      }),
+    }));
+
+    const changedIds = new Set(appliedRows.map((row) => row.targetSlotId));
+    const toSave = updatedContainers.filter((container) => changedIds.has(container.id));
+    const failures = [];
+
+    for (let index = 0; index < toSave.length; index += 1) {
+      const container = toSave[index];
+      setBulkImportProgress(`Saving ${index + 1} of ${toSave.length}…`);
+      try {
+        const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(container, packRow);
+        await updateContainer(packRow.id, container.id, payload);
+      } catch (err) {
+        failures.push({
+          order: container.order,
+          message: err?.message || "Save failed",
+        });
+      }
+    }
+
+    setBulkImportApplying(false);
+    setBulkImportProgress("");
+
+    if (failures.length) {
+      setBulkImportError(
+        `${failures.length} container${failures.length === 1 ? "" : "s"} failed to save: ${failures
+          .map((row) => `#${row.order} (${row.message})`)
+          .join("; ")}`
+      );
+      refreshPack();
+      return;
+    }
+
+    // Add the release/park/transporter combo used for this import to the pack if it's
+    // not already one of the pack's release lines. updatePackRow persists the pack.
+    const currentReleases = Array.isArray(packRow.releases)
+      ? packRow.releases
+      : Array.isArray(packRow.releaseDetails)
+        ? packRow.releaseDetails
+        : [];
+    const nextReleases = ensureReleaseLineOnPack(currentReleases, logistics);
+    if (nextReleases !== currentReleases) {
+      updatePackRow({ releases: nextReleases });
+    }
+
+    setBulkImportOpen(false);
+    setIsDirty(false);
+    refreshPack();
+  }
+
   if (!packRow) {
     return (
       <div className="space-y-4">
@@ -1209,7 +1290,22 @@ export default function PackDetailClient({ packId }) {
             </div>
           </section>
           <section className="rounded-xl border border-slate-200/90 bg-white p-3">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Container list</label>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Container list</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                disabled={!packReleases.some((r) => r.releaseRef) && !referenceReleaseOptions.length}
+                onClick={() => {
+                  setBulkImportError("");
+                  setBulkImportOpen(true);
+                }}
+              >
+                Bulk import
+              </Button>
+            </div>
             <textarea suppressHydrationWarning className={`${inputClass} min-h-[84px] w-full resize-y font-mono text-[12px]`} readOnly value={filteredContainerRows.map((container) => container.containerNo).join("\n")} />
           </section>
         </aside>
@@ -1418,6 +1514,34 @@ export default function PackDetailClient({ packId }) {
               ) : null}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      <BulkContainerImportDialog
+        key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
+        open={bulkImportOpen}
+        onClose={() => !bulkImportApplying && setBulkImportOpen(false)}
+        packReleases={packReleases}
+        referenceReleases={referenceReleaseOptions}
+        containers={containerRows}
+        containerNumberField="containerNo"
+        containerParkOptions={containerParkOptions}
+        transporterOptions={transporterLookupOptions}
+        onApply={handleBulkImportApply}
+        isApplying={bulkImportApplying}
+        applyProgress={bulkImportProgress}
+        isLoadingReleases={lookups.isLoading}
+      />
+      {bulkImportError ? (
+        <div className="fixed bottom-4 right-4 z-[70] max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">
+          {bulkImportError}
+          <button
+            type="button"
+            className="ml-3 font-medium underline"
+            onClick={() => setBulkImportError("")}
+          >
+            Dismiss
+          </button>
         </div>
       ) : null}
     </div>

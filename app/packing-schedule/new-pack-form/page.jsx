@@ -15,6 +15,8 @@ import {
   REFERENCE_CONTAINER_CODE_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
+import BulkContainerImportDialog from "@/components/packing-schedule/bulk-container-import-dialog";
+import { ensureReleaseLineOnPack } from "@/lib/container-bulk-import";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import {
   loadCertificateTemplates,
@@ -1005,6 +1007,9 @@ function NewPackFormPageInner() {
   const [quickReleaseError, setQuickReleaseError] = useState("");
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportSaving, setBulkImportSaving] = useState(false);
+  const [bulkImportError, setBulkImportError] = useState("");
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 
@@ -1376,6 +1381,38 @@ function NewPackFormPageInner() {
       });
       return { ...prev, containers: next };
     });
+  }
+
+  async function applyBulkContainerImport(updatedContainers, _appliedRows, logistics) {
+    // Add the release/park/transporter used for this import to the pack if it's a
+    // combo the pack doesn't already carry.
+    const nextReleaseDetails = ensureReleaseLineOnPack(pack.releaseDetails, logistics);
+    const nextPack = { ...pack, containers: updatedContainers, releaseDetails: nextReleaseDetails };
+
+    const packId = nextPack.id ?? editingRow?.id;
+    if (!packId) {
+      // New, unsaved pack — there is no record to PUT to yet. Keep the import in the
+      // form; it will persist when the user creates the pack.
+      setPack(nextPack);
+      setBulkImportError("Create the pack first — imported containers will save with it.");
+      setBulkImportOpen(false);
+      return;
+    }
+
+    setBulkImportSaving(true);
+    setBulkImportError("");
+    try {
+      const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
+      await savePack({ ...rowToSave, id: packId });
+      // Only reflect the import in the form once it is safely persisted, so a failed
+      // save leaves the dialog in a clean, retryable state.
+      setPack(nextPack);
+      setBulkImportOpen(false);
+    } catch (err) {
+      setBulkImportError(err?.message || "Failed to save imported containers.");
+    } finally {
+      setBulkImportSaving(false);
+    }
   }
 
   function updatePemsDraft(patch) {
@@ -2648,6 +2685,16 @@ function NewPackFormPageInner() {
                         title="Create a full Release record and attach it to this pack"
                       >
                         + Quick add Release
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        disabled={!releaseRows.some((r) => r.releaseRef) && !releaseOptions.length}
+                        onClick={() => setBulkImportOpen(true)}
+                        title="Paste container numbers and assign them to a release"
+                      >
+                        Bulk import containers
                       </Button>
                     </div>
                   </div>
@@ -4826,6 +4873,34 @@ function NewPackFormPageInner() {
           terminalOptions={terminalOptions}
           portOptions={portOptions}
         />
+
+        <BulkContainerImportDialog
+          key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
+          open={bulkImportOpen}
+          onClose={() => !bulkImportSaving && setBulkImportOpen(false)}
+          packReleases={releaseRows}
+          referenceReleases={releaseOptions}
+          containers={packContainers}
+          containerNumberField="containerNumber"
+          containerParkOptions={containerParkOptions}
+          transporterOptions={transporterOptions}
+          onApply={applyBulkContainerImport}
+          isApplying={bulkImportSaving}
+          applyProgress={bulkImportSaving ? "Saving imported containers…" : ""}
+          isLoadingReleases={queryLookups.isLoading}
+        />
+        {bulkImportError ? (
+          <div className="fixed bottom-4 right-4 z-[70] max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">
+            {bulkImportError}
+            <button
+              type="button"
+              className="ms-3 font-semibold text-red-900 hover:underline"
+              onClick={() => setBulkImportError("")}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
       </>
       );
 }

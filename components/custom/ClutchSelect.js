@@ -224,7 +224,7 @@ function selectStyles(hasError) {
       boxShadow: "0 10px 30px -12px rgba(2, 6, 23, 0.25)",
       overflow: "hidden",
     }),
-    menuPortal: (base) => ({ ...base, zIndex: 50 }),
+    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
     option: (base, state) => ({
       ...base,
       fontSize: "0.875rem",

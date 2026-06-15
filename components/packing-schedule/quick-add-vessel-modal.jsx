@@ -134,6 +134,10 @@ export default function QuickAddVesselModal({
         voyage_number: voyage?.voyage_number ?? draft.voyageNumber,
         vessel_cutoff_date: voyage?.vessel_cutoff_date ?? draft.vesselCutoffDate,
         vessel_etd: voyage?.vessel_etd ?? draft.vesselEtd,
+        terminal_id: voyage?.terminal_id ?? draft.terminalId ?? null,
+        terminalId: voyage?.terminal_id ?? draft.terminalId ?? null,
+        loadPort: voyage?.loadPort ?? voyage?.load_port ?? null,
+        load_port: voyage?.load_port ?? voyage?.loadPort ?? null,
         vessel: {
           id: vesselId,
           vessel_name: vessel?.vessel_name ?? draft.vesselName,

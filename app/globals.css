@@ -148,6 +148,14 @@
   background-color: #dbeafe !important;
 }
 
+.clutch-row-vessel-updated {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.clutch-row-vessel-updated:hover {
+  background-color: #fffbeb !important;
+}
+
 @media print {
   @page {
     margin: 0;

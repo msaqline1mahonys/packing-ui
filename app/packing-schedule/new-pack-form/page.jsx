@@ -178,7 +178,28 @@ function vesselImportScheduleFields(voyage) {
   };
 }
 
-function applySelectedVoyageToPack(prev, voyage, isImportJob) {
+function resolveTerminalFromVoyage(voyage, terminalOptions) {
+  if (!voyage) return { terminalId: "", portOfLoading: "" };
+  const terminalId = voyage.terminal_id ?? voyage.terminalId ?? "";
+  let portOfLoading = "";
+  if (terminalId && Array.isArray(terminalOptions)) {
+    const matched = terminalOptions.find((t) => String(t.id) === String(terminalId));
+    portOfLoading = matched?.port_of_loading ?? matched?.portOfLoading ?? "";
+  }
+  if (!portOfLoading) {
+    portOfLoading =
+      voyage.loadPort?.name ??
+      voyage.load_port?.name ??
+      (typeof voyage.loadPort === "string" ? voyage.loadPort : "") ??
+      "";
+  }
+  return {
+    terminalId: terminalId ? String(terminalId) : "",
+    portOfLoading: String(portOfLoading || "").trim(),
+  };
+}
+
+function applySelectedVoyageToPack(prev, voyage, isImportJob, terminalOptions) {
   if (!voyage) {
     return {
       ...prev,
@@ -186,7 +207,13 @@ function applySelectedVoyageToPack(prev, voyage, isImportJob) {
       vesselName: "",
     };
   }
-  const terminalId = voyage.terminal_id ?? voyage.terminalId ?? prev.terminalId ?? "";
+  const { terminalId: resolvedTerminalId, portOfLoading: resolvedPortOfLoading } = resolveTerminalFromVoyage(
+    voyage,
+    terminalOptions,
+  );
+  const terminalId =
+    resolvedTerminalId ||
+    (voyage.terminal_id ?? voyage.terminalId ?? prev.terminalId ?? "");
   const shippingLineId =
     voyage.shipping_line_id ??
     voyage.shippingLineId ??
@@ -199,6 +226,10 @@ function applySelectedVoyageToPack(prev, voyage, isImportJob) {
     isImportJob && importFields.vesselFreeDays != null && importFields.vesselFreeDays !== ""
       ? importFields.vesselFreeDays
       : prev.freeDays;
+  const nextPortOfLoading =
+    resolvedPortOfLoading && !String(prev.portOfLoading ?? "").trim()
+      ? resolvedPortOfLoading
+      : prev.portOfLoading;
 
   return {
     ...prev,
@@ -207,6 +238,7 @@ function applySelectedVoyageToPack(prev, voyage, isImportJob) {
     voyageNumber: voyage.voyage_number ?? voyage.voyageNumber ?? prev.voyageNumber,
     lloydId: voyage.vessel?.lloyds_number ?? voyage.vessel?.lloydsNumber ?? prev.lloydId,
     terminalId: terminalId || prev.terminalId,
+    portOfLoading: nextPortOfLoading,
     shippingLineId: shippingLineId || prev.shippingLineId,
     freeDays: nextFreeDays,
     vesselCutoffDate: toDateInputValue(voyage.vessel_cutoff_date ?? voyage.vesselCutoffDate) || prev.vesselCutoffDate,
@@ -1103,6 +1135,7 @@ function NewPackFormPageInner() {
   function handleQuickVesselCreated(option) {
     if (!option?.id) return;
     invalidateReferenceData("vesselVoyages");
+    const { terminalId: nextTerminalId, portOfLoading: nextPortOfLoading } = resolveTerminalFromVoyage(option, terminalOptions);
     setPack((prev) => ({
       ...prev,
       vesselDepartureId: option.id,
@@ -1111,6 +1144,9 @@ function NewPackFormPageInner() {
       lloydId: option.vessel?.lloyds_number ?? prev.lloydId,
       vesselCutoffDate: toDateInputValue(option.vessel_cutoff_date) || prev.vesselCutoffDate,
       etd: toDateInputValue(option.vessel_etd) || prev.etd,
+      terminalId: nextTerminalId ? nextTerminalId : prev.terminalId,
+      portOfLoading:
+        nextPortOfLoading && !String(prev.portOfLoading ?? "").trim() ? nextPortOfLoading : prev.portOfLoading,
     }));
   }
 
@@ -1758,14 +1794,15 @@ function NewPackFormPageInner() {
     if (!selectedVessel) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPack((prev) => {
-      const next = applySelectedVoyageToPack(prev, selectedVessel, prev.importExport === "Import");
+      const next = applySelectedVoyageToPack(prev, selectedVessel, prev.importExport === "Import", terminalOptions);
       if (
         prev.voyageNumber === next.voyageNumber &&
         prev.vesselCutoffDate === next.vesselCutoffDate &&
         prev.vesselName === next.vesselName &&
         prev.etd === next.etd &&
         prev.lloydId === next.lloydId &&
-        prev.terminalId === next.terminalId &&
+        String(prev.terminalId ?? "") === String(next.terminalId ?? "") &&
+        String(prev.portOfLoading ?? "") === String(next.portOfLoading ?? "") &&
         prev.shippingLineId === next.shippingLineId &&
         prev.freeDays === next.freeDays
       ) {
@@ -1773,7 +1810,7 @@ function NewPackFormPageInner() {
       }
       return next;
     });
-  }, [selectedVessel]);
+  }, [selectedVessel, terminalOptions]);
 
   const sampleEntries = pack.sampleEntries || [];
   const sampleRowCount = sampleEntries.length;
@@ -2757,7 +2794,9 @@ function NewPackFormPageInner() {
                               onChange={(option) => {
                                 const nextId = option ? option.value : null;
                                 const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
-                                setPack((prev) => applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob));
+                                setPack((prev) =>
+                                  applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob, terminalOptions),
+                                );
                               }}
                             />
                           );
@@ -2785,6 +2824,33 @@ function NewPackFormPageInner() {
                           </Button>
                         ) : null}
                       </div>
+                    </FormRow>
+                    <FormRow label="Terminal (port of loading)">
+                      {(() => {
+                        const terminalSelectOpts = terminalOptions.map((t) => ({
+                          value: String(t.id),
+                          label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                        }));
+                        return (
+                          <ClutchSelect
+                            placeholder="- Select -"
+                            options={terminalSelectOpts}
+                            value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
+                            onChange={(option) => {
+                              const terminalId = option ? option.value : "";
+                              const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
+                              setPack((prev) => ({
+                                ...prev,
+                                terminalId,
+                                portOfLoading:
+                                  (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
+                                    ? (matched.port_of_loading ?? matched.portOfLoading)
+                                    : prev.portOfLoading,
+                              }));
+                            }}
+                          />
+                        );
+                      })()}
                     </FormRow>
                     <FormRow label="Voyage number">
                       <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />

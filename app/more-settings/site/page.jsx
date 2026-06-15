@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { refreshAuthPayload } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -549,6 +550,7 @@ function FormInput({ label, required, value, onChange, disabled, placeholder, ty
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        {...numberInputProps(type)}
       />
     </div>
   );

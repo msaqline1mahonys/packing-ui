@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
 import { hasPermission } from "@/lib/use-user-permissions";
+import { numberInputProps } from "@/lib/number-input";
 
 /** Combine stored date + hour + minute into a datetime-local value string. */
 function buildDatetimeValue(container, names) {
@@ -354,6 +355,7 @@ function PemsInput({ label, value, onChange, type = "text", readOnly = false, st
         onChange={(event) => onChange?.(event.target.value)}
         readOnly={readOnly}
         step={step}
+        {...numberInputProps(type)}
       />
     </div>
   );

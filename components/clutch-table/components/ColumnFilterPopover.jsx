@@ -6,6 +6,7 @@ import {
   FormControl, InputLabel, Select, Checkbox, FormControlLabel, Divider,
 } from '@mui/material'
 import { safeString } from '../utils/safe'
+import { onNumberInputWheel } from '@/lib/number-input'
 
 const TEXT_OPS = [
   { value: 'contains', label: 'Contains' },
@@ -131,6 +132,7 @@ export function ColumnFilterPopover({ anchorEl, onClose, column, rows, currentFi
               <TextField fullWidth size="small" label="Value"
                 type={colType === 'number' ? 'number' : colType === 'date' ? 'date' : 'text'}
                 value={value} onChange={(e) => setValue(e.target.value)}
+                onWheel={colType === 'number' ? onNumberInputWheel : undefined}
                 InputLabelProps={colType === 'date' ? { shrink: true } : undefined}
                 sx={{ mb: needsSecondValue ? 1.5 : 0 }} autoFocus
               />
@@ -140,6 +142,7 @@ export function ColumnFilterPopover({ anchorEl, onClose, column, rows, currentFi
               <TextField fullWidth size="small" label="To"
                 type={colType === 'number' ? 'number' : colType === 'date' ? 'date' : 'text'}
                 value={value2} onChange={(e) => setValue2(e.target.value)}
+                onWheel={colType === 'number' ? onNumberInputWheel : undefined}
                 InputLabelProps={colType === 'date' ? { shrink: true } : undefined}
               />
             )}

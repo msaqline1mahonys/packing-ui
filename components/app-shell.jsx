@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
 import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
 
+import { useDisableNumberInputScroll } from "@/lib/number-input";
 import { SITE_CHANGED_EVENT } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,7 @@ function MainPanel({ children, compactTop = false, contentKey = 0 }) {
 }
 
 function AppShellInner({ children }) {
+  useDisableNumberInputScroll();
   const pathname = usePathname();
   const router = useRouter();
   const authUser = useAuthNavUser();

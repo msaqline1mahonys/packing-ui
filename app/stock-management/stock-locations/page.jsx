@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -953,6 +954,7 @@ function FormField({ field, value, onChange, disabled, siteOptions }) {
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
+          {...numberInputProps(field.type)}
         />
       )}
     </div>

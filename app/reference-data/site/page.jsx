@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -667,6 +668,7 @@ function FormField({ field, value, onChange, disabled }) {
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
           placeholder={field.placeholder}
+          {...numberInputProps(field.type)}
         />
       )}
     </div>

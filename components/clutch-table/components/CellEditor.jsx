@@ -3,6 +3,8 @@
 import { useRef, useState } from 'react'
 import { MenuItem, Select, TextField } from '@mui/material'
 
+import { onNumberInputWheel } from '@/lib/number-input'
+
 function resolveEditor(column) {
   if (typeof column.editor === 'function') return 'custom'
   if (typeof column.editor === 'string') return column.editor
@@ -135,6 +137,7 @@ export function CellEditor({ value, row, column, initialChar, onCommit, onCancel
         } else { e.currentTarget.select() }
       }}
       onBlur={() => finalize('blur')}
+      onWheel={inputType === 'number' ? onNumberInputWheel : undefined}
       sx={{
         width: '100%',
         '& .MuiOutlinedInput-root': { height: '100%', fontSize: '0.85rem', bgcolor: 'background.paper' },

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 import { readSiteOptions, SITES_UPDATED_EVENT } from "@/lib/site-data";
 import {
   ensureSiteRowsHaveIntegrationScaffold,
@@ -727,6 +728,7 @@ function LabeledInput({ label, value, onChange, type = "text", error, trailingBu
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder="Not configured"
+          {...numberInputProps(type)}
         />
         {trailingButton ? trailingButton : null}
       </div>

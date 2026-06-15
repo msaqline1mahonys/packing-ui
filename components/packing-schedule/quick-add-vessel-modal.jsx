@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createVessel, createVesselVoyage } from "@/lib/api/shipping";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
@@ -63,6 +64,7 @@ function FormField({ field, value, onChange, disabled }) {
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
+          {...numberInputProps(field.type)}
         />
       )}
     </div>

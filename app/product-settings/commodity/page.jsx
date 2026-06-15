@@ -6,6 +6,7 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
+import { numberInputWheelProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -813,6 +814,7 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
         <input
           type="number"
           className={inputClass}
+          {...numberInputWheelProps}
           value={item.min}
           disabled={isSaving}
           onChange={(e) => onFieldChange("min", e.target.value)}
@@ -824,6 +826,7 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
         <input
           type="number"
           className={inputClass}
+          {...numberInputWheelProps}
           value={item.max}
           disabled={isSaving}
           onChange={(e) => onFieldChange("max", e.target.value)}

@@ -10,6 +10,7 @@ import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queri
 import { usePolling } from "@/lib/use-polling";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -531,7 +532,7 @@ function FormField({ field, value, onChange, disabled }) {
           placeholder="Select..."
         />
       ) : (
-        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
+        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} {...numberInputProps(field.type)} />
       )}
     </div>
   );

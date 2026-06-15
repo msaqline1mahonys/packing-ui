@@ -55,6 +55,7 @@ import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
 import { hasPermission } from "@/lib/use-user-permissions";
@@ -2221,6 +2222,7 @@ function LabeledInput({ label, value, onChange, type = "text", readOnly = false,
         readOnly={readOnly}
         step={step}
         placeholder={placeholder}
+        {...numberInputProps(type)}
       />
     </div>
   );

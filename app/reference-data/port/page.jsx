@@ -7,6 +7,7 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { cn } from "@/lib/utils";
+import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -455,7 +456,7 @@ function FormField({ field, value, onChange, disabled, selectOptions }) {
       ) : field.type === "textarea" ? (
         <textarea suppressHydrationWarning className={cn(inputClass, "min-h-20 resize-y")} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
       ) : (
-        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
+        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} {...numberInputProps(field.type)} />
       )}
     </div>
   );

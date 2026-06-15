@@ -53,6 +53,10 @@ export const PACKING_NAV_MODULES = [
     href: "/packing-schedule",
     icon: <Package className="size-5" strokeWidth={1.5} />,
     permission: "packing.schedule.view",
+    children: [
+      { name: "Packs", href: "/packing-schedule" },
+      { name: "Containers", href: "/packing-schedule/containers" },
+    ],
   },
   {
     name: "Stock Management",

@@ -46,6 +46,7 @@ import {
   applyContainerPatch,
   getCompletionMissingChecks,
   getOutloadBlockers,
+  isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
 import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
@@ -485,11 +486,12 @@ export default function PackDetailClient({ packId }) {
   const selectedAoNumber = useMemo(() => aoNumberByName.get(String(pemsDraft.aoSignoff || "").trim()) || "", [aoNumberByName, pemsDraft.aoSignoff]);
 
   const packSummary = useMemo(() => {
-    if (!packRow || !selectedPackDraft) return { total: 0, submitted: 0, complete: 0 };
+    if (!packRow || !selectedPackDraft) return { total: 0, submitted: 0, complete: 0, progress: 0 };
     const total = selectedPackDraft.containers.length;
     const submitted = selectedPackDraft.containers.filter((container) => container.praSubmitted).length;
-    const complete = selectedPackDraft.containers.filter((container) => containerStage(container) === "Complete").length;
-    return { total, submitted, complete };
+    const complete = selectedPackDraft.containers.filter(isContainerOutloadComplete).length;
+    const progress = complete;
+    return { total, submitted, complete, progress };
   }, [packRow, selectedPackDraft]);
 
   // These must be declared before any early return to satisfy Rules of Hooks
@@ -985,13 +987,14 @@ export default function PackDetailClient({ packId }) {
   const packChecks = selectedPackDraft?.packChecks || {};
   const packChecksCompleteCount = PACK_CHECK_FIELDS.filter((field) => Boolean(packChecks[field.key])).length;
   const allPackChecksComplete = packChecksCompleteCount === PACK_CHECK_FIELDS.length;
+  const packDisplayRef = String(packRow.jobReference || "").trim() || String(packRow.id);
 
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-y-1">
-            <h2 className="shrink-0 text-lg font-semibold text-slate-900">Pack #{packRow.id}</h2>
+            <h2 className="shrink-0 text-lg font-semibold text-slate-900">Pack #{packDisplayRef}</h2>
             <span className="min-w-0 border-l border-slate-200 pl-3 text-sm text-slate-600 sm:ml-1">
               PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
               {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
@@ -1229,7 +1232,7 @@ export default function PackDetailClient({ packId }) {
             <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Container queue</h3>
               <span className="ms-auto text-sm font-medium text-slate-600">
-                Pack progress {packSummary.submitted}/{packRow.containersRequired}
+                Pack progress {packSummary.progress}/{packRow.containersRequired}
               </span>
             </div>
             <div className="border-b border-slate-200 px-2 py-2">
@@ -1967,7 +1970,7 @@ function PemsTab({
             <h3 className="text-sm font-semibold leading-snug text-slate-900 sm:text-base">
               {isGppirRecord ? `${GPPIR_RECORD_TYPE} (staging)` : `${ECR_RECORD_TYPE} (staging)`}
             </h3>
-            <span className="ms-auto shrink-0 text-xs text-slate-500 tabular-nums">Pack #{packRow.id}</span>
+            <span className="ms-auto shrink-0 text-xs text-slate-500 tabular-nums">Pack #{packDisplayRef}</span>
           </div>
           {!stagedContainers.length ? (
             <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">

@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
-import { getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
+import { getPackPraProgress, getPackProgress, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { cn } from "@/lib/utils";
@@ -134,7 +134,7 @@ export default function PackersScheduleClient() {
     () =>
       filtered.map((row) => ({
         ...row,
-        progress: getPackProgress(row, workByPack).label,
+        progress: getPackPraProgress(row, workByPack).label,
       })),
     [filtered, workByPack]
   );
@@ -345,7 +345,7 @@ export default function PackersScheduleClient() {
               <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vessel_cutoff_date ?? selected.vesselCutoffDate ?? selected.vessel_voyage?.vessel_cutoff_date ?? "")} />
               <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
               <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
-              <Field label="PRA progress" value={getPackProgress(selected, workByPack).label} />
+              <Field label="PRA progress" value={getPackPraProgress(selected, workByPack).label} />
               <div className="pt-1">
                 <Button type="button" size="sm" className="w-full text-[12px]" onClick={openPack}>
                   Open Container Details

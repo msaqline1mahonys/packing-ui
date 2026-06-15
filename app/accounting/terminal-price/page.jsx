@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { getTerminalPrices, saveTerminalPrices } from "@/lib/api/accounting";
@@ -35,8 +36,9 @@ export default function TerminalPricePage() {
       .then((data) => {
         setRows(Array.isArray(data?.rows) ? data.rows : []);
       })
-      .catch(() => {
+      .catch((err) => {
         setRows([]);
+        setErrorText(err?.message || "Failed to load terminal prices.");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -77,7 +79,11 @@ export default function TerminalPricePage() {
         <p className="text-xs text-slate-500">Accounting / Terminal Price</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">Terminal Price</h1>
         <p className="text-xs leading-relaxed text-slate-500">
-          Set the revenue price (used for invoicing) and expense price for each terminal.
+          Set the revenue price (used for invoicing) and expense price for each terminal. Terminal records are shared from{" "}
+          <Link href="/reference-data/terminal" className="font-semibold text-brand hover:underline">
+            Reference Data → Terminal
+          </Link>
+          .
         </p>
       </div>
 
@@ -91,7 +97,16 @@ export default function TerminalPricePage() {
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading terminals…</p>
         ) : rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No terminals found.</p>
+          <div className="py-8 text-center text-sm text-slate-500">
+            <p>No terminals found for this site.</p>
+            <p className="mt-2">
+              Add terminals in{" "}
+              <Link href="/reference-data/terminal" className="font-semibold text-brand hover:underline">
+                Reference Data → Terminal
+              </Link>
+              , then return here to set prices.
+            </p>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">

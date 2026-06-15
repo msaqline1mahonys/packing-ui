@@ -38,7 +38,7 @@ export { SiteProvider, useSite } from "./site-context";
 export { SiteSelect } from "./site-select";
 export { PACKING_SITES } from "./packing-defaults";
 export { ErpNavUiProvider, useErpNavUi } from "./nav-ui-context";
-export { pathnameMatchesHref } from "./nav-path";
+export { pathnameMatchesHref, pathnameMatchesNavChild } from "./nav-path";
 export {
   PACKING_NAV_DEFAULT_UI,
   PACKING_NAV_FOOTER,

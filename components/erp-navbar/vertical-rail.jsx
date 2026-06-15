@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
-import { pathnameMatchesHref } from "./nav-path";
+import { pathnameMatchesHref, pathnameMatchesNavChild } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
 import { useSite } from "./site-context";
@@ -147,7 +147,8 @@ function NavMenu({
             )}
           >
             {items.map((item) => {
-              const subActive = pathnameMatchesHref(pathname, item.href);
+              const siblingHrefs = items.map((i) => i.href);
+              const subActive = pathnameMatchesNavChild(pathname, item.href, siblingHrefs);
               return (
                 <li key={`${parentHref}:${item.name}`}>
                   <Link

@@ -13,7 +13,7 @@ import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
 import { AccountDropdownHeader } from "./account-dropdown-header";
-import { pathnameMatchesHref } from "./nav-path";
+import { pathnameMatchesHref, pathnameMatchesNavChild } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
 import { useSite } from "./site-context";
@@ -205,7 +205,11 @@ function HorizontalModule({ item, pathname }) {
                   href={sub.href}
                   className={cn(
                     "block cursor-pointer rounded-md px-2 py-2 outline-none",
-                    pathnameMatchesHref(pathname, sub.href)
+                    pathnameMatchesNavChild(
+                      pathname,
+                      sub.href,
+                      children.map((c) => c.href),
+                    )
                       ? "bg-brand/15 font-medium text-brand-ink"
                       : "hover:bg-slate-50"
                   )}

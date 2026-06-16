@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { fetchAccountBalances, fetchShrinkAccounts } from "@/lib/transactions-api";
+import { fetchCommodityTypesList } from "@/lib/api/reference-data";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const TABS = [
@@ -83,6 +84,8 @@ function mapBalanceRow(row) {
     accountType: row.accountType,
     commodityId: row.commodityId,
     commodityName: row.commodityName,
+    commodityTypeId: row.commodityTypeId,
+    commodityTypeName: row.commodityTypeName,
     locationId: row.locationId,
     locationName: row.locationName,
     quantity: row.quantity,
@@ -98,8 +101,10 @@ export default function AccountBalancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
+  const [filterCommodityType, setFilterCommodityType] = useState("");
   const [filterCommodity, setFilterCommodity] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
+  const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
   const [showInternal, setShowInternal] = useState(true);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
   const [activeTab, setActiveTab] = useState("byAccount");
@@ -132,6 +137,18 @@ export default function AccountBalancePage() {
       .catch(() => setShrinkAccounts([]));
   }, []);
 
+  useEffect(() => {
+    fetchCommodityTypesList()
+      .then((types) =>
+        setCommodityTypeOptions(
+          types
+            .map((t) => ({ id: String(t.id), name: String(t.name ?? "") }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        )
+      )
+      .catch(() => setCommodityTypeOptions([]));
+  }, []);
+
   const accounts = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => map.set(r.accountKey, { key: r.accountKey, name: r.accountName }));
@@ -144,9 +161,12 @@ export default function AccountBalancePage() {
   }, [stockRows, shrinkAccounts]);
   const commodities = useMemo(() => {
     const map = new Map();
-    stockRows.forEach((r) => map.set(r.commodityId, { id: r.commodityId, name: r.commodityName }));
-    return Array.from(map.values());
-  }, [stockRows]);
+    stockRows.forEach((r) => {
+      if (filterCommodityType && String(r.commodityTypeId) !== filterCommodityType) return;
+      map.set(r.commodityId, { id: r.commodityId, name: r.commodityName });
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [stockRows, filterCommodityType]);
   const locations = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => map.set(r.locationId, { id: r.locationId, name: r.locationName }));
@@ -158,11 +178,12 @@ export default function AccountBalancePage() {
       if (!showInternal && r.accountType === "internal") return false;
       if (!showZeroBalances && Math.abs(r.quantity) < 0.001) return false;
       if (filterAccount && r.accountKey !== filterAccount) return false;
+      if (filterCommodityType && String(r.commodityTypeId) !== filterCommodityType) return false;
       if (filterCommodity && String(r.commodityId) !== filterCommodity) return false;
       if (filterLocation && String(r.locationId) !== filterLocation) return false;
       return true;
     });
-  }, [stockRows, showInternal, showZeroBalances, filterAccount, filterCommodity, filterLocation]);
+  }, [stockRows, showInternal, showZeroBalances, filterAccount, filterCommodityType, filterCommodity, filterLocation]);
 
   const summaryCards = useMemo(() => {
     const totalStock = flattenedStock.reduce((s, r) => s + r.quantity, 0);
@@ -174,10 +195,11 @@ export default function AccountBalancePage() {
   }, [flattenedStock]);
 
   const hasActiveFilters =
-    Boolean(filterAccount || filterCommodity || filterLocation || !showInternal || showZeroBalances);
+    Boolean(filterAccount || filterCommodityType || filterCommodity || filterLocation || !showInternal || showZeroBalances);
 
   const clearFilters = () => {
     setFilterAccount("");
+    setFilterCommodityType("");
     setFilterCommodity("");
     setFilterLocation("");
     setShowInternal(true);
@@ -185,7 +207,7 @@ export default function AccountBalancePage() {
   };
 
   const filterInsights = useMemo(() => {
-    if (!filterAccount && !filterCommodity && !filterLocation) return null;
+    if (!filterAccount && !filterCommodityType && !filterCommodity && !filterLocation) return null;
 
     const total = flattenedStock.reduce((s, r) => s + r.quantity, 0);
     const accountCount = new Set(flattenedStock.map((r) => r.accountKey)).size;
@@ -238,6 +260,28 @@ export default function AccountBalancePage() {
       };
     }
 
+    if (filterCommodityType) {
+      const name = commodityTypeOptions.find((t) => t.id === filterCommodityType)?.name ?? "Commodity Type";
+      const commTotals = {};
+      const accTotals = {};
+      flattenedStock.forEach((r) => {
+        commTotals[r.commodityName] = (commTotals[r.commodityName] || 0) + r.quantity;
+        accTotals[r.accountName] = (accTotals[r.accountName] || 0) + r.quantity;
+      });
+      const topComm = topEntry(commTotals);
+      const topAcc = topEntry(accTotals);
+      return {
+        title: name,
+        context: "Commodity Type view",
+        stats: [
+          { label: "Total Stock", value: `${total.toFixed(3)} MT`, color: qtyColor(total) },
+          { label: "Commodities", value: String(commodityCount) },
+          { label: "Top Commodity", value: topComm ? topComm[0] : "—" },
+          { label: "Top Account", value: topAcc ? topAcc[0] : "—" },
+        ],
+      };
+    }
+
     const name = locations.find((l) => String(l.id) === filterLocation)?.name ?? "Location";
     const commTotals = {};
     const accTotals = {};
@@ -257,7 +301,7 @@ export default function AccountBalancePage() {
         { label: "Top Account", value: topAcc ? topAcc[0] : "—" },
       ],
     };
-  }, [flattenedStock, filterAccount, filterCommodity, filterLocation, accounts, commodities, locations]);
+  }, [flattenedStock, filterAccount, filterCommodityType, filterCommodity, filterLocation, accounts, commodities, commodityTypeOptions, locations]);
 
   const byAccount = useMemo(() => {
     const map = {};
@@ -459,7 +503,7 @@ export default function AccountBalancePage() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Account</label>
             <ClutchSelect
@@ -467,6 +511,25 @@ export default function AccountBalancePage() {
               value={accounts.map((c) => ({ value: c.key, label: c.name })).find((o) => o.value === filterAccount) ?? null}
               onChange={(option) => setFilterAccount(option ? option.value : "")}
               placeholder="All Accounts"
+              className="w-full"
+            />
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity Type</label>
+            <ClutchSelect
+              options={commodityTypeOptions.map((t) => ({ value: t.id, label: t.name }))}
+              value={commodityTypeOptions.map((t) => ({ value: t.id, label: t.name })).find((o) => o.value === filterCommodityType) ?? null}
+              onChange={(option) => {
+                const nextType = option ? option.value : "";
+                setFilterCommodityType(nextType);
+                if (nextType && filterCommodity) {
+                  const stillValid = stockRows.some(
+                    (r) => String(r.commodityId) === filterCommodity && String(r.commodityTypeId) === nextType
+                  );
+                  if (!stillValid) setFilterCommodity("");
+                }
+              }}
+              placeholder="All Commodity Types"
               className="w-full"
             />
           </div>

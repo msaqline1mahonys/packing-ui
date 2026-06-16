@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
+import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -71,6 +71,10 @@ const defaultFieldNames = {
   grainInspection: "grainInspection",
   inspectionLevelCode: "inspectionLevelCode",
   passedAfterRectification: "passedAfterRectification",
+  ecInspectionRemarkCode: "ecInspectionRemarkCode",
+  ecInspectionRemark: "ecInspectionRemark",
+  grainInspectionRemarkCode: "grainInspectionRemarkCode",
+  grainInspectionRemark: "grainInspectionRemark",
   inspectionRemarkCode: "inspectionRemarkCode",
   aoSignoff: "aoSignoff",
   aoInspectionRemark: CONTAINER_INSPECTION_REMARK_FIELD,
@@ -92,6 +96,8 @@ export default function ContainerFormSections({
   inspectionOptions,
   inspectionLevelOptions = ["Consumable", "Standard"],
   rectificationOptions = ["N", "Y"],
+  ecInspectionRemarks = [],
+  goodsInspectionRemarks = [],
   remarkCodeOptions = [],
   praTemplateOptions,
   praStatusOptions,
@@ -167,6 +173,33 @@ export default function ContainerFormSections({
     onChange?.({
       transporterId: transId || null,
       [names.transporter || "transporter"]: transName,
+    });
+  }
+
+  const ecRemarkOptions = buildRemarkSelectOptions(ecInspectionRemarks);
+  const goodsRemarkOptions = buildRemarkSelectOptions(goodsInspectionRemarks);
+  const emptyFailed = getValue(container, names, "emptyInspection") === "Failed";
+  const grainFailed = getValue(container, names, "grainInspection") === "Failed";
+
+  function applyRemarkPatch(patch) {
+    onChange?.(patch);
+  }
+
+  function handleRemarkCodeSelect(type, option) {
+    const codeField = type === "goods" ? names.grainInspectionRemarkCode : names.ecInspectionRemarkCode;
+    const remarkField = type === "goods" ? names.grainInspectionRemark : names.ecInspectionRemark;
+    if (!option) {
+      applyRemarkPatch({
+        [codeField]: "",
+        [remarkField]: "",
+      });
+      return;
+    }
+    applyRemarkPatch({
+      [codeField]: option.value,
+      [remarkField]: option.name || option.label,
+      [names.inspectionRemarkCode]: option.value,
+      [names.aoInspectionRemark]: option.name || option.label,
     });
   }
 
@@ -320,9 +353,57 @@ export default function ContainerFormSections({
             />
           ) : null}
         </div>
+        {emptyFailed && ecRemarkOptions.length ? (
+          <div className="px-3 pb-2">
+            <label className="mb-1 block text-xs font-medium text-slate-600">Empty container fail reason</label>
+            <ClutchSelect
+              options={ecRemarkOptions}
+              value={ecRemarkOptions.find((opt) => opt.value === getValue(container, names, "ecInspectionRemarkCode")) ?? null}
+              onChange={(option) => handleRemarkCodeSelect("ec", option)}
+              placeholder="Select fail reason…"
+              isClearable
+            />
+          </div>
+        ) : null}
+        {grainFailed && goodsRemarkOptions.length ? (
+          <div className="px-3 pb-2">
+            <label className="mb-1 block text-xs font-medium text-slate-600">Grain inspection fail reason</label>
+            <ClutchSelect
+              options={goodsRemarkOptions}
+              value={goodsRemarkOptions.find((opt) => opt.value === getValue(container, names, "grainInspectionRemarkCode")) ?? null}
+              onChange={(option) => handleRemarkCodeSelect("goods", option)}
+              placeholder="Select fail reason…"
+              isClearable
+            />
+          </div>
+        ) : null}
         <div className="px-3 pb-3">
-          <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark (notes)</label>
-          <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
+          {emptyFailed ? (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Empty container inspection remark</label>
+              <textarea
+                className={`${inputClass} min-h-[82px] w-full resize-y`}
+                value={getValue(container, names, "ecInspectionRemark") || getValue(container, names, "aoInspectionRemark")}
+                onChange={(event) => setField("ecInspectionRemark", event.target.value)}
+              />
+            </div>
+          ) : null}
+          {grainFailed ? (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Grain inspection remark</label>
+              <textarea
+                className={`${inputClass} min-h-[82px] w-full resize-y`}
+                value={getValue(container, names, "grainInspectionRemark") || getValue(container, names, "aoInspectionRemark")}
+                onChange={(event) => setField("grainInspectionRemark", event.target.value)}
+              />
+            </div>
+          ) : null}
+          {!emptyFailed && !grainFailed ? (
+            <>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark (notes)</label>
+              <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
+            </>
+          ) : null}
         </div>
       </div>
 

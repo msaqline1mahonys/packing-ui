@@ -35,7 +35,8 @@ import {
   validatePemsSubmission,
 } from "@/lib/pems";
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
-import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
+import PemsTab from "@/components/pems/pems-tab";
+import PackAccountingTab from "@/components/accounting/pack-accounting-tab";
 import { savePack } from "@/lib/pack-schedule-store";
 import { packAssignedPackerOptions, performBlend } from "@/lib/api/packing";
 import { fetchStockByLocationForAccount } from "@/lib/stock-transfers-api";
@@ -43,7 +44,7 @@ import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
-import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useInvalidateReferenceData, usePemsInspectionRemarksQuery } from "@/lib/hooks/use-reference-data-queries";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -51,13 +52,8 @@ import {
 } from "@/lib/releases-store";
 import { saveRelease } from "@/lib/releases-api";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
-import { attachPemsSubmissionSnapshot, downloadPemsSubmissionPdf } from "@/lib/pems-staging-snapshot";
-import PemsSubmissionPreviewModal from "@/components/pems/pems-submission-preview-modal";
-import {
-  CONTAINER_INSPECTION_REMARK_FIELD,
-  containerInspectionRemarkPatch,
-  getContainerInspectionRemark,
-} from "@/lib/pems-container-fields";
+import { attachPemsSubmissionSnapshot } from "@/lib/pems-staging-snapshot";
+import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
 import { normalizePackAttachmentFiles } from "@/lib/pack-attachments";
 import { readSiteRows } from "@/lib/site-data";
 import { AlertCircle, Pencil, Plus, Trash2, X } from "lucide-react";
@@ -1449,6 +1445,8 @@ function NewPackFormPageInner() {
   // window focus so switching back from a reference-data tab picks up new options.
   const queryLookups = useAllPackLookups();
   const invalidateReferenceData = useInvalidateReferenceData();
+  const { data: pemsInspectionRemarks = { ecInspectionRemarks: [], goodsInspectionRemarks: [] } } =
+    usePemsInspectionRemarksQuery();
 
   const [fumigants] = useState(() => loadFumigants());
   const [methodologies] = useState(() => loadMethodologies());
@@ -1524,9 +1522,6 @@ function NewPackFormPageInner() {
   const [editingContainerId, setEditingContainerId] = useState(null);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
-  const [pemsContainerSearch, setPemsContainerSearch] = useState("");
-  const [previewPemsSubmission, setPreviewPemsSubmission] = useState(null);
-  const [downloadingPemsBatchId, setDownloadingPemsBatchId] = useState("");
   const [activeSampleIndex, setActiveSampleIndex] = useState(0);
   const prevSampleCountRef = useRef(0);
 
@@ -2003,17 +1998,6 @@ function NewPackFormPageInner() {
     });
   }
 
-  async function handleDownloadPemsSubmission(submission) {
-    const batchId = submission?.batchId;
-    if (!batchId || downloadingPemsBatchId) return;
-    setDownloadingPemsBatchId(batchId);
-    try {
-      await downloadPemsSubmissionPdf(submission);
-    } finally {
-      setDownloadingPemsBatchId("");
-    }
-  }
-
   async function submitPemsFromForm() {
     const isGppir = pemsDraft.recordType === GPPIR_RECORD_TYPE;
     const stagedIds = pemsDraft.stagedContainerIds || [];
@@ -2152,6 +2136,13 @@ function NewPackFormPageInner() {
     });
   }, [portOptions, pack.destinationCountry, destinationCountryId]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  const accountingPackId = String(pack.id || editingRow?.id || "").trim();
+  const accountingRefreshKey = useMemo(() => {
+    const packedSignature = packContainers
+      .map((container) => `${container.id}:${container.nettWeight ?? ""}`)
+      .join("|");
+    return `${accountingPackId}:${packedSignature}:${pack.containersRequired ?? ""}:${pack.mtTotal ?? ""}`;
+  }, [accountingPackId, packContainers, pack.containersRequired, pack.mtTotal]);
   // Count of filled containers (those with a container number) assigned to each release ref,
   // keyed by upper-cased ref. Used for the per-release count badges on the release lines.
   const containerCountByReleaseRef = useMemo(() => {
@@ -2167,17 +2158,6 @@ function NewPackFormPageInner() {
   }, [packContainers]);
   const countForReleaseRef = (ref) =>
     containerCountByReleaseRef[String(ref ?? "").trim().toUpperCase()] || 0;
-  const filteredPemsPackContainers = useMemo(() => {
-    const q = pemsContainerSearch.trim().toLowerCase();
-    if (!q) return packContainers;
-    return packContainers.filter((c) =>
-      [c.order, c.containerNumber, c.sealNumber, c.releaseNumber, c.id, c.stockBayId, c.grainLocation].some((v) =>
-        String(v ?? "")
-          .toLowerCase()
-          .includes(q)
-      )
-    );
-  }, [packContainers, pemsContainerSearch]);
   const pemsDraft = useMemo(() => ({ ...defaultPemsDraft(), ...(pack.pemsDraft || {}) }), [pack.pemsDraft]);
   const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
   const siteRows = useMemo(() => readSiteRows(), []);
@@ -3888,578 +3868,49 @@ function NewPackFormPageInner() {
         ) : null}
 
         {activeTab === "pems" ? (
-          <>
-            <div className="space-y-3">
-              <section className="rounded-lg border border-slate-200/90 bg-white px-2.5 py-2.5 shadow-none">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Submitted PEM</p>
-                  {pemsSubmissions.length ? (
-                    <span className="tabular-nums text-[10px] text-slate-400">{pemsSubmissions.length}</span>
-                  ) : null}
-                </div>
-                {!pemsSubmissions.length ? (
-                  <p className="mt-2 text-[11px] text-slate-500">None yet.</p>
-                ) : (
-                  <div className="mt-2 divide-y divide-slate-100 border-t border-slate-100">
-                    {pemsSubmissions.map((row) => (
-                      <div
-                        key={row.batchId}
-                        className="flex flex-col gap-2 py-2.5 text-[11px] leading-snug sm:flex-row sm:items-start sm:gap-4"
-                      >
-                        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:w-[10.5rem] sm:flex-col sm:items-start sm:gap-1">
-                          <span className="font-semibold text-slate-800">{row.batchId}</span>
-                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-800">
-                            {safeValue(row.status)}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1 break-words">
-                          <p className="text-[10px] text-slate-700">{safeValue(row.recordType)}</p>
-                          <p className="mt-0.5 text-[10px] text-slate-500">
-                            {Array.isArray(row.containerIds) ? row.containerIds.length : 0} containers
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-[10px] whitespace-nowrap text-slate-400 sm:pt-0.5">
-                          {formatDateTimeValue(row.submittedAt)}
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 sm:flex-col sm:items-end sm:gap-1.5">
-                          <button
-                            type="button"
-                            className="text-[10px] font-medium text-brand-600 hover:underline"
-                            onClick={() => setPreviewPemsSubmission(row)}
-                          >
-                            View
-                          </button>
-                          <button
-                            type="button"
-                            className="text-[10px] font-medium text-brand-600 hover:underline disabled:opacity-50"
-                            disabled={downloadingPemsBatchId === row.batchId}
-                            onClick={() => handleDownloadPemsSubmission(row)}
-                          >
-                            {downloadingPemsBatchId === row.batchId ? "Downloading…" : "Download PDF"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section className={sectionClass} aria-label="PEMs submission setup">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <FormRow label="Record type">
-                    <ClutchSelect
-                      isClearable={false}
-                      options={PEMS_RECORD_SELECT_OPTIONS}
-                      value={PEMS_RECORD_SELECT_OPTIONS.find((o) => o.value === pemsDraft.recordType) ?? null}
-                      onChange={(option) => {
-                        const v = option ? option.value : "";
-                        updatePemsDraft((current) => ({
-                          ...current,
-                          recordType: v,
-                          stagedContainerIds:
-                            v === GPPIR_RECORD_TYPE
-                              ? current.stagedContainerIds.filter((id) => {
-                                const target = packContainers.find((container) => container.id === id);
-                                return Boolean(target?.ecrSubmitted);
-                              })
-                              : current.stagedContainerIds,
-                        }));
-                      }}
-                    />
-                  </FormRow>
-                  <FormRow label="Inspection start">
-                    <input
-                      className={inputClass}
-                      type="datetime-local"
-                      value={formatDateTimeInput(pemsDraft.inspectionStart)}
-                      onChange={(e) => updatePemsDraft({ inspectionStart: e.target.value })}
-                    />
-                  </FormRow>
-                  <FormRow label="Inspection end">
-                    <input
-                      className={inputClass}
-                      type="datetime-local"
-                      value={formatDateTimeInput(pemsDraft.inspectionEnd)}
-                      onChange={(e) => updatePemsDraft({ inspectionEnd: e.target.value })}
-                    />
-                  </FormRow>
-                  <FormRow label="AO signoff">
-                    {(() => {
-                      const aoSelectOpts = aoOptions.map((ao) => ({ value: ao.name, label: ao.name + (ao.aoNumber ? ` (${ao.aoNumber})` : "") }));
-                      return (
-                        <ClutchSelect
-                          placeholder="Select AO…"
-                          options={aoSelectOpts}
-                          value={aoSelectOpts.find((o) => o.value === pemsDraft.aoSignoff) ?? null}
-                          onChange={(option) => updatePemsDraft({ aoSignoff: option ? option.value : "" })}
-                        />
-                      );
-                    })()}
-                  </FormRow>
-                </div>
-                <PemsInspectionPanel
-                  className="mt-3"
-                  pemsDraft={pemsDraft}
-                  onChange={updatePemsDraft}
-                />
-                <div className="mt-2 flex flex-row flex-wrap items-start gap-2 sm:gap-3">
-                  <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">PEMs checker</p>
-                    <div className="mt-1 grid auto-rows-auto grid-cols-1 items-start divide-y divide-slate-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                      {[
-                        {
-                          title: "Yard number",
-                          ...(!selectedPackSite?.establishmentNumber && !selectedPackSite?.yardNo
-                            ? { ok: false, label: "Missing establishment number on site." }
-                            : { ok: true, label: `Establishment ${selectedPackSite.establishmentNumber || selectedPackSite.yardNo}` }),
-                        },
-                        {
-                          title: "Place of inspection",
-                          ...(!selectedPackSite?.name
-                            ? { ok: false, label: "Missing site name for place of inspection." }
-                            : { ok: true, label: `Place of inspection resolved (${selectedPackSite.name})` }),
-                        },
-                        {
-                          title: "AO signoff",
-                          ...(pemsDraft.aoSignoff
-                            ? selectedAoNumber
-                              ? { ok: true, label: `AO number resolved for ${pemsDraft.aoSignoff} (${selectedAoNumber})` }
-                              : { ok: false, label: `AO number missing for selected AO (${pemsDraft.aoSignoff}). Update Users table.` }
-                            : { ok: false, label: "Select AO signoff to resolve AO number." }),
-                        },
-                      ].map((section) => (
-                        <div key={section.title} className="py-1 first:pt-0 last:pb-0 sm:px-2 sm:py-1.5 sm:first:pl-0 sm:last:pr-0">
-                          <div className="space-y-1">
-                            <p className="text-[11px] leading-snug break-words">
-                              <span className="text-slate-400">{section.title}: </span>
-                              <span className={cn(section.ok ? "text-emerald-700" : "text-amber-700")}>
-                                {section.ok ? "OK — " : "Needs attention — "}
-                                {section.label}
-                              </span>
-                            </p>
-                            {section.lines?.length
-                              ? section.lines.map((line, i) => (
-                                <p key={i} className="text-[11px] leading-snug break-words text-slate-600">
-                                  {line}
-                                </p>
-                              ))
-                              : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {hasPermission("packing.container.ao-signoff") ? (
-                    <Button
-                      type="button"
-                      className="h-10 shrink-0 self-center sm:min-w-[160px]"
-                      onClick={submitPemsFromForm}
-                      disabled={!stagedPemsContainers.length || isSubmittingPems}
-                    >
-                      {isSubmittingPems ? "Submitting…" : `Submit ${stagedPemsContainers.length}`}
-                    </Button>
-                  ) : (
-                    <div className="flex h-10 shrink-0 items-center self-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 sm:min-w-[160px]">
-                      Requires Authorised Officer permission
-                    </div>
-                  )}
-                </div>
-                {pemsSubmitError ? (
-                  <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pemsSubmitError}</p>
-                ) : null}
-              </section>
-
-              <div className="grid gap-2 lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:gap-3">
-                <aside className="space-y-4">
-                  <section className="rounded-xl border border-slate-200/90 bg-white">
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-2 py-2">
-                      <h3 className="text-xs font-semibold tracking-wide text-slate-600">Containers</h3>
-                      <span className="tabular-nums text-[10px] text-slate-400" aria-live="polite">
-                        {stagedPemsContainers.length}/{packContainers.length}
-                      </span>
-                    </div>
-                    <div className="border-b border-slate-100 px-2 py-1.5">
-                      <input
-                        type="search"
-                        className={cn(inputClass, "h-9 w-full text-xs")}
-                        value={pemsContainerSearch}
-                        onChange={(e) => setPemsContainerSearch(e.target.value)}
-                        placeholder="Search containers…"
-                        aria-label="Search containers"
-                      />
-                      <p className="mt-0.5 text-[10px] text-slate-500">
-                        Showing {filteredPemsPackContainers.length} of {packContainers.length}
-                      </p>
-                    </div>
-                    <div className="border-b border-slate-100 px-2 py-1.5">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 px-2.5 text-[11px]"
-                        disabled={!pemsEligibleContainerIds.length}
-                        onClick={() => {
-                          if (allPemsEligibleStaged) updatePemsDraft({ stagedContainerIds: [] });
-                          else
-                            updatePemsDraft({
-                              stagedContainerIds:
-                                pemsDraft.recordType === GPPIR_RECORD_TYPE
-                                  ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
-                                  : packContainers.map((container) => container.id),
-                            });
-                        }}
-                      >
-                        {allPemsEligibleStaged ? "Unselect all" : "Select all"}
-                      </Button>
-                    </div>
-                    <div className="max-h-[18rem] space-y-1 overflow-auto px-1.5 pb-1.5 pt-1">
-                      {!filteredPemsPackContainers.length ? (
-                        <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-2 py-4 text-center text-[11px] text-slate-500">
-                          No containers match this search.
-                        </div>
-                      ) : null}
-                      {filteredPemsPackContainers.map((container) => {
-                        const checked = pemsDraft.stagedContainerIds.includes(container.id);
-                        const canStage = pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted;
-                        const statusLabel = container.gppirSubmitted ? "GPPIR" : container.ecrSubmitted ? "ECR" : "No ECR";
-                        const statusTitle = container.gppirSubmitted
-                          ? "GPPIR submitted"
-                          : container.ecrSubmitted
-                            ? "ECR submitted"
-                            : "Awaiting ECR";
-                        const isHighlighted = editingContainerId === container.id;
-                        return (
-                          <div
-                            key={container.id}
-                            className={cn(
-                              "rounded-md border px-2 py-1.5 text-[11px] leading-snug",
-                              isHighlighted ? "border-brand/40 bg-brand/5" : "border-slate-200 bg-white"
-                            )}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 shrink-0 rounded border-slate-300"
-                                checked={checked}
-                                disabled={!canStage}
-                                onChange={() => {
-                                  if (!canStage) return;
-                                  togglePemsContainer(container.id);
-                                }}
-                              />
-                              <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">
-                                #{container.order} {container.containerNumber || "Draft"}
-                              </span>
-                              <span
-                                title={statusTitle}
-                                className={cn(
-                                  "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold leading-none",
-                                  container.gppirSubmitted
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : container.ecrSubmitted
-                                      ? "bg-blue-100 text-blue-800"
-                                      : "bg-slate-100 text-slate-600"
-                                )}
-                              >
-                                {statusLabel}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex min-h-[1.125rem] items-center justify-between gap-1.5 text-[10px] text-slate-500">
-                              <span className="min-w-0 truncate">
-                                {safeValue(container.sealNumber)} · {safeValue(container.releaseNumber)}
-                              </span>
-                              <button
-                                type="button"
-                                className="shrink-0 font-medium text-brand-600 hover:text-brand-700 hover:underline"
-                                onClick={() => setEditingContainerId(container.id)}
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                </aside>
-
-                <section className="space-y-4 min-w-0">
-                  <div className="rounded-xl border border-slate-200/90 bg-white p-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <h3 className="text-sm font-semibold leading-snug text-slate-900 sm:text-base">
-                        {isGppirPems ? `${GPPIR_RECORD_TYPE} (staging)` : `${ECR_RECORD_TYPE} (staging)`}
-                      </h3>
-                      <span className="ms-auto shrink-0 text-xs text-slate-500 tabular-nums">Pack #{packDisplayId}</span>
-                    </div>
-                    {!stagedPemsContainers.length ? (
-                      <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
-                        Stage one or more containers to populate this record.
-                      </div>
-                    ) : isGppirPems ? (
-                      <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
-                        <div className={stagingGridClass}>
-                          <PemsStagingFormField label="RFP Number">
-                            <input
-                              className={stagingInputClass}
-                              value={pack.rfp}
-                              onChange={(e) => set("rfp", e.target.value)}
-                              placeholder="RFP reference"
-                            />
-                          </PemsStagingFormField>
-                          <PemsStagingField label="Establishment Name" value={safeValue(selectedPackSite?.name)} />
-                          <PemsStagingField label="Establishment Number" value={safeValue(selectedPackSite?.yardNo)} />
-                          <PemsStagingFormField label="Exporter Name">
-                            {(() => {
-                              const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
-                              return (
-                                <ClutchSelect
-                                  placeholder="- Select -"
-                                  options={customerSelectOpts}
-                                  value={customerSelectOpts.find((o) => String(o.value) === String(pack.exporter)) ?? null}
-                                  onChange={(option) => set("exporter", option ? option.value : "")}
-                                />
-                              );
-                            })()}
-                          </PemsStagingFormField>
-                        </div>
-                        <div className={stagingGrid6Class}>
-                          <PemsStagingField label="Original RFP No." value="N/A" />
-                          <PemsStagingField label="Total Quantity" value={gppirStagingTotalWeight.toFixed(4)} />
-                          <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
-                          <PemsStagingField label="Est. Net Metric Weight" value={`${gppirStagingTotalWeight.toFixed(2)} TONS`} />
-                          <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
-                          <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
-                        </div>
-                        <div className={stagingGrid6Class}>
-                          <PemsStagingFormField label="Destination Country">
-                            {(() => {
-                              const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
-                              return (
-                                <ClutchSelect
-                                  placeholder="- Select country -"
-                                  options={countrySelectOpts}
-                                  value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
-                                  onChange={(option) => set("destinationCountry", option ? option.value : "")}
-                                />
-                              );
-                            })()}
-                          </PemsStagingFormField>
-                          <PemsStagingFormField label="Import Permit No.">
-                            {!pack.importPermitRequired ? (
-                              <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] text-slate-700">N/A</div>
-                            ) : (
-                              <input
-                                className={stagingInputClass}
-                                value={pack.importPermitNumber}
-                                onChange={(e) => set("importPermitNumber", e.target.value)}
-                                placeholder="Number"
-                              />
-                            )}
-                          </PemsStagingFormField>
-                          <PemsStagingField label="Flow Path Result" value={gppirStagingFlowResult} />
-                          <PemsStagingField label="Flow path Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
-                          <PemsStagingField label="Outcome type" value="Packaged" />
-                          <PemsStagingField label="Expiry Date" value={stagingExpiryDate} />
-                        </div>
-                        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                          <table className="w-full table-fixed text-left text-xs">
-                            <thead className="bg-slate-100 text-slate-700">
-                              <tr>
-                                <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
-                                <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
-                                <th className={cn(gppirTableCellCol, "font-semibold")}>Source</th>
-                                <th className={cn(gppirTableCellCol, "font-semibold")}>Commodity</th>
-                                <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
-                                <th className={cn(gppirTableTypeCol, "font-semibold")}>Type</th>
-                                <th className={cn(gppirTableNumCol, "font-semibold")}>Weight</th>
-                                <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
-                                <th className={cn(gppirTableNumCol, "font-semibold")}>Line Weight</th>
-                                <th className={cn(gppirTableNarrowCol, "font-semibold")}>Unit</th>
-                                <th className={cn(gppirTableCompactCol, "font-semibold")}>Sampled</th>
-                                <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
-                                <th className={cn(gppirTableCellCol, "font-semibold")}>Inspection AO Name</th>
-                                <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {stagedPemsContainers.map((container) => {
-                                const containerWeight = toRoundedNumber(container.nettWeight);
-                                return (
-                                  <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                                    <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                                    <td className={cn(gppirTableCellCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
-                                    <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(container.grainLocation || container.stockBayId)}</td>
-                                    <td className={cn(gppirTableCellCol, "truncate")}>{packPemsCommodityLabel}</td>
-                                    <td className={cn(gppirTableCompactCol, "text-center")}>1</td>
-                                    <td className={gppirTableTypeCol}>CONTAINER</td>
-                                    <td className={gppirTableNumCol}>{containerWeight.toFixed(2)}</td>
-                                    <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
-                                    <td className={gppirTableNumCol}>{containerWeight.toFixed(4)}</td>
-                                    <td className={gppirTableNarrowCol}>{GPPIR_WEIGHT_UNIT}</td>
-                                    <td className={cn(gppirTableCompactCol, "text-center")}>N/A</td>
-                                    <td className={gppirTableResultCol}>
-                                      {container.grainInspection === "Passed"
-                                        ? "Passed"
-                                        : container.grainInspection === "Failed"
-                                          ? "Failed"
-                                          : "Pending"}
-                                    </td>
-                                    <td className={cn(gppirTableCellCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
-                                    <td className={gppirTableRemarksCol}>
-                                      <textarea
-                                        className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
-                                        value={getContainerInspectionRemark(container)}
-                                        onChange={(e) =>
-                                          updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
-                                        }
-                                        placeholder="Remarks"
-                                        rows={2}
-                                      />
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className={stagingGridClass}>
-                          <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
-                          <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
-                        </div>
-                        <div className={stagingGrid3Class}>
-                          <PemsStagingFormField label="Additional Declaration">
-                            {(() => {
-                              const additionalDeclOpts = [{ value: "no", label: "N/A" }, { value: "yes", label: "Yes" }];
-                              return (
-                                <ClutchSelect
-                                  isClearable={false}
-                                  options={additionalDeclOpts}
-                                  value={additionalDeclOpts.find((o) => o.value === (pack.rfpAdditionalDeclarationRequired ? "yes" : "no")) ?? null}
-                                  onChange={(option) => set("rfpAdditionalDeclarationRequired", option?.value === "yes")}
-                                />
-                              );
-                            })()}
-                          </PemsStagingFormField>
-                          <PemsStagingField label="Total Passed" value={gppirStagingPassedWeight.toFixed(4)} />
-                          <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
-                        </div>
-                        <div className={stagingGrid3Class}>
-                          <PemsStagingFormField label="Comments">
-                            <input
-                              className={stagingInputClass}
-                              value={pemsDraft.ecrComments ?? ""}
-                              onChange={(e) => updatePemsDraft({ ecrComments: e.target.value })}
-                              placeholder="N/A"
-                            />
-                          </PemsStagingFormField>
-                          <PemsStagingField label="Total Failed" value={gppirStagingFailedWeight.toFixed(4)} />
-                          <PemsStagingField label="Unit" value={GPPIR_WEIGHT_UNIT} />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm">
-                        <div className={stagingGridClass}>
-                          <PemsStagingField label="Container Yard Id" value={safeValue(selectedPackSite?.yardNo)} />
-                          <PemsStagingField label="Place of Inspection" value={safeValue(selectedPackSite?.name)} />
-                          <PemsStagingField label="Inspection Start Date and Time" value={formatDateTimeValue(pemsDraft.inspectionStart)} />
-                          <PemsStagingField label="Inspection End Date and Time" value={formatDateTimeValue(pemsDraft.inspectionEnd)} />
-                        </div>
-                        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                          <table className="w-full table-fixed text-left text-xs [&_th]:leading-snug [&_td]:leading-snug">
-                            <thead className="bg-slate-100 text-slate-700">
-                              <tr>
-                                <th className={cn(gppirTableContainerCol, "font-semibold")}>Container Number</th>
-                                <th className={cn(gppirTableInspectionLevelCol, "font-semibold")}>Inspection Level</th>
-                                <th className={cn(gppirTableRfpCol, "font-semibold")}>RFP Number</th>
-                                <th className={cn(gppirTableResultCol, "font-semibold")}>Result</th>
-                                <th className={cn(gppirTableSealCol, "font-semibold")}>Seal Number</th>
-                                <th className={cn(gppirTableExpiryDateCol, "font-semibold")}>Expiry Date</th>
-                                <th className={cn(gppirTableInspectionAoCol, "font-semibold")}>Inspection AO Name</th>
-                                <th className={cn(gppirTableRemarksCol, "font-semibold")}>Remarks</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {stagedPemsContainers.map((container) => (
-                                <tr key={container.id} className="border-t border-slate-100 text-slate-700">
-                                  <td className={cn(gppirTableContainerCol, "truncate font-medium")}>{safeValue(container.containerNumber)}</td>
-                                  <td className={gppirTableInspectionLevelCol}>Consumable</td>
-                                  <td className={cn(gppirTableRfpCol, "truncate")}>{safeValue(packRfpText || container.releaseNumber)}</td>
-                                  <td className={gppirTableResultCol}>
-                                    {container.emptyInspection === "Passed"
-                                      ? "Pass"
-                                      : container.emptyInspection === "Failed"
-                                        ? "Fail"
-                                        : "Pending"}
-                                  </td>
-                                  <td className={cn(gppirTableSealCol, "truncate")}>{safeValue(container.sealNumber)}</td>
-                                  <td className={gppirTableExpiryDateCol}>{stagingExpiryDate}</td>
-                                  <td className={cn(gppirTableInspectionAoCol, "truncate")}>{safeValue(pemsDraft.aoSignoff)}</td>
-                                  <td className={gppirTableRemarksCol}>
-                                    <textarea
-                                      className={cn(stagingInputClass, "min-h-[2.5rem] resize-y")}
-                                      value={getContainerInspectionRemark(container)}
-                                      onChange={(e) =>
-                                        updatePackContainer(container.id, containerInspectionRemarkPatch(e.target.value))
-                                      }
-                                      placeholder="Remarks"
-                                      rows={2}
-                                    />
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <PemsStagingField label="Submitted AO Name" value={safeValue(pemsDraft.aoSignoff)} />
-                          <PemsStagingField label="Submitted AO Number" value={safeValue(selectedAoNumber)} />
-                        </div>
-                      </div>
-            )}
-                        <div className="mt-3 rounded-md border border-slate-200 bg-white p-2.5">
-                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Submitted PEMs records</h3>
-                          {!pemsSubmissions.length ? (
-                            <p className="mt-2 text-xs text-slate-500">No submissions yet.</p>
-                          ) : (
-                            <div className="mt-2 space-y-1.5">
-                              {pemsSubmissions.map((row) => (
-                                <div key={row.batchId} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-slate-800">{row.batchId}</span>
-                                    <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">{safeValue(row.status)}</span>
-                                    <span className="ms-auto text-[10px] text-slate-400">{formatDateTimeValue(row.submittedAt)}</span>
-                                  </div>
-                                  <p className="mt-0.5 text-[11px] text-slate-600">
-                                    {safeValue(row.recordType)} · Containers {Array.isArray(row.containerIds) ? row.containerIds.length : 0}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              <PemsSubmissionPreviewModal submission={previewPemsSubmission} onClose={() => setPreviewPemsSubmission(null)} />
-            </>
+          <PemsTab
+            containers={packContainers}
+            packerNames={packerNames}
+            selectedContainerId={editingContainerId}
+            onSelectContainer={setEditingContainerId}
+            onOpenContainer={setEditingContainerId}
+            openContainerLabel="Edit"
+            pemsDraft={pemsDraft}
+            selectedAoNumber={selectedAoNumber}
+            pemsSubmissions={pemsSubmissions}
+            siteRow={selectedPackSite}
+            packRow={{ ...pack, commodity: packPemsCommodityLabel, jobReference: pack.jobReference || pack.packNumber }}
+            aoNameOptions={aoOptions.map((ao) => ao.name)}
+            customerOptions={customerOptions}
+            countryOptions={countryOptions.map((country) => country.name)}
+            submitError={pemsSubmitError}
+            isSubmitting={isSubmittingPems}
+            canAoSignoff={hasPermission("packing.container.ao-signoff")}
+            onUpdatePemsDraft={updatePemsDraft}
+            onToggleStage={togglePemsContainer}
+            onStageAll={() =>
+              updatePemsDraft({
+                stagedContainerIds:
+                  pemsDraft.recordType === GPPIR_RECORD_TYPE
+                    ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                    : packContainers.map((container) => container.id),
+              })
+            }
+            onClearStage={() => updatePemsDraft({ stagedContainerIds: [] })}
+            onSubmitBatch={submitPemsFromForm}
+            onUpdatePackRow={(patch) => setPack((prev) => ({ ...prev, ...patch }))}
+            onUpdateContainer={updatePackContainer}
+            inputClass={inputClass}
+          />
         ) : null}
 
             {activeTab === "accounting" ? (
-              <div className={sectionColumnsClass}>
-                <section className={flushSectionClass} aria-label="Revenue">
-                  <div className={flushSectionBodyClass}>
-                    <p className="text-sm text-slate-500">
-                      Revenue calculations will appear once commodity pricing and container data are connected.
-                    </p>
-                  </div>
-                </section>
-                <section className={flushSectionClass} aria-label="Expense">
-                  <div className={flushSectionBodyClass}>
-                    <p className="text-sm text-slate-500">Cost-side lines will be added in a future release.</p>
-                  </div>
-                </section>
-              </div>
+              <PackAccountingTab
+                packId={accountingPackId}
+                packStatus={pack.status}
+                refreshKey={accountingRefreshKey}
+                isActive={activeTab === "accounting"}
+              />
             ) : null}
 
             {activeTab === "fumigation" && pack.fumigationRequired ? (
@@ -5387,6 +4838,8 @@ function NewPackFormPageInner() {
                     packReleases={Array.isArray(pack.releaseDetails) ? pack.releaseDetails : []}
                     containerParkOptions={containerParkOptions}
                     transporterOptions={transporterOptions}
+                    ecInspectionRemarks={pemsInspectionRemarks.ecInspectionRemarks}
+                    goodsInspectionRemarks={pemsInspectionRemarks.goodsInspectionRemarks}
                     onResetContainer={selectedEditContainerActions?.onResetContainer}
                     onMarkPacked={selectedEditContainerActions?.onMarkPacked}
                     onSubmitPra={selectedEditContainerActions?.onSubmitPra}

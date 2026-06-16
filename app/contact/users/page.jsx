@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { resolveLogoSrc } from "@/lib/in-ticket-print";
 import { cn } from "@/lib/utils";
 import {
   ALL_CLASSIFICATIONS,
@@ -112,6 +113,9 @@ function buildFormData(row, apiUserRaw) {
       aoPemsPassword: "",
       aoToken: "",
       signature: "",
+      signatureFile: null,
+      signatureFilePath: "",
+      clearSignatureFile: false,
       fumigationExpiry: "",
       fumigatorLicence: "",
       newPassword: "",
@@ -144,6 +148,9 @@ function buildFormData(row, apiUserRaw) {
     aoPemsPassword: "",  // always blank on open for security
     aoToken: "",          // always blank on open for security
     signature: profile.signature ?? row.signature ?? "",
+    signatureFile: null,
+    signatureFilePath: profile.signature_file ?? profile.signatureFile ?? row.signatureFilePath ?? row.signatureFile ?? "",
+    clearSignatureFile: false,
     fumigationExpiry: profile.fumigation_expiry ?? profile.fumigationExpiry ?? row.fumigationExpiry ?? "",
     fumigatorLicence: profile.fumigator_licence ?? profile.fumigatorLicence ?? row.fumigatorLicence ?? "",
     newPassword: "",
@@ -171,6 +178,7 @@ export default function ContactUsersPage() {
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
   const [orgSites, setOrgSites] = useState([]);
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState("");
 
   const loadUsers = useCallback(async () => {
     try {
@@ -197,6 +205,7 @@ export default function ContactUsersPage() {
           // Override with profile data from backend when present
           ...(u.profile ? {
             signature: u.profile.signature ?? domain.signature ?? "",
+            signatureFile: u.profile.signature_file ?? u.profile.signatureFile ?? domain.signatureFile ?? "",
             aoActive: u.profile.ao_active ?? legacy.aoActive,
             aoExpiry: u.profile.ao_expiry ?? u.profile.aoExpiry ?? domain.aoExpiry ?? "",
             aoNumber: u.profile.ao_number ?? u.profile.aoNumber ?? domain.aoNumber ?? "",
@@ -230,6 +239,20 @@ export default function ContactUsersPage() {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    if (!(formData.signatureFile instanceof File)) {
+      setSignaturePreviewUrl("");
+      return undefined;
+    }
+    const url = URL.createObjectURL(formData.signatureFile);
+    setSignaturePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [formData.signatureFile]);
+
+  const signatureImagePreview =
+    signaturePreviewUrl ||
+    (formData.signatureFilePath && !formData.clearSignatureFile ? resolveLogoSrc(formData.signatureFilePath) : "");
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -383,6 +406,8 @@ export default function ContactUsersPage() {
           profileData,
         };
         if (nextPassword) updateData.password = nextPassword;
+        updateData.signatureFile = formData.signatureFile instanceof File ? formData.signatureFile : undefined;
+        updateData.clearSignatureFile = Boolean(formData.clearSignatureFile);
         await updateApiUser(selected.id, updateData);
         userId = selected.id;
       } else {
@@ -397,6 +422,8 @@ export default function ContactUsersPage() {
           isAo,
           isFumigator,
           profileData,
+          signatureFile: formData.signatureFile instanceof File ? formData.signatureFile : undefined,
+          clearSignatureFile: Boolean(formData.clearSignatureFile),
         });
         userId = created.id;
       }
@@ -414,6 +441,7 @@ export default function ContactUsersPage() {
         aoPemsPassword: isAo ? (formData.aoPemsPassword || "").trim() : "",
         aoToken: isAo ? aoToken : "",
         signature,
+        signatureFile: formData.signatureFilePath || "",
         isFumigator,
         fumigationExpiry: isFumigator ? formData.fumigationExpiry : "",
         fumigatorLicence: isFumigator ? fumigatorLicence : "",
@@ -542,6 +570,17 @@ export default function ContactUsersPage() {
                 <DetailItem label="Packers Account Access" value={selected.packersAccountAccess ? "Yes" : "No"} />
                 <DetailItem label="AO Active" value={selected.aoActive ? "Yes" : "No"} />
                 <DetailItem label="Signature" value={selected.signature || "—"} />
+                {selected.signatureFile ? (
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Signature Image</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={resolveLogoSrc(selected.signatureFile)}
+                      alt={`${selected.name} signature`}
+                      className="h-16 max-w-[220px] rounded border border-slate-200 bg-white object-contain p-1"
+                    />
+                  </div>
+                ) : null}
                 {selected.aoActive ? (
                   <>
                     <DetailItem label="AO PEMS Username" value={selected.aoPemsUsername || "—"} />
@@ -653,11 +692,33 @@ export default function ContactUsersPage() {
             </FormRow>
 
             <FormRow label="Signature">
-              <Input
-                value={formData.signature}
-                onChange={(event) => setFormData({ ...formData, signature: event.target.value })}
-                placeholder="Type user signature or signing name"
-              />
+              <div className="space-y-3">
+                <Input
+                  value={formData.signature}
+                  onChange={(event) => setFormData({ ...formData, signature: event.target.value })}
+                  placeholder="Type user signature or signing name"
+                />
+                <SignatureUploader
+                  savedPath={formData.signatureFilePath}
+                  previewSrc={signatureImagePreview}
+                  disabled={saving}
+                  onPick={(file) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      signatureFile: file,
+                      clearSignatureFile: false,
+                    }))
+                  }
+                  onClear={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      signatureFile: null,
+                      signatureFilePath: "",
+                      clearSignatureFile: true,
+                    }))
+                  }
+                />
+              </div>
             </FormRow>
           </div>
 
@@ -823,6 +884,46 @@ function MobileList({ rows, selectedId, onSelect, search }) {
           );
         })
       )}
+    </div>
+  );
+}
+
+function SignatureUploader({ savedPath, previewSrc, disabled, onPick, onClear }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Signature Image</p>
+      <div className="flex min-h-[72px] items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-2">
+        {previewSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewSrc} alt="Signature preview" className="h-14 w-auto max-w-[220px] object-contain" />
+        ) : (
+          <span className="px-2 text-xs text-slate-400">No signature image uploaded</span>
+        )}
+        <div className="ml-auto flex flex-col gap-1">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+            disabled={disabled}
+            className="block text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
+            onChange={(e) => {
+              onPick(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          {savedPath || previewSrc ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onClear}
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Remove image
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {savedPath ? <p className="text-[11px] text-slate-500">Saved: {savedPath.split("/").pop()}</p> : null}
+      <p className="text-[11px] text-slate-500">Upload a signature image for use on fumigation certificates and records.</p>
     </div>
   );
 }

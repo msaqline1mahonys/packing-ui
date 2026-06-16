@@ -38,7 +38,8 @@ import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
 import { packAssignedPackerOptions, performBlend } from "@/lib/api/packing";
-import { fetchStockOnHand } from "@/lib/stock-transfers-api";
+import { fetchStockByLocationForAccount } from "@/lib/stock-transfers-api";
+import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
@@ -901,39 +902,196 @@ function blankBlendComponent() {
   return { commodityId: null, locationId: null, quantity: null, commodityName: "", locationName: "", commodityTypeId: null };
 }
 
-function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, onPerformed, sectionClass }) {
+function useBlendLocationStock(customerId, commodityId) {
+  const [locationStock, setLocationStock] = useState([]);
+  const [loadingStock, setLoadingStock] = useState(false);
+
+  useEffect(() => {
+    if (!customerId || !commodityId) {
+      setLocationStock([]);
+      setLoadingStock(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingStock(true);
+    fetchStockByLocationForAccount({ accountId: customerId, commodityId })
+      .then((rows) => {
+        if (!cancelled) setLocationStock(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLocationStock([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStock(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, commodityId]);
+
+  return { locationStock, loadingStock };
+}
+
+function BlendStockByLocationPanel({ locationStock, loading, selectedLocationId, onSelectLocation }) {
+  if (loading) {
+    return <p className="text-[10px] text-slate-400">Loading stock by location…</p>;
+  }
+  if (!locationStock.length) {
+    return (
+      <p className="text-[10px] text-slate-400">
+        No stock on hand at any location for this commodity.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Stock by location</p>
+      <div className="flex flex-wrap gap-1">
+        {locationStock.map((loc) => {
+          const selected = String(loc.locationId) === String(selectedLocationId ?? "");
+          return (
+            <button
+              key={String(loc.locationId)}
+              type="button"
+              onClick={() => onSelectLocation?.(loc)}
+              className={cn(
+                "rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                selected
+                  ? "border-brand/40 bg-brand/10 text-brand-ink"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-brand/30 hover:bg-brand/5"
+              )}
+            >
+              {loc.locationName}: {Number(loc.quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BlendComponentEditor({
+  component,
+  index,
+  customerId,
+  commoditySelectOpts,
+  locationSelectOpts,
+  inputClass,
+  onUpdate,
+  onRemove,
+}) {
+  const { locationStock, loadingStock } = useBlendLocationStock(customerId, component.commodityId);
+  const selectedSoh =
+    locationStock.find((loc) => String(loc.locationId) === String(component.locationId ?? ""))?.quantity ?? null;
+  const exceeds = selectedSoh != null && Number(component.quantity) > Number(selectedSoh) + 0.001;
+
+  function selectLocation(loc) {
+    onUpdate({
+      locationId: loc.locationId,
+      locationName: loc.locationName,
+    });
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2">
+      <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_5rem_auto]">
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+            Source commodity
+          </label>
+          <ClutchSelect
+            placeholder="- Select -"
+            options={commoditySelectOpts}
+            value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
+            onChange={(option) =>
+              onUpdate({
+                commodityId: option ? option.value : null,
+                commodityName: option ? option.label : "",
+                commodityTypeId: option ? (option._typeId ?? null) : null,
+                locationId: null,
+                locationName: "",
+              })
+            }
+          />
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+            Stock location
+          </label>
+          <ClutchSelect
+            placeholder="- Select -"
+            options={locationSelectOpts}
+            value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
+            onChange={(option) =>
+              onUpdate({
+                locationId: option ? option.value : null,
+                locationName: option ? option.label : "",
+              })
+            }
+          />
+          {selectedSoh != null ? (
+            <p className={cn("text-[10px] font-medium", exceeds ? "text-amber-700" : "text-slate-500")}>
+              {exceeds ? (
+                <span className="inline-flex items-center gap-1">
+                  <AlertCircle className="size-3 shrink-0" />
+                  Exceeds on hand ({Number(selectedSoh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT)
+                </span>
+              ) : (
+                <>On hand: {Number(selectedSoh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT</>
+              )}
+            </p>
+          ) : null}
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+            Qty (MT)
+          </label>
+          <input
+            className={inputClass ?? "h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"}
+            type="number"
+            min="0"
+            step="0.001"
+            value={component.quantity ?? ""}
+            onChange={(e) => onUpdate({ quantity: e.target.value === "" ? null : Number(e.target.value) })}
+            placeholder="0"
+          />
+        </div>
+        <div className="flex items-end">
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+            aria-label={`Remove component ${index + 1}`}
+            onClick={() => onRemove(index)}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {component.commodityId ? (
+        <BlendStockByLocationPanel
+          locationStock={locationStock}
+          loading={loadingStock}
+          selectedLocationId={component.locationId}
+          onSelectLocation={selectLocation}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function BlendPerformAction({ pack, packId, commodityOptions, stockLocations, mtTotal, actualPackedMt, onPerformed, sectionClass }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState([]);
-  const [sohByIndex, setSohByIndex] = useState({});
   const [performing, setPerforming] = useState(false);
   const [error, setError] = useState("");
 
-  if (!pack?.isBlend || !pack?.id) return null;
+  if (!pack?.isBlend || !packId) return null;
 
   const performed = Boolean(pack.blendPerformedAt);
-
-  async function loadSoh(rows) {
-    const accountId = pack.customerId;
-    const results = {};
-    await Promise.all(
-      rows.map(async (row, index) => {
-        if (!accountId || !row.commodityId || !row.locationId) {
-          results[index] = null;
-          return;
-        }
-        try {
-          results[index] = await fetchStockOnHand({
-            accountId,
-            commodityId: row.commodityId,
-            locationId: row.locationId,
-          });
-        } catch {
-          results[index] = null;
-        }
-      })
-    );
-    setSohByIndex(results);
-  }
 
   function openModal() {
     setError("");
@@ -946,19 +1104,11 @@ function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, o
       quantity: c.quantity ?? null,
     }));
     setDraft(seeded.length ? seeded : [blankBlendComponent()]);
-    setSohByIndex({});
     setOpen(true);
-    loadSoh(seeded);
   }
 
   function updateComponent(index, patch) {
-    setDraft((prev) => {
-      const next = prev.map((row, idx) => (idx === index ? { ...row, ...patch } : row));
-      if (patch.commodityId !== undefined || patch.locationId !== undefined) {
-        loadSoh(next);
-      }
-      return next;
-    });
+    setDraft((prev) => prev.map((row, idx) => (idx === index ? { ...row, ...patch } : row)));
   }
 
   function addComponent() {
@@ -984,7 +1134,7 @@ function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, o
     }
     setPerforming(true);
     try {
-      const updated = await performBlend(pack.id, components);
+      const updated = await performBlend(packId, components);
       onPerformed(updated);
       setOpen(false);
     } catch (err) {
@@ -1015,11 +1165,12 @@ function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, o
       {open ? (
         <BlendPerformModal
           pack={pack}
+          customerId={pack.customerId}
           components={draft}
-          sohByIndex={sohByIndex}
           isPerforming={performing}
           error={error}
           mtTotal={mtTotal}
+          actualPackedMt={actualPackedMt}
           commodityOptions={commodityOptions}
           stockLocations={stockLocations}
           onUpdateComponent={updateComponent}
@@ -1035,11 +1186,12 @@ function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, o
 
 function BlendPerformModal({
   pack,
+  customerId,
   components,
-  sohByIndex,
   isPerforming,
   error,
   mtTotal,
+  actualPackedMt,
   commodityOptions,
   stockLocations,
   onUpdateComponent,
@@ -1067,6 +1219,10 @@ function BlendPerformModal({
     .filter((v) => Number.isFinite(v))
     .reduce((s, v) => s + v, 0);
 
+  const actualPacked = Number(actualPackedMt);
+  const actualPackedMismatch =
+    Number.isFinite(actualPacked) && actualPacked > 0 && Math.abs(componentQtySum - actualPacked) > 0.001;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -1093,82 +1249,29 @@ function BlendPerformModal({
               {error}
             </p>
           ) : null}
+          {actualPackedMismatch ? (
+            <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Blend components sum to{" "}
+                {componentQtySum.toLocaleString(undefined, { maximumFractionDigits: 3 })} MT but the actual amount packed is{" "}
+                {actualPacked.toLocaleString(undefined, { maximumFractionDigits: 3 })} MT.
+              </span>
+            </p>
+          ) : null}
 
-          {components.map((component, index) => {
-            const soh = sohByIndex[index];
-            const exceeds = soh != null && Number(component.quantity) > Number(soh) + 0.001;
-            return (
-              <div
-                key={`blend-perform-${index}`}
-                className="grid gap-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2 sm:grid-cols-[1fr_1fr_5rem_auto]"
-              >
-                <div className="min-w-0 space-y-0.5">
-                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                    Source commodity
-                  </label>
-                  <ClutchSelect
-                    placeholder="- Select -"
-                    options={commoditySelectOpts}
-                    value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
-                    onChange={(option) =>
-                      onUpdateComponent(index, {
-                        commodityId: option ? option.value : null,
-                        commodityName: option ? option.label : "",
-                        commodityTypeId: option ? (option._typeId ?? null) : null,
-                      })
-                    }
-                  />
-                </div>
-                <div className="min-w-0 space-y-0.5">
-                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                    Stock location
-                  </label>
-                  <ClutchSelect
-                    placeholder="- Select -"
-                    options={locationSelectOpts}
-                    value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
-                    onChange={(option) =>
-                      onUpdateComponent(index, {
-                        locationId: option ? option.value : null,
-                        locationName: option ? option.label : "",
-                      })
-                    }
-                  />
-                  {soh != null ? (
-                    <p className={cn("text-[10px] font-medium", exceeds ? "text-rose-600" : "text-slate-500")}>
-                      On hand: {Number(soh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT
-                    </p>
-                  ) : null}
-                </div>
-                <div className="min-w-0 space-y-0.5">
-                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                    Qty (MT)
-                  </label>
-                  <input
-                    className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    value={component.quantity ?? ""}
-                    onChange={(e) =>
-                      onUpdateComponent(index, { quantity: e.target.value === "" ? null : Number(e.target.value) })
-                    }
-                    placeholder="0"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-                    aria-label={`Remove component ${index + 1}`}
-                    onClick={() => onRemoveComponent(index)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {components.map((component, index) => (
+            <BlendComponentEditor
+              key={`blend-perform-${index}`}
+              component={component}
+              index={index}
+              customerId={customerId}
+              commoditySelectOpts={commoditySelectOpts}
+              locationSelectOpts={locationSelectOpts}
+              onUpdate={(patch) => onUpdateComponent(index, patch)}
+              onRemove={onRemoveComponent}
+            />
+          ))}
 
           <button
             type="button"
@@ -1200,7 +1303,7 @@ function BlendPerformModal({
   );
 }
 
-function BlendPackSection({ isBlend, blendComponents, commodityOptions, stockLocations, mtTotal, onToggle, onChange, sectionClass, inputClass }) {
+function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptions, stockLocations, mtTotal, actualPackedMt, onToggle, onChange, sectionClass, inputClass }) {
   const components = Array.isArray(blendComponents) ? blendComponents : [];
 
   // Derived warnings (non-blocking)
@@ -1220,6 +1323,12 @@ function BlendPackSection({ isBlend, blendComponents, commodityOptions, stockLoc
   const qtySumMismatch = (() => {
     if (componentQtySum == null || mtTotal == null || !Number.isFinite(Number(mtTotal))) return false;
     return Math.abs(componentQtySum - Number(mtTotal)) > 0.001;
+  })();
+
+  const actualPacked = Number(actualPackedMt);
+  const actualPackedMismatch = (() => {
+    if (componentQtySum == null || !Number.isFinite(actualPacked) || actualPacked <= 0) return false;
+    return Math.abs(componentQtySum - actualPacked) > 0.001;
   })();
 
   const commoditySelectOpts = (Array.isArray(commodityOptions) ? commodityOptions : []).map((c) => ({
@@ -1267,6 +1376,11 @@ function BlendPackSection({ isBlend, blendComponents, commodityOptions, stockLoc
 
       {isBlend ? (
         <div className="mt-2 space-y-2">
+          {!customerId ? (
+            <p className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-800">
+              Select a customer to view stock on hand by location.
+            </p>
+          ) : null}
           {hasMultipleCommodityTypes ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
               Components are of different commodity types.
@@ -1278,70 +1392,25 @@ function BlendPackSection({ isBlend, blendComponents, commodityOptions, stockLoc
               but pack MT total is {Number(mtTotal).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT.
             </p>
           ) : null}
+          {actualPackedMismatch ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+              Component quantities sum to {Number(componentQtySum).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT
+              but the actual amount packed is {actualPacked.toLocaleString(undefined, { maximumFractionDigits: 3 })} MT.
+            </p>
+          ) : null}
 
           {components.map((component, index) => (
-            <div
+            <BlendComponentEditor
               key={`blend-component-${index}`}
-              className="grid gap-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2 sm:grid-cols-[1fr_1fr_5rem_auto]"
-            >
-              <div className="min-w-0 space-y-0.5">
-                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                  Source commodity
-                </label>
-                <ClutchSelect
-                  placeholder="- Select -"
-                  options={commoditySelectOpts}
-                  value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
-                  onChange={(option) =>
-                    updateComponent(index, {
-                      commodityId: option ? option.value : null,
-                      commodityName: option ? option.label : "",
-                      commodityTypeId: option ? (option._typeId ?? null) : null,
-                    })
-                  }
-                />
-              </div>
-              <div className="min-w-0 space-y-0.5">
-                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                  Stock location
-                </label>
-                <ClutchSelect
-                  placeholder="- Select -"
-                  options={locationSelectOpts}
-                  value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
-                  onChange={(option) =>
-                    updateComponent(index, {
-                      locationId: option ? option.value : null,
-                      locationName: option ? option.label : "",
-                    })
-                  }
-                />
-              </div>
-              <div className="min-w-0 space-y-0.5">
-                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                  Qty (MT)
-                </label>
-                <input
-                  className={inputClass}
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  value={component.quantity ?? ""}
-                  onChange={(e) => updateComponent(index, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
-                  placeholder="0"
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-                  aria-label={`Remove component ${index + 1}`}
-                  onClick={() => removeComponent(index)}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            </div>
+              component={component}
+              index={index}
+              customerId={customerId}
+              commoditySelectOpts={commoditySelectOpts}
+              locationSelectOpts={locationSelectOpts}
+              inputClass={inputClass}
+              onUpdate={(patch) => updateComponent(index, patch)}
+              onRemove={removeComponent}
+            />
           ))}
 
           <button
@@ -2229,6 +2298,11 @@ function NewPackFormPageInner() {
     return n * q;
   }, [pack.containersRequired, pack.quantityPerContainer]);
 
+  // Actuals from the packed containers: total nett weight (MT) and the count of
+  // containers completed with all packer + inspection checks passed.
+  const actualPackedMt = useMemo(() => totalNettWeight(packContainers), [packContainers]);
+  const containersPacked = useMemo(() => countPackedContainers(packContainers), [packContainers]);
+
   const stickySummary = useMemo(() => {
     const customerName = customerOptions.find((c) => String(c.id) === String(pack.customerId))?.name;
     const commodityName = commodityOptions.find((c) => String(c.id) === String(pack.commodityId))?.description;
@@ -2969,9 +3043,11 @@ function NewPackFormPageInner() {
             <BlendPackSection
               isBlend={pack.isBlend}
               blendComponents={pack.blendComponents}
+              customerId={pack.customerId}
               commodityOptions={commodityOptions}
               stockLocations={queryLookups.stockLocations}
               mtTotal={computedMtTotal}
+              actualPackedMt={actualPackedMt}
               onToggle={(enabled) =>
                 setPack((prev) => ({
                   ...prev,
@@ -2988,9 +3064,11 @@ function NewPackFormPageInner() {
 
             <BlendPerformAction
               pack={pack}
+              packId={pack.id || editingRow?.id || editId}
               commodityOptions={commodityOptions}
               stockLocations={queryLookups.stockLocations}
               mtTotal={computedMtTotal}
+              actualPackedMt={actualPackedMt}
               onPerformed={(result) =>
                 setPack((prev) => ({
                   ...prev,
@@ -3066,6 +3144,31 @@ function NewPackFormPageInner() {
                         value={computedMtTotal != null && Number.isFinite(computedMtTotal) ? String(computedMtTotal) : ""}
                         placeholder="—"
                         title="Containers required × required tonnes per container"
+                      />
+                    </FormRow>
+                  </div>
+
+                  <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
+                    <FormRow label="Actual amount packed (MT)">
+                      <input
+                        className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
+                        readOnly
+                        value={actualPackedMt > 0 ? actualPackedMt.toLocaleString(undefined, { maximumFractionDigits: 3 }) : ""}
+                        placeholder="—"
+                        title="Total nett weight of all containers"
+                      />
+                    </FormRow>
+                    <FormRow label="Containers packed">
+                      <input
+                        className={`${inputClass} cursor-default bg-slate-50 text-slate-800 tabular-nums`}
+                        readOnly
+                        value={
+                          pack.containersRequired === "" || pack.containersRequired == null
+                            ? String(containersPacked)
+                            : `${containersPacked} / ${pack.containersRequired}`
+                        }
+                        placeholder="—"
+                        title="Containers completed with passed inspections"
                       />
                     </FormRow>
                   </div>

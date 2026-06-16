@@ -15,6 +15,7 @@ import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
 import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
 import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
+import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -27,6 +28,7 @@ const config = {
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
   { key: "commodity", label: "Commodity" },
+  { key: "blend", label: "Blend" },
   { key: "status", label: "Status" },
   { key: "vesselScheduleUpdate", label: "Sched." },
   { key: "packNumber", label: "Pack No." },
@@ -39,6 +41,8 @@ const TABLE_COLUMNS = [
   { key: "onSiteContainers", label: "On site", numeric: true },
   { key: "releaseContainers", label: "Rel. ctrs" },
   { key: "mtTotal", label: "MT", numeric: true },
+  { key: "actualPacked", label: "Actual MT", numeric: true },
+  { key: "containersPacked", label: "Packed", numeric: true },
   { key: "id", label: "ID", numeric: true },
   { key: "importExport", label: "I/E" },
   // Pack basics
@@ -164,6 +168,13 @@ function rowReleases(row) {
 
 function rowContainers(row) {
   return Array.isArray(row.containers) ? row.containers : [];
+}
+
+// Blend status for the schedule: "" (not a blend), "Pending" (blend not yet
+// performed), or "Done" (blend transfer posted).
+function blendStatus(row) {
+  if (!(row.is_blend ?? row.isBlend)) return "";
+  return (row.blend_performed_at ?? row.blendPerformedAt) ? "Done" : "Pending";
 }
 
 // Count of filled containers (those with a container number) assigned to each release ref on
@@ -360,11 +371,74 @@ export default function PackingSchedulePage() {
       if (column.key === "commodity") {
         return { ...base, valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "" };
       }
+      if (column.key === "blend") {
+        return {
+          ...base,
+          type: "text",
+          width: 90,
+          valueGetter: (row) => blendStatus(row),
+          renderCell: ({ row }) => {
+            const status = blendStatus(row);
+            if (!status) return "";
+            return status === "Pending" ? (
+              <span
+                title="Blend pack — blend transfer not yet performed"
+                className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+              >
+                Pending
+              </span>
+            ) : (
+              <span
+                title="Blend completed — commodity transfer posted"
+                className="inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800"
+              >
+                Blended
+              </span>
+            );
+          },
+        };
+      }
       if (column.key === "packNumber") {
         return { ...base, valueGetter: (row) => row.pack_number ?? row.packNumber ?? "" };
       }
       if (column.key === "jobReference") {
         return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
+      }
+      if (column.key === "actualPacked") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => totalNettWeight(row.containers),
+          renderCell: ({ row }) => {
+            const v = totalNettWeight(row.containers);
+            return v > 0 ? (
+              <span className="tabular-nums" title="Total nett weight of all containers">
+                {v.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              </span>
+            ) : (
+              ""
+            );
+          },
+        };
+      }
+      if (column.key === "containersPacked") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => countPackedContainers(row.containers),
+          renderCell: ({ row }) => {
+            const packed = countPackedContainers(row.containers);
+            const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
+            return (
+              <span
+                className="tabular-nums"
+                title={`${packed} container${packed === 1 ? "" : "s"} completed with passed inspections${required ? ` of ${required} required` : ""}`}
+              >
+                {required ? `${packed}/${required}` : String(packed)}
+              </span>
+            );
+          },
+        };
       }
       if (column.key === "vesselScheduleUpdate") {
         return {
@@ -853,6 +927,27 @@ export default function PackingSchedulePage() {
                 </div>
               ) : null}
               <Field label="MT" value={formatMtDisplay(selected.mt_total ?? selected.mtTotal)} />
+              <Field
+                label="Actual amount packed (MT)"
+                value={(() => {
+                  const v = totalNettWeight(selected.containers);
+                  return v > 0 ? v.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "";
+                })()}
+              />
+              <Field
+                label="Containers packed"
+                value={(() => {
+                  const packed = countPackedContainers(selected.containers);
+                  const required = Number(selected.containers_required ?? selected.containersRequired ?? 0) || 0;
+                  return required ? `${packed} / ${required}` : String(packed);
+                })()}
+              />
+              {blendStatus(selected) ? (
+                <Field
+                  label="Blend"
+                  value={blendStatus(selected) === "Pending" ? "Pending — blend not performed" : "Blended"}
+                />
+              ) : null}
             </div>
           </div>
         ) : null}

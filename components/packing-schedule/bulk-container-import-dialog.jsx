@@ -17,6 +17,7 @@ const fieldClass =
 const STATUS_LABELS = {
   ready: "Ready",
   blocked: "Blocked",
+  invalid_format: "Invalid format",
   conflict_skip: "Conflict — skipped",
   conflict_overwrite: "Overwrite existing slot",
   duplicate_paste: "Duplicate in paste",
@@ -24,7 +25,7 @@ const STATUS_LABELS = {
 
 function statusClass(status) {
   if (status === "ready" || status === "conflict_overwrite") return "text-emerald-700";
-  if (status === "blocked") return "text-red-700";
+  if (status === "blocked" || status === "invalid_format") return "text-red-700";
   if (status === "conflict_skip") return "text-amber-700";
   return "text-slate-500";
 }
@@ -181,7 +182,9 @@ export default function BulkContainerImportPanel({
                     </td>
                     <td className="px-2 py-1.5 font-mono text-slate-500">{row.currentValue || "—"}</td>
                     <td className={cn("px-2 py-1.5", statusClass(row.status))}>
-                      {hasConflict && row.action === "skip"
+                      {row.status === "invalid_format" && row.formatError
+                        ? row.formatError
+                        : hasConflict && row.action === "skip"
                         ? `Already on slot #${row.conflictSlotOrder}`
                         : STATUS_LABELS[row.status] || row.status}
                     </td>

@@ -1316,6 +1316,8 @@ export default function PackDetailClient({ packId }) {
             <ContainerFormSections
               container={selectedContainer}
               onChange={updateSelectedContainer}
+              packId={packRow.id}
+              containerId={selectedContainer.id}
               packerNames={packerNames}
               packerSelectOptions={packPackerSelectOptions.length ? packPackerSelectOptions : allPackerSelectOptions}
               yesNoOptions={YES_NO_OPTIONS}

@@ -1,10 +1,19 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
+import {
+  normalizeContainerNumber,
+  sanitizeContainerNumberInput,
+  sanitizeSealNumberInput,
+  validateContainerNumber,
+  validateSealNumber,
+} from "@/lib/container-number-validation";
+import { useContainerDuplicateCheck } from "@/lib/hooks/use-container-duplicate-check";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -87,9 +96,21 @@ function getValue(container, fieldNames, key, fallback = "") {
   return value == null ? fallback : value;
 }
 
+function formatDuplicateMatch(match) {
+  const parts = [
+    match.jobReference || match.packNumber || "Pack",
+    match.customerName,
+    match.packingStartDate || match.packDate,
+    match.order ? `container #${match.order}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 export default function ContainerFormSections({
   container,
   onChange,
+  packId,
+  containerId,
   packerNames,
   packerSelectOptions,
   yesNoOptions,
@@ -118,6 +139,17 @@ export default function ContainerFormSections({
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
+  const containerNoValue = getValue(container, names, "containerNo");
+  const sealNoValue = getValue(container, names, "sealNo");
+  const containerNoNormalized = normalizeContainerNumber(containerNoValue);
+  const containerNoError =
+    containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
+  const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
+  const duplicateCheckEnabled = containerNoNormalized.length === 11 && !containerNoError;
+  const { matches: duplicateMatches, loading: duplicateLoading } = useContainerDuplicateCheck(
+    containerNoValue,
+    { packId, containerId, enabled: duplicateCheckEnabled }
+  );
   const submitted = Boolean(getValue(container, names, "praSubmitted", false));
   // AO sign-off action gating
   const canAoSignoff = hasPermission("packing.container.ao-signoff");
@@ -208,8 +240,54 @@ export default function ContainerFormSections({
       <div className={cn(sectionCardClass, "border-blue-200/90 bg-blue-50/30")}>
         <div className={cn(sectionHeaderClass, "border-blue-200 bg-blue-100/80 text-blue-900")}>Packing Order</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
-          <PemsInput label="Container No" value={getValue(container, names, "containerNo")} onChange={(value) => setField("containerNo", value)} inputClass={inputClass} />
-          <PemsInput label="Seal No" value={getValue(container, names, "sealNo")} onChange={(value) => setField("sealNo", value)} inputClass={inputClass} />
+          <PemsInput
+            label="Container No"
+            value={containerNoValue}
+            onChange={(value) => setField("containerNo", sanitizeContainerNumberInput(value))}
+            placeholder="e.g. MSKU1234567"
+            error={containerNoError}
+            inputClass={inputClass}
+          />
+          <PemsInput
+            label="Seal No"
+            value={sealNoValue}
+            onChange={(value) => setField("sealNo", sanitizeSealNumberInput(value))}
+            placeholder="e.g. SL12345"
+            error={sealNoError}
+            inputClass={inputClass}
+          />
+          {duplicateLoading && duplicateCheckEnabled ? (
+            <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
+              Checking for duplicate container numbers…
+            </p>
+          ) : null}
+          {duplicateMatches.length > 0 ? (
+            <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p className="font-semibold">
+                This container number is already used on{" "}
+                {duplicateMatches.length === 1
+                  ? "another pack"
+                  : `${duplicateMatches.length} other packs`}{" "}
+                in the last 3 months
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {duplicateMatches.map((match) => (
+                  <li key={`${match.packId}-${match.containerId}`}>
+                    {match.packId ? (
+                      <Link
+                        href={`/packing-schedule/new-pack-form?mode=edit&id=${match.packId}`}
+                        className="underline decoration-amber-400 underline-offset-2 hover:text-amber-900"
+                      >
+                        {formatDuplicateMatch(match)}
+                      </Link>
+                    ) : (
+                      formatDuplicateMatch(match)
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <PemsSelect label="Container ISO" value={getValue(container, names, "isoCode")} options={isoOptions} onChange={(value) => setField("isoCode", value)} inputClass={inputClass} />
           <div className="space-y-1 md:col-span-2 xl:col-span-1">
             <label className="text-xs font-medium text-slate-600">Start Date &amp; Time</label>
@@ -425,19 +503,27 @@ export default function ContainerFormSections({
   );
 }
 
-function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, inputClass }) {
+function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, inputClass, error, placeholder }) {
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
       <input
-        className={cn(inputClass, "block w-full", readOnly ? "cursor-default bg-slate-50 text-slate-700" : "")}
+        className={cn(
+          inputClass,
+          "block w-full",
+          readOnly ? "cursor-default bg-slate-50 text-slate-700" : "",
+          error ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : ""
+        )}
         value={value ?? ""}
         type={type}
         onChange={(event) => onChange?.(event.target.value)}
         readOnly={readOnly}
         step={step}
+        placeholder={placeholder}
+        aria-invalid={error ? "true" : undefined}
         {...numberInputProps(type)}
       />
+      {error ? <p className="text-xs text-rose-600">{error}</p> : null}
     </div>
   );
 }

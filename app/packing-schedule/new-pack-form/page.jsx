@@ -4873,6 +4873,8 @@ function NewPackFormPageInner() {
                   <ContainerFormSections
                     container={selectedEditContainer}
                     onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
+                    packId={pack.id ?? editingRow?.id}
+                    containerId={selectedEditContainer.id}
                     packerNames={packerNames}
                     packerSelectOptions={packerSelectOptions}
                     yesNoOptions={YES_NO_STRINGS}

@@ -33,7 +33,7 @@ import {
   GPPIR_RECORD_TYPE,
   ECR_RECORD_TYPE,
 } from "@/lib/pems-staging-snapshot";
-import PemsTab from "@/components/pems/pems-tab";
+import PemsTab, { PEMS_TAB_INPUT_CLASS } from "@/components/pems/pems-tab";
 import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
@@ -46,6 +46,7 @@ import {
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
 import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
 import { loadFumigants } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
@@ -73,8 +74,7 @@ const PACK_CHECK_FIELDS = [
   { key: "micorRequirementsChecked", label: "MICOR requirements checked", short: "MICOR" },
 ];
 
-const inputClass =
-  "h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-[15px] text-slate-800 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/40 focus:ring-2";
+const inputClass = PEMS_TAB_INPUT_CLASS;
 const sectionCardClass = "overflow-hidden rounded-xl border border-slate-200/90 bg-white";
 const sectionHeaderClass = "border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800";
 
@@ -220,69 +220,6 @@ const ATTACHMENT_GROUP_STYLES = {
 
 function attachmentGroupStyles(group) {
   return ATTACHMENT_GROUP_STYLES[group] || ATTACHMENT_GROUP_STYLES.Instruction;
-}
-
-function packContainerFromWorkContainer(container, packRow) {
-  return {
-    id: container.id,
-    packId: packRow.id,
-    order: container.order,
-    // Planning
-    containerNumber: container.containerNo || "",
-    containerCode: packRow.containerCode || "",
-    containerIsoCode: container.isoCode || "",
-    sealNumber: container.sealNo || "",
-    releaseNumber: container.releaseNumber || "",
-    // Packing Order
-    startDate: container.startDate || "",
-    startHour: container.startHour || "",
-    startMinute: container.startMinute || "",
-    stockBayId: container.stockBayId || "",
-    packer: container.packer || "",
-    // Weights
-    tare: container.tare ?? null,
-    grossWeight: container.grossWeight ?? null,
-    nettWeight: container.nettWeight ?? null,
-    containerTareWeight: container.containerTareWeight ?? null,
-    // Release Details — store both display names and FK IDs
-    emptyContainerParkId: container.emptyContainerParkId ?? null,
-    transporterId: container.transporterId ?? null,
-    releasePark: container.releasePark || "",
-    transporter: container.transporter || "",
-    // Signoff
-    packerSignoff: container.packerSignoff || "",
-    outLoaded: container.outLoaded || "No",
-    praSignoff: container.praSignoff || "",
-    praTemplate: container.praTemplate || "",
-    praSubmitted: Boolean(container.praSubmitted),
-    // 1-Stop PRA Info
-    praLastStatus: container.praLastStatus || "Pending",
-    praLastSubmittedTime: container.praLastSubmittedTime || "",
-    praLastError: container.praLastError || "",
-    // AO Inspection
-    emptyInspection: container.emptyInspection || "Pending",
-    grainInspection: container.grainInspection || "Pending",
-    inspectionLevelCode: container.inspectionLevelCode || "Consumable",
-    passedAfterRectification: container.passedAfterRectification || "N",
-    inspectionRemarkCode: container.inspectionRemarkCode || "",
-    ecInspectionRemarkCode: container.ecInspectionRemarkCode || "",
-    ecInspectionRemark: container.ecInspectionRemark || "",
-    grainInspectionRemarkCode: container.grainInspectionRemarkCode || "",
-    grainInspectionRemark: container.grainInspectionRemark || "",
-    aoSignoff: container.aoSignoff || "",
-    aoInspectionRemark: getContainerInspectionRemark(container),
-    // Packers note
-    packerNotes: container.packerNotes || "",
-    // ECR / GPPIR tracking
-    ecrSubmitted: Boolean(container.ecrSubmitted ?? container.pemsSubmitted),
-    ecrLastSubmittedAt: container.ecrLastSubmittedAt || container.pemsLastSubmittedAt || "",
-    ecrLastBatchId: container.ecrLastBatchId || container.pemsLastBatchId || "",
-    gppirSubmitted: Boolean(container.gppirSubmitted),
-    gppirLastSubmittedAt: container.gppirLastSubmittedAt || "",
-    gppirLastBatchId: container.gppirLastBatchId || "",
-    tests: container.tests && typeof container.tests === "object" ? container.tests : {},
-    status: containerStage(container),
-  };
 }
 
 export default function PackDetailClient({ packId }) {
@@ -567,7 +504,7 @@ export default function PackDetailClient({ packId }) {
   }, [selectedContainer, packerNames, showContainerValidationError]);
 
   function persistPackRowToStore(nextRow, workDraft) {
-    const containers = (workDraft?.containers || []).map((container) => packContainerFromWorkContainer(container, nextRow));
+    const containers = (workDraft?.containers || []).map((container) => buildContainerApiRecord(container, nextRow));
     savePack({ ...nextRow, containers }).catch(() => {});
   }
 
@@ -872,7 +809,7 @@ export default function PackDetailClient({ packId }) {
     clearContainerValidationFeedback();
     try {
       // Strip id, packId, order — read-only on this endpoint
-      const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(selectedContainer, packRow);
+      const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(selectedContainer, packRow);
       const updated = await updateContainer(packRow.id, selectedContainer.id, payload);
       // Merge server response (includes server-computed nettWeight) back into local state
       if (updated?.id) {
@@ -918,7 +855,7 @@ export default function PackDetailClient({ packId }) {
       const container = toSave[index];
       setBulkImportProgress(`Saving ${index + 1} of ${toSave.length}…`);
       try {
-        const { id: _id, packId: _packId, order: _order, ...payload } = packContainerFromWorkContainer(container, packRow);
+        const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(container, packRow);
         await updateContainer(packRow.id, container.id, payload);
       } catch (err) {
         failures.push({

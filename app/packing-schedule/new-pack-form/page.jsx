@@ -38,9 +38,15 @@ import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsTab from "@/components/pems/pems-tab";
 import PackAccountingTab from "@/components/accounting/pack-accounting-tab";
 import { savePack } from "@/lib/pack-schedule-store";
-import { packAssignedPackerOptions, performBlend } from "@/lib/api/packing";
+import { packAssignedPackerOptions, performBlend, updateContainer } from "@/lib/api/packing";
+import { buildContainerApiRecord } from "@/lib/pack-container-payload";
+import {
+  countPackedContainers,
+  totalNettWeight,
+  validateContainerForSave,
+} from "@/lib/packers-container-validation";
+import { isUuid } from "@/lib/pack-schedule-api";
 import { fetchStockByLocationForAccount } from "@/lib/stock-transfers-api";
-import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
@@ -1520,6 +1526,8 @@ function NewPackFormPageInner() {
     ["general", "fumigation", "accounting", "pems"].includes(requestedTab || "") ? requestedTab : "general"
   );
   const [editingContainerId, setEditingContainerId] = useState(null);
+  const [isSavingContainer, setIsSavingContainer] = useState(false);
+  const [containerSaveError, setContainerSaveError] = useState("");
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [activeSampleIndex, setActiveSampleIndex] = useState(0);
@@ -1946,6 +1954,44 @@ function NewPackFormPageInner() {
       });
       return { ...prev, containers: next };
     });
+  }
+
+  async function saveEditContainer() {
+    if (!selectedEditContainer) return;
+
+    const packId = pack.id ?? editingRow?.id;
+    if (!isUuid(packId)) {
+      setContainerSaveError("Save the pack first before saving container details.");
+      return;
+    }
+    if (!isUuid(selectedEditContainer.id)) {
+      setContainerSaveError("Container must exist on a saved pack before updating individually.");
+      return;
+    }
+
+    const validationError = validateContainerForSave(selectedEditContainer);
+    if (validationError) {
+      setContainerSaveError(validationError);
+      return;
+    }
+
+    setIsSavingContainer(true);
+    setContainerSaveError("");
+    try {
+      const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(
+        selectedEditContainer,
+        { ...pack, id: packId }
+      );
+      const updated = await updateContainer(packId, selectedEditContainer.id, payload);
+      if (updated?.id) {
+        updatePackContainer(updated.id, updated);
+      }
+      setEditingContainerId(null);
+    } catch (err) {
+      setContainerSaveError(err?.message || "Save failed — check connection.");
+    } finally {
+      setIsSavingContainer(false);
+    }
   }
 
   async function applyBulkContainerImport(updatedContainers, _appliedRows, logistics) {
@@ -3873,7 +3919,10 @@ function NewPackFormPageInner() {
             packerNames={packerNames}
             selectedContainerId={editingContainerId}
             onSelectContainer={setEditingContainerId}
-            onOpenContainer={setEditingContainerId}
+            onOpenContainer={(containerId) => {
+              setContainerSaveError("");
+              setEditingContainerId(containerId);
+            }}
             openContainerLabel="Edit"
             pemsDraft={pemsDraft}
             selectedAoNumber={selectedAoNumber}
@@ -3900,7 +3949,6 @@ function NewPackFormPageInner() {
             onSubmitBatch={submitPemsFromForm}
             onUpdatePackRow={(patch) => setPack((prev) => ({ ...prev, ...patch }))}
             onUpdateContainer={updatePackContainer}
-            inputClass={inputClass}
           />
         ) : null}
 
@@ -4816,6 +4864,12 @@ function NewPackFormPageInner() {
                     <span className="ms-auto text-xs text-slate-500">{selectedEditContainer.containerNumber || "Draft container"}</span>
                   </div>
 
+                  {containerSaveError ? (
+                    <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700">
+                      {containerSaveError}
+                    </p>
+                  ) : null}
+
                   <ContainerFormSections
                     container={selectedEditContainer}
                     onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
@@ -4871,11 +4925,20 @@ function NewPackFormPageInner() {
                   ) : null}
 
                   <div className="mt-3 flex justify-end gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingContainerId(null)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isSavingContainer}
+                      onClick={() => {
+                        setContainerSaveError("");
+                        setEditingContainerId(null);
+                      }}
+                    >
                       Cancel
                     </Button>
-                    <Button type="button" size="sm" onClick={() => setEditingContainerId(null)}>
-                      Save
+                    <Button type="button" size="sm" disabled={isSavingContainer} onClick={saveEditContainer}>
+                      {isSavingContainer ? "Saving…" : "Save"}
                     </Button>
                   </div>
                 </div>

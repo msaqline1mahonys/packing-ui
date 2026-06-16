@@ -51,6 +51,42 @@ import {
 const defaultInputClass =
   "h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-[15px] text-slate-800 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/40 focus:ring-2";
 
+/** Shared input styling for PEMs tab fields (packers + packing schedule). */
+export const PEMS_TAB_INPUT_CLASS = defaultInputClass;
+
+function getTodayDatetime() {
+  if (typeof window === "undefined") return "";
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+function InspectionDateTimeField({ label, value, onChange, inputClass }) {
+  const stored = formatDateTimeInput(value);
+  const isDefault = !stored;
+  const displayValue = stored || getTodayDatetime();
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-slate-600">{label}</label>
+      <div className="relative">
+        <input
+          suppressHydrationWarning
+          className={cn(inputClass, "block w-full", isDefault ? "text-slate-400" : "")}
+          type="datetime-local"
+          value={displayValue}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+        {isDefault ? (
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400">
+            today
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function Field({ label, value, labelClassName = "", valueClassName = "" }) {
   return (
     <div className="space-y-1">
@@ -315,17 +351,15 @@ export default function PemsTab({
               })
             }
           />
-          <LabeledInput
+          <InspectionDateTimeField
             label="Inspection start"
-            type="datetime-local"
-            value={formatDateTimeInput(pemsDraft.inspectionStart)}
+            value={pemsDraft.inspectionStart}
             inputClass={inputClass}
             onChange={(value) => onUpdatePemsDraft({ inspectionStart: value })}
           />
-          <LabeledInput
+          <InspectionDateTimeField
             label="Inspection end"
-            type="datetime-local"
-            value={formatDateTimeInput(pemsDraft.inspectionEnd)}
+            value={pemsDraft.inspectionEnd}
             inputClass={inputClass}
             onChange={(value) => onUpdatePemsDraft({ inspectionEnd: value })}
           />

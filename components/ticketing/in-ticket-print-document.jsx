@@ -25,23 +25,40 @@ function toTestCode(name) {
   return raw.replace(/\s+/g, "").slice(0, 4).toUpperCase().padEnd(4, "-");
 }
 
+function formatTestValue(value, unit) {
+  const raw = value == null || String(value).trim() === "" ? "—" : String(value);
+  if (raw === "—" || !unit) return raw;
+  return `${raw}${unit}`;
+}
+
 function buildTestSlots(testRows) {
   const used = Array.isArray(testRows) ? testRows.slice(0, 10) : [];
   return used.map((row) => ({
     key: row.name,
     code: toTestCode(row.name),
-    value: `${row.value}${row.unit}`,
+    value: formatTestValue(row.value, row.unit),
     isGroupTotal: Boolean(row.isGroupTotal),
   }));
 }
 
+function resolveLogoSrc(logoUrl) {
+  if (!logoUrl) return "/mahonys-logo.png";
+  if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://") || logoUrl.startsWith("/")) {
+    return logoUrl;
+  }
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/api\/?$/, "");
+  return `${apiBase}/${logoUrl.replace(/^\/+/, "")}`;
+}
+
 function TicketCopy({ model }) {
-  const addr = model.siteAddress;
+  const sitePrint = model.sitePrint || {};
+  const headerLines = sitePrint.headerLines || [];
   const firstGross = model.grossRows[0];
   const firstTare = model.tareRows[0];
   const testSlots = buildTestSlots(model.testRows);
   const palette = model.direction === "outgoing" ? OUTGOING_PALETTE : INCOMING_PALETTE;
   const ticketTitle = model.direction === "outgoing" ? "Outgoing Ticket" : "Receival Ticket";
+  const logoSrc = resolveLogoSrc(sitePrint.logoUrl);
 
   return (
     <div className="ticket-print-page break-inside-avoid border border-slate-300 bg-white text-[10px] leading-[1.25]">
@@ -49,20 +66,29 @@ function TicketCopy({ model }) {
       <div className="flex items-start gap-2 border-b border-slate-300 px-2.5 py-2">
         <div className="shrink-0">
           <Image
-            src="/mahonys-logo.png"
-            alt="Mahonys Transport Services"
+            src={logoSrc}
+            alt="Site logo"
             width={180}
             height={48}
             className="h-auto w-[150px] object-contain print:w-[140px]"
             priority
+            unoptimized={logoSrc.startsWith("http")}
           />
         </div>
         <div className="flex-1 text-right text-[9px] leading-tight text-slate-700">
-          <p className="font-semibold text-slate-900">{addr.line1}</p>
-          <p className="font-semibold text-slate-900">{addr.line2}</p>
-          <p>Phone: {addr.phone}</p>
-          <p>Email: {addr.email}</p>
-          <p>Web: {addr.web}</p>
+          {headerLines.length > 0 ? (
+            headerLines.map((line) => (
+              <p key={line} className="font-semibold text-slate-900">
+                {line}
+              </p>
+            ))
+          ) : (
+            <>
+              <p className="font-semibold text-slate-900">{model.siteName}</p>
+              {sitePrint.phone ? <p>Phone: {sitePrint.phone}</p> : null}
+              {sitePrint.email ? <p>Email: {sitePrint.email}</p> : null}
+            </>
+          )}
         </div>
       </div>
 
@@ -81,9 +107,8 @@ function TicketCopy({ model }) {
               <FieldRow label="Client" value={`${model.customerName}${model.customerCode}`} />
               <FieldRow label="Product" value={model.productDisplay} />
               <FieldRow label="Silo/Bay" value={model.unloadedLocation} />
-              <FieldRow label="CMO No" value={model.cmoNo} />
               <FieldRow label="Container No" value={model.containerNo} />
-              <FieldRow label="Branch" value={model.branchCode} />
+              <FieldRow label="Branch Name" value={model.siteName} />
               <FieldRow label="Truck Rego" value={model.truckName} />
             </tbody>
           </table>
@@ -96,17 +121,16 @@ function TicketCopy({ model }) {
           </div>
           <table className="w-full border-collapse text-[9.5px]">
             <tbody>
-              <FieldRow label={model.customerName} value="" noBorder />
-              <FieldRow label="Shrink Account" value={model.shrinkAccount} />
-              <FieldRow label="Price" value={model.price} />
-              <FieldRow label="Split" value={model.splitAmount} />
+              {model.shrinkTaken !== "—" ? <FieldRow label="Shrink Taken" value={model.shrinkTaken} /> : null}
+              {model.ngr !== "—" ? <FieldRow label="NGR" value={model.ngr} /> : null}
+              {model.season !== "—" ? <FieldRow label="Season" value={model.season} /> : null}
             </tbody>
           </table>
           <div className="border-t border-slate-300">
             <table className="w-full border-collapse text-[9.5px]">
               <tbody>
                 <FieldRow label="Booking Ref." value={model.bookingRef} />
-                <FieldRow label="Ticket Ref." value={model.ticketReference} />
+                <FieldRow label="Ticket Ref." value={model.ticketRefUser} />
                 <FieldRow label="Additional Ref." value={model.additionalReference} />
                 <FieldRow label="CMO Ref." value={model.cmoRef} />
               </tbody>
@@ -139,12 +163,12 @@ function TicketCopy({ model }) {
 
       {/* ─── TEST RESULTS ─── */}
       <div className="border-t border-slate-300">
-          <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", palette.bg, "text-white")}>
-            Test Results
-          </div>
-          {testSlots.length > 0 ? (
-            <div className="grid grid-cols-5 border-t border-slate-300">
-              {testSlots.map((slot, index) => (
+        <div className={cn("px-2 py-1 text-[9px] font-bold uppercase tracking-wide", palette.bg, "text-white")}>
+          Test Results
+        </div>
+        {testSlots.length > 0 ? (
+          <div className="grid grid-cols-5 border-t border-slate-300">
+            {testSlots.map((slot, index) => (
               <div
                 key={slot.key}
                 className={cn(
@@ -159,16 +183,12 @@ function TicketCopy({ model }) {
                 </div>
                 <div className="text-[9.5px] font-semibold text-slate-900">{slot.value}</div>
               </div>
-              ))}
-            </div>
-          ) : (
-            <div className="border-t border-slate-300 px-2 py-1 text-[9px] text-slate-500">No test results</div>
-          )}
-          <div className="flex items-center justify-end border-t border-slate-300 px-2 py-0.5">
-            <span className="text-[9px] font-semibold text-slate-700">UM</span>
-            <span className="ml-2 text-[10px] font-bold text-slate-900">{model.um}</span>
+            ))}
           </div>
-        </div>
+        ) : (
+          <div className="border-t border-slate-300 px-2 py-1 text-[9px] text-slate-500">No test results</div>
+        )}
+      </div>
 
       {/* ─── SIGNATURES ─── */}
       <div className="border-t border-slate-300 px-2.5 py-1.5">
@@ -187,12 +207,11 @@ function TicketCopy({ model }) {
         </div>
       </div>
 
-      {/* ─── DISCLAIMER ─── */}
+      {/* ─── FOOTER ─── */}
       <div className="border-t border-slate-300 px-2.5 py-1">
         <p className="text-[7.5px] leading-snug text-slate-500">
-          Disclaimer: By signing this weighbridge ticket the driver/carrier acknowledges their responsibility for
-          complying with all Chain of Responsibility (CoR) provisions set by the NHVL. Compliance breaches are not
-          tolerated and must be reported and rectified immediately.
+          {sitePrint.footerText ||
+            "Disclaimer: By signing this weighbridge ticket the driver/carrier acknowledges their responsibility for complying with all Chain of Responsibility (CoR) provisions set by the NHVL. Compliance breaches are not tolerated and must be reported and rectified immediately."}
         </p>
       </div>
     </div>

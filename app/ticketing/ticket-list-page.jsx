@@ -145,7 +145,7 @@ export default function TicketListPage({
         renderCell: ({ value }) => <span title={value}>{String(value).slice(0, 8)}</span>,
       },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "commodityGrade", header: "Commodity & grade", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "commodityGrade", header: "Commodity", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "truckDisplay", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "status",

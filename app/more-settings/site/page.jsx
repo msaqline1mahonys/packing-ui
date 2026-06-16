@@ -107,6 +107,8 @@ const detailFields = [
   { key: "suburb", label: "Suburb" },
   { key: "stateCode", label: "State" },
   { key: "postcode", label: "Postcode" },
+  { key: "ticketInPrefix", label: "Incoming Ticket Prefix" },
+  { key: "ticketOutPrefix", label: "Outgoing Ticket Prefix" },
 ];
 
 function readAuthPayload() {
@@ -139,13 +141,52 @@ function extractApiError(result, fallback) {
 }
 
 async function siteRequest(path = "", options = {}) {
+  const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  if (options.body instanceof FormData) {
+    delete headers["Content-Type"];
+  }
   const response = await fetch(`${SITES_ENDPOINT}${path}`, {
     ...options,
-    headers: { ...getAuthHeaders(), ...(options.headers || {}) },
+    headers,
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) throw new Error(extractApiError(result, "Site request failed."));
   return result;
+}
+
+function appendFormPayload(form, payload) {
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value == null) return;
+    if (typeof value === "boolean") {
+      form.append(key, value ? "1" : "0");
+      return;
+    }
+    if (value === "") return;
+    form.append(key, String(value));
+  });
+}
+
+function buildSiteSaveBody(draft) {
+  if (draft.ticketPrintLogoFile instanceof File) {
+    const form = new FormData();
+    const payload = toApiUpdateBody(draft);
+    form.append("_method", "PUT");
+    appendFormPayload(form, payload);
+    form.append("ticketPrintLogo", draft.ticketPrintLogoFile);
+    return form;
+  }
+  return JSON.stringify(toApiUpdateBody(draft));
+}
+
+function buildSiteCreateBody(draft) {
+  if (draft.ticketPrintLogoFile instanceof File) {
+    const form = new FormData();
+    const payload = toApiCreateBody(draft);
+    appendFormPayload(form, payload);
+    form.append("ticketPrintLogo", draft.ticketPrintLogoFile);
+    return form;
+  }
+  return JSON.stringify(toApiCreateBody(draft));
 }
 
 function fromApiSite(site) {
@@ -169,6 +210,11 @@ function fromApiSite(site) {
     isHeadOffice: Boolean(site.is_head_office),
     organizationName: site.organization?.name ?? "",
     organizationId: site.organization_id ?? "",
+    ticketInPrefix: site.ticket_in_prefix ?? site.ticketInPrefix ?? "",
+    ticketOutPrefix: site.ticket_out_prefix ?? site.ticketOutPrefix ?? "",
+    ticketPrintHeader: site.ticket_print_header ?? site.ticketPrintHeader ?? "",
+    ticketPrintFooter: site.ticket_print_footer ?? site.ticketPrintFooter ?? "",
+    ticketPrintLogo: site.ticket_print_logo ?? site.ticketPrintLogo ?? "",
   };
 }
 
@@ -186,6 +232,18 @@ function pemsApiFields(draft) {
   };
 }
 
+function siteApiFields(draft) {
+  return {
+    treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
+    ...pemsApiFields(draft),
+    ticket_in_prefix: String(draft.ticketInPrefix ?? "").trim() || null,
+    ticket_out_prefix: String(draft.ticketOutPrefix ?? "").trim() || null,
+    ticket_print_header: String(draft.ticketPrintHeader ?? "").trim() || null,
+    ticket_print_footer: String(draft.ticketPrintFooter ?? "").trim() || null,
+    ticket_print_logo: String(draft.ticketPrintLogo ?? "").trim() || null,
+  };
+}
+
 function toApiCreateBody(draft) {
   const { organization_id: orgId } = getTenantPayload();
   return {
@@ -196,9 +254,8 @@ function toApiCreateBody(draft) {
     address: String(draft.address ?? "").trim() || null,
     code: String(draft.code ?? "").trim() || null,
     status: String(draft.status ?? "active").trim() || "active",
-    treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
-    ...pemsApiFields(draft),
+    ...siteApiFields(draft),
   };
 }
 
@@ -210,9 +267,8 @@ function toApiUpdateBody(draft) {
     address: String(draft.address ?? "").trim() || null,
     code: String(draft.code ?? "").trim() || null,
     status: String(draft.status ?? "active").trim() || "active",
-    treatment_provider_id: String(draft.treatmentProviderId ?? "").trim() || null,
     is_head_office: draft.isHeadOffice === "true" || draft.isHeadOffice === true,
-    ...pemsApiFields(draft),
+    ...siteApiFields(draft),
   };
 }
 
@@ -233,6 +289,12 @@ function buildDraft(row) {
     suburb: row?.suburb ?? "",
     stateCode: row?.stateCode ?? "",
     postcode: row?.postcode ?? "",
+    ticketInPrefix: row?.ticketInPrefix ?? "",
+    ticketOutPrefix: row?.ticketOutPrefix ?? "",
+    ticketPrintHeader: row?.ticketPrintHeader ?? "",
+    ticketPrintFooter: row?.ticketPrintFooter ?? "",
+    ticketPrintLogo: row?.ticketPrintLogo ?? "",
+    ticketPrintLogoFile: null,
   };
 }
 
@@ -310,9 +372,10 @@ export default function SitePage() {
 
     try {
       if (modalMode === "add") {
+        const body = buildSiteCreateBody(draft);
         const result = await siteRequest("", {
           method: "POST",
-          body: JSON.stringify(toApiCreateBody(draft)),
+          body,
         });
         const nextRow = fromApiSite(result.site ?? result.data ?? result);
         if (!nextRow) throw new Error("Invalid response from server.");
@@ -330,9 +393,10 @@ export default function SitePage() {
       }
 
       if (modalMode === "edit" && selected) {
+        const body = buildSiteSaveBody(draft);
         const result = await siteRequest(`/${selected.id}`, {
-          method: "PUT",
-          body: JSON.stringify(toApiUpdateBody(draft)),
+          method: body instanceof FormData ? "POST" : "PUT",
+          body,
         });
         const nextRow = fromApiSite(result.site ?? result.data ?? result);
         if (!nextRow) throw new Error("Invalid response from server.");
@@ -509,6 +573,60 @@ export default function SitePage() {
             <FormInput label="Suburb" value={draft.suburb} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, suburb: v }))} />
             <FormSelect label="State" value={draft.stateCode} disabled={isSaving} options={STATE_OPTIONS} onChange={(v) => setDraft((p) => ({ ...p, stateCode: v }))} />
             <FormInput label="Postcode" value={draft.postcode} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, postcode: v }))} />
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-700">Ticket Print Settings</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormInput
+              label="Incoming Ticket Prefix"
+              value={draft.ticketInPrefix}
+              disabled={isSaving}
+              onChange={(v) => setDraft((p) => ({ ...p, ticketInPrefix: v }))}
+              placeholder="e.g. MTS (defaults to MTS)"
+            />
+            <FormInput
+              label="Outgoing Ticket Prefix"
+              value={draft.ticketOutPrefix}
+              disabled={isSaving}
+              onChange={(v) => setDraft((p) => ({ ...p, ticketOutPrefix: v }))}
+              placeholder="e.g. OT (defaults to OT)"
+            />
+            <div className="sm:col-span-2">
+              <FormTextarea
+                label="Print Header"
+                value={draft.ticketPrintHeader}
+                disabled={isSaving}
+                onChange={(v) => setDraft((p) => ({ ...p, ticketPrintHeader: v }))}
+                placeholder="Address lines and contact details shown at the top of printed tickets…"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <FormTextarea
+                label="Print Footer"
+                value={draft.ticketPrintFooter}
+                disabled={isSaving}
+                onChange={(v) => setDraft((p) => ({ ...p, ticketPrintFooter: v }))}
+                placeholder="Disclaimer or footer text shown at the bottom of printed tickets…"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-2">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Print Logo</label>
+              {draft.ticketPrintLogo ? (
+                <p className="text-[11px] text-slate-500">Current: {draft.ticketPrintLogo}</p>
+              ) : null}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={isSaving}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setDraft((p) => ({ ...p, ticketPrintLogoFile: file }));
+                }}
+              />
+            </div>
           </div>
         </div>
 

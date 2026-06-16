@@ -6,13 +6,15 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
-import { cn } from "@/lib/utils";
+import { cn, nowDatetimeLocal, nowDatetimeLocalDate } from "@/lib/utils";
 import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
+import { enrichPrintSnapshot } from "@/lib/in-ticket-print";
 import {
   completeTicket,
   deleteTicket,
   fetchTicket,
   fetchTicketFormData,
+  mergeTicketFromApi,
   overrideTicket,
   saveCmo,
   saveTicket,
@@ -84,8 +86,12 @@ function buildBlankTicket(direction) {
     loadingLocation: "",
     notes: "",
     ticketReference: "",
+    ticketRef: "",
+    bookingRef: "",
+    ngr: "",
+    season: "",
     additionalReference: "",
-    date: new Date().toISOString().split("T")[0],
+    date: nowDatetimeLocalDate(),
   };
 }
 
@@ -184,9 +190,28 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       ? commodityTypes.find((ct) => ct.id === ticket.commodityTypeId)
       : null;
     const locationObj = locationValue ? stockLocations.find((l) => l.id === locationValue) : null;
+    let sitePrint = null;
+    try {
+      const authPayload = JSON.parse(localStorage.getItem("authPayload") || "{}");
+      const site = authPayload.current_site;
+      if (site) {
+        sitePrint = {
+          name: site.name ?? "",
+          phone: site.phone ?? "",
+          email: site.email ?? "",
+          ticketPrintHeader: site.ticket_print_header ?? site.ticketPrintHeader ?? "",
+          ticketPrintFooter: site.ticket_print_footer ?? site.ticketPrintFooter ?? "",
+          ticketPrintLogo: site.ticket_print_logo ?? site.ticketPrintLogo ?? "",
+        };
+      }
+    } catch {
+      sitePrint = null;
+    }
     return {
       ...ticket,
       type: ticketType,
+      testsCatalog: tests,
+      sitePrint,
       cmo: cmoObj ? { id: cmoObj.id, cmoReference: cmoObj.cmoReference } : null,
       commodity: commodityObj
         ? {
@@ -205,6 +230,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         ? { id: locationObj.id, name: locationObj.name, locationType: locationObj.locationType }
         : null,
     };
+  };
+
+  const savePrintSnapshot = async () => {
+    if (!ticketNumericId) return;
+    const snapshot = await enrichPrintSnapshot(buildPrintSnapshot());
+    saveInTicketSnapshot(ticketNumericId, snapshot, ticketType);
   };
 
   const accountSelectValue =
@@ -314,7 +345,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
         if (mode === "edit" && routeTicketId) {
           const loaded = await fetchTicket(routeTicketId);
-          if (!cancelled) setTicket(loaded);
+          if (!cancelled) setTicket((prev) => mergeTicketFromApi(prev, loaded));
         } else {
           setTicket(buildBlankTicket(ticketType));
         }
@@ -345,7 +376,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     const dateTimeType = type === "grossWeights" ? "grossWeightDateTimes" : "tareWeightDateTimes";
     const dateTimeArr = [...(ticket[dateTimeType] || [])];
     if (!dateTimeArr[idx] && newValue > 0 && prevValue === 0) {
-      dateTimeArr[idx] = new Date().toISOString().slice(0, 16);
+      dateTimeArr[idx] = nowDatetimeLocal();
       set(dateTimeType, dateTimeArr);
     }
   };
@@ -457,7 +488,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       setError("");
       const saved = await saveTicket({ ...ticket, type: ticketType });
       setTicket(saved);
-      router.push(`${detailPathBase}/${saved.id}`);
+      if (isCreate) {
+        router.push(`${detailPathBase}/${saved.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
     }
@@ -468,7 +501,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       setError("");
       let saved = await saveTicket({ ...ticket, type: ticketType });
       setTicket(saved);
-      saved = await completeTicket(saved.id);
+      saved = await completeTicket(saved.id, saved);
       setTicket(saved);
       setCompletedTickets((prev) => [...prev.filter((t) => t.id !== saved.id), saved]);
       setShowPrintConfirm(true);
@@ -480,7 +513,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const handleOverride = async () => {
     try {
       setError("");
-      const updated = await overrideTicket(ticket.id);
+      const updated = await overrideTicket(ticket.id, ticket);
       setTicket(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Override failed.");
@@ -507,7 +540,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               <Link
                 href={printHref}
                 className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
-                onClick={() => saveInTicketSnapshot(ticketNumericId, buildPrintSnapshot(), ticketType)}
+                onClick={() => {
+                  void savePrintSnapshot();
+                }}
               >
                 Print overview
               </Link>
@@ -862,7 +897,9 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   {ticket.commodityConfirmed ? "Commodity Confirmed" : "Identify Commodity"}
                 </Button>
                 {ticket.commodityConfirmed && commodity ? (
-                  <span className="text-[11px] font-semibold text-emerald-700">{commodity.description}</span>
+                  <span className="text-[11px] font-semibold text-emerald-700">
+                    {commodity.commodityCode ?? commodity.commodity_code ?? commodity.description}
+                  </span>
                 ) : null}
                 {ticket.commodityConfirmed && ticket.commodityOverrideReason ? (
                   <span className="text-[11px] text-amber-800">Override: {ticket.commodityOverrideReason}</span>
@@ -883,15 +920,57 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 onChange={(e) => set("date", e.target.value)}
               />
             </FormRow>
-            {ticketDisplayRef ? (
+            {ticket.id || ticketDisplayRef ? (
               <FormRow label="Ticket number">
-                <input className={`${inputClass} bg-slate-50 text-slate-600`} value={ticketDisplayRef} readOnly disabled />
+                <input
+                  className={`${inputClass} bg-slate-50 text-slate-600`}
+                  value={ticketDisplayRef}
+                  readOnly
+                  disabled
+                  placeholder={ticket.id ? "—" : "Assigned on save"}
+                />
               </FormRow>
             ) : isCreate ? (
               <FormRow label="Ticket number">
                 <input className={`${inputClass} bg-slate-50 text-slate-500`} value="" readOnly disabled placeholder="Assigned on save" />
               </FormRow>
             ) : null}
+            <FormRow label="Booking Ref">
+              <input
+                className={inputClass}
+                value={ticket.bookingRef || ""}
+                disabled={isCompleted}
+                onChange={(e) => set("bookingRef", e.target.value)}
+                placeholder="Enter booking reference…"
+              />
+            </FormRow>
+            <FormRow label="Ticket Ref">
+              <input
+                className={inputClass}
+                value={ticket.ticketRef || ""}
+                disabled={isCompleted}
+                onChange={(e) => set("ticketRef", e.target.value)}
+                placeholder="Enter ticket reference…"
+              />
+            </FormRow>
+            <FormRow label="NGR">
+              <input
+                className={inputClass}
+                value={ticket.ngr || ""}
+                disabled={isCompleted}
+                onChange={(e) => set("ngr", e.target.value)}
+                placeholder="Optional"
+              />
+            </FormRow>
+            <FormRow label="Season">
+              <input
+                className={inputClass}
+                value={ticket.season || ""}
+                disabled={isCompleted}
+                onChange={(e) => set("season", e.target.value)}
+                placeholder="Optional"
+              />
+            </FormRow>
             <FormRow label="Additional Reference">
               <input
                 className={inputClass}
@@ -1256,7 +1335,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             href={ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath}
             className={cn(buttonVariants({ size: "sm" }), "inline-flex items-center justify-center")}
             onClick={() => {
-              if (ticket.id) saveInTicketSnapshot(ticket.id, buildPrintSnapshot(), ticketType);
+              if (ticket.id) void savePrintSnapshot();
               setShowPrintConfirm(false);
             }}
           >

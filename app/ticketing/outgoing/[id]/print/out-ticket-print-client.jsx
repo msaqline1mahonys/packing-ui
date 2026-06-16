@@ -1,26 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import InTicketPrintDocument from "@/components/ticketing/in-ticket-print-document";
-import { resolveInTicketForPrint } from "@/lib/in-ticket-print";
+import { enrichPrintSnapshot, resolveInTicketForPrint } from "@/lib/in-ticket-print";
 import { loadInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 
 export default function OutTicketPrintClient({ ticketId }) {
   const searchParams = useSearchParams();
   const autoPrint = searchParams.get("print") === "1";
   const [hydrated, setHydrated] = useState(false);
+  const [model, setModel] = useState(null);
 
   useEffect(() => {
     setHydrated(true);
   }, []);
 
-  const model = useMemo(() => {
-    if (!hydrated) return null;
-    const snapshot = loadInTicketSnapshot(ticketId, "out");
-    if (!snapshot) return null;
-    return resolveInTicketForPrint(ticketId, snapshot);
+  useEffect(() => {
+    if (!hydrated) return;
+
+    let cancelled = false;
+    async function load() {
+      const snapshot = loadInTicketSnapshot(ticketId, "out");
+      if (!snapshot) {
+        if (!cancelled) setModel(null);
+        return;
+      }
+      const enriched = await enrichPrintSnapshot(snapshot);
+      if (!cancelled) setModel(resolveInTicketForPrint(ticketId, enriched));
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [hydrated, ticketId]);
 
   useEffect(() => {

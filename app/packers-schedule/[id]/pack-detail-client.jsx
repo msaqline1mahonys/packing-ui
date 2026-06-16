@@ -1613,6 +1613,7 @@ function PemsTab({
   const [pemsContainerSearch, setPemsContainerSearch] = useState("");
   const [previewSubmission, setPreviewSubmission] = useState(null);
   const [downloadingBatchId, setDownloadingBatchId] = useState("");
+  const packDisplayRef = String(packRow?.jobReference || "").trim() || String(packRow?.id ?? "");
 
   async function handleDownloadSubmission(submission) {
     const batchId = submission?.batchId;

@@ -128,6 +128,12 @@ function formatCutoffOrEtdDisplay(value) {
   return str;
 }
 
+function formatMtDisplay(value) {
+  if (value == null || value === "") return "";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) : String(value);
+}
+
 function emptyParkRaw(row) {
   const releases = Array.isArray(row.releases) ? row.releases
     : Array.isArray(row.release_details) ? row.release_details
@@ -846,7 +852,7 @@ export default function PackingSchedulePage() {
                   </div>
                 </div>
               ) : null}
-              <Field label="MT" value={selected.mt_total != null ? Number(selected.mt_total).toFixed(1) : selected.mtTotal?.toFixed(1)} />
+              <Field label="MT" value={formatMtDisplay(selected.mt_total ?? selected.mtTotal)} />
             </div>
           </div>
         ) : null}

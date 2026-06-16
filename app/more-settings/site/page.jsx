@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import InTicketPrintDocument from "@/components/ticketing/in-ticket-print-document";
 import { Button } from "@/components/ui/button";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import { buildTicketPrintPreviewModel, resolveLogoSrc } from "@/lib/in-ticket-print";
 import { refreshAuthPayload } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
@@ -109,6 +111,13 @@ const detailFields = [
   { key: "postcode", label: "Postcode" },
   { key: "ticketInPrefix", label: "Incoming Ticket Prefix" },
   { key: "ticketOutPrefix", label: "Outgoing Ticket Prefix" },
+  { key: "ticketPrintHeader", label: "Print Header" },
+  { key: "ticketPrintFooter", label: "Print Footer" },
+  {
+    key: "ticketPrintLogo",
+    label: "Print Logo",
+    format: (v) => (v ? String(v).split("/").pop() : "—"),
+  },
 ];
 
 function readAuthPayload() {
@@ -308,6 +317,8 @@ export default function SitePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [previewDirection, setPreviewDirection] = useState("incoming");
+  const [logoObjectUrl, setLogoObjectUrl] = useState("");
 
   const loadSites = useCallback(async () => {
     setIsLoading(true);
@@ -328,6 +339,29 @@ export default function SitePage() {
     const frame = requestAnimationFrame(() => loadSites());
     return () => cancelAnimationFrame(frame);
   }, [loadSites]);
+
+  useEffect(() => {
+    if (!(draft.ticketPrintLogoFile instanceof File)) {
+      setLogoObjectUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(draft.ticketPrintLogoFile);
+    setLogoObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draft.ticketPrintLogoFile]);
+
+  const logoForPreview = logoObjectUrl || (draft.ticketPrintLogo ? resolveLogoSrc(draft.ticketPrintLogo) : "");
+
+  const previewModel = useMemo(
+    () =>
+      modalMode
+        ? buildTicketPrintPreviewModel(draft, {
+            direction: previewDirection,
+            logoPreviewUrl: logoForPreview,
+          })
+        : null,
+    [draft, logoForPreview, modalMode, previewDirection]
+  );
 
   const selected = useMemo(
     () => (selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null),
@@ -403,6 +437,12 @@ export default function SitePage() {
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
         setNotice(result.message || "Site updated successfully.");
         setModalMode(null);
+        try {
+          await refreshAuthPayload();
+          notifyAuthSessionChanged();
+        } catch {
+          /* Navbar site list will catch up on next login. */
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save site.");
@@ -611,22 +651,61 @@ export default function SitePage() {
                 placeholder="Disclaimer or footer text shown at the bottom of printed tickets…"
               />
             </div>
-            <div className="sm:col-span-2 space-y-2">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Print Logo</label>
-              {draft.ticketPrintLogo ? (
-                <p className="text-[11px] text-slate-500">Current: {draft.ticketPrintLogo}</p>
-              ) : null}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
+            <div className="sm:col-span-2">
+              <TicketLogoUploader
+                savedLogo={draft.ticketPrintLogo}
+                previewSrc={logoForPreview}
                 disabled={isSaving}
-                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  setDraft((p) => ({ ...p, ticketPrintLogoFile: file }));
-                }}
+                onPick={(file) => setDraft((p) => ({ ...p, ticketPrintLogoFile: file }))}
+                onClear={() =>
+                  setDraft((p) => ({
+                    ...p,
+                    ticketPrintLogo: "",
+                    ticketPrintLogoFile: null,
+                  }))
+                }
               />
             </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 overflow-hidden">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Live preview (placeholder ticket data)
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={previewDirection === "incoming" ? "default" : "outline"}
+                  className="h-7 px-2.5 text-[11px]"
+                  onClick={() => setPreviewDirection("incoming")}
+                  disabled={isSaving}
+                >
+                  Incoming
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={previewDirection === "outgoing" ? "default" : "outline"}
+                  className="h-7 px-2.5 text-[11px]"
+                  onClick={() => setPreviewDirection("outgoing")}
+                  disabled={isSaving}
+                >
+                  Outgoing
+                </Button>
+              </div>
+            </div>
+            {previewModel ? (
+              <div
+                className="origin-top-left overflow-hidden rounded bg-white"
+                style={{ transform: "scale(0.55)", width: "182%", transformOrigin: "top left" }}
+              >
+                <InTicketPrintDocument model={previewModel} hideToolbar singleCopy />
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">Preview unavailable.</p>
+            )}
           </div>
         </div>
 
@@ -708,6 +787,40 @@ function FormTextarea({ label, value, onChange, disabled, placeholder }) {
   );
 }
 
+function TicketLogoUploader({ savedLogo, previewSrc, disabled, onPick, onClear }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Print Logo</label>
+      <div className="flex min-h-[64px] items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-2">
+        {previewSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewSrc} alt="Logo preview" className="h-12 w-auto max-w-[180px] object-contain" />
+        ) : (
+          <span className="px-2 text-xs text-slate-400">No custom logo set</span>
+        )}
+        <div className="ml-auto flex flex-col gap-1">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={disabled}
+            className="block text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
+            onChange={(e) => {
+              onPick(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          {savedLogo || previewSrc ? (
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]" disabled={disabled} onClick={onClear}>
+              Remove logo
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {savedLogo ? <p className="text-[11px] text-slate-500">Saved: {savedLogo.split("/").pop()}</p> : null}
+    </div>
+  );
+}
+
 function Modal({ open, title, onClose, children }) {
   if (!open) return null;
   return (
@@ -717,7 +830,7 @@ function Modal({ open, title, onClose, children }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="site-modal-title"
-        className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="relative max-h-[min(95vh,920px)] w-full max-w-6xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <h2 id="site-modal-title" className="text-sm font-semibold text-slate-900">{title}</h2>

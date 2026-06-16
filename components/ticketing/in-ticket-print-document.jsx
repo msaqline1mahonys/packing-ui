@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Printer, FileDown } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { resolveLogoSrc } from "@/lib/in-ticket-print";
 import { cn } from "@/lib/utils";
 
 const INCOMING_PALETTE = {
@@ -41,15 +42,6 @@ function buildTestSlots(testRows) {
   }));
 }
 
-function resolveLogoSrc(logoUrl) {
-  if (!logoUrl) return "/mahonys-logo.png";
-  if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://") || logoUrl.startsWith("/")) {
-    return logoUrl;
-  }
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/api\/?$/, "");
-  return `${apiBase}/${logoUrl.replace(/^\/+/, "")}`;
-}
-
 function TicketCopy({ model }) {
   const sitePrint = model.sitePrint || {};
   const headerLines = sitePrint.headerLines || [];
@@ -72,7 +64,7 @@ function TicketCopy({ model }) {
             height={48}
             className="h-auto w-[150px] object-contain print:w-[140px]"
             priority
-            unoptimized={logoSrc.startsWith("http")}
+            unoptimized={logoSrc.startsWith("http") || logoSrc.startsWith("blob:") || logoSrc.startsWith("data:")}
           />
         </div>
         <div className="flex-1 text-right text-[9px] leading-tight text-slate-700">
@@ -251,7 +243,7 @@ function WeightBlock({ label, weight, date, time, isNet, middle, palette }) {
   );
 }
 
-export default function InTicketPrintDocument({ model, backHref }) {
+export default function InTicketPrintDocument({ model, backHref, hideToolbar = false, singleCopy = false }) {
   if (!model) {
     return (
       <div className="mx-auto max-w-lg px-6 py-16 text-center">
@@ -270,32 +262,38 @@ export default function InTicketPrintDocument({ model, backHref }) {
 
   return (
     <>
-      {/* ─── TOOLBAR (hidden when printing) ─── */}
-      <div className="ticket-print-toolbar sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-4 py-3 backdrop-blur-sm print:hidden">
-        <div className="mx-auto flex max-w-[48rem] flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[#0f1e3d]">Print preview — {previewLabel} {model.ticketRef}</p>
-            <p className="text-xs text-slate-500">Use Print for paper, or Save as PDF in the print dialog.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={handlePrint}>
-              <Printer className="size-3.5" aria-hidden />
-              Print
-            </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={handlePrint} title="Opens print dialog — choose Save as PDF">
-              <FileDown className="size-3.5" aria-hidden />
-              Save as PDF
-            </Button>
-            <Link href={backHref} className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
-              Back to ticket
-            </Link>
+      {!hideToolbar ? (
+        <div className="ticket-print-toolbar sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-4 py-3 backdrop-blur-sm print:hidden">
+          <div className="mx-auto flex max-w-[48rem] flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[#0f1e3d]">Print preview — {previewLabel} {model.ticketRef}</p>
+              <p className="text-xs text-slate-500">Use Print for paper, or Save as PDF in the print dialog.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={handlePrint}>
+                <Printer className="size-3.5" aria-hidden />
+                Print
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={handlePrint} title="Opens print dialog — choose Save as PDF">
+                <FileDown className="size-3.5" aria-hidden />
+                Save as PDF
+              </Button>
+              <Link href={backHref} className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+                Back to ticket
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="ticket-print-document ticket-print-document-two-copies mx-auto max-w-[48rem] bg-white px-6 py-6 print:max-w-none print:px-0 print:py-0">
+      <div
+        className={cn(
+          "ticket-print-document mx-auto max-w-[48rem] bg-white px-6 py-6 print:max-w-none print:px-0 print:py-0",
+          !singleCopy && "ticket-print-document-two-copies"
+        )}
+      >
         <TicketCopy model={model} />
-        <TicketCopy model={model} />
+        {!singleCopy ? <TicketCopy model={model} /> : null}
       </div>
     </>
   );

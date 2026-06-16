@@ -238,6 +238,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     saveInTicketSnapshot(ticketNumericId, snapshot, ticketType);
   };
 
+  const handlePrintNavigate = async (href) => {
+    if (!href) return;
+    await savePrintSnapshot();
+    router.push(href);
+  };
+
   const accountSelectValue =
     ticket.accountType === "internal" && ticket.internalAccountId
       ? `internal:${ticket.internalAccountId}`
@@ -536,17 +542,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </div>
         <div className="flex flex-wrap gap-2">
           {printHref ? (
-            <>
-              <Link
-                href={printHref}
-                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "text-xs")}
-                onClick={() => {
-                  void savePrintSnapshot();
-                }}
-              >
-                Print overview
-              </Link>
-            </>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="text-xs"
+              onClick={() => void handlePrintNavigate(printHref)}
+            >
+              Print overview
+            </Button>
           ) : null}
           {isCompleted ? (
             <>
@@ -1331,16 +1335,17 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       <Modal open={showPrintConfirm} title="Ticket Completed" onClose={() => setShowPrintConfirm(false)}>
         <p className="text-center text-sm text-slate-800">The ticket has been completed successfully.</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <Link
-            href={ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath}
-            className={cn(buttonVariants({ size: "sm" }), "inline-flex items-center justify-center")}
+          <Button
+            type="button"
+            size="sm"
             onClick={() => {
-              if (ticket.id) void savePrintSnapshot();
+              const href = ticket.id ? `${detailPathBase}/${ticket.id}/print?print=1` : listPath;
               setShowPrintConfirm(false);
+              void handlePrintNavigate(href);
             }}
           >
             Print Ticket
-          </Link>
+          </Button>
           <Link
             href={ticket.id ? `${detailPathBase}/${ticket.id}` : listPath}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center justify-center")}

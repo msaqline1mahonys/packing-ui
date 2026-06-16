@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import InTicketPrintDocument from "@/components/ticketing/in-ticket-print-document";
-import { enrichPrintSnapshot, resolveInTicketForPrint } from "@/lib/in-ticket-print";
+import { enrichPrintSnapshot, mergeLiveSitePrint, resolveInTicketForPrint } from "@/lib/in-ticket-print";
 import { loadInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 
 export default function OutTicketPrintClient({ ticketId }) {
@@ -22,7 +22,7 @@ export default function OutTicketPrintClient({ ticketId }) {
 
     let cancelled = false;
     async function load() {
-      const snapshot = loadInTicketSnapshot(ticketId, "out");
+      const snapshot = mergeLiveSitePrint(loadInTicketSnapshot(ticketId, "out"));
       if (!snapshot) {
         if (!cancelled) setModel(null);
         return;

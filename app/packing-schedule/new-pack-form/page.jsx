@@ -37,7 +37,8 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsInspectionPanel from "@/components/pems/pems-inspection-panel";
 import { savePack } from "@/lib/pack-schedule-store";
-import { packAssignedPackerOptions } from "@/lib/api/packing";
+import { packAssignedPackerOptions, performBlend } from "@/lib/api/packing";
+import { fetchStockOnHand } from "@/lib/stock-transfers-api";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
@@ -58,7 +59,7 @@ import {
 } from "@/lib/pems-container-fields";
 import { normalizePackAttachmentFiles } from "@/lib/pack-attachments";
 import { readSiteRows } from "@/lib/site-data";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import ClutchSelect from "@/components/custom/ClutchSelect";
@@ -454,6 +455,9 @@ const blankPack = (siteId) => ({
   packingInstructionFiles: [],
   pemsDraft: defaultPemsDraft(),
   pemsSubmissions: [],
+  // Blend pack
+  isBlend: false,
+  blendComponents: [],
 });
 
 function createSampleEntry() {
@@ -687,6 +691,23 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     ),
     pemsDraft: { ...defaultPemsDraft(), ...((row.pems_draft ?? row.pemsDraft) || {}) },
     pemsSubmissions: Array.isArray(row.pems_submissions ?? row.pemsSubmissions) ? (row.pems_submissions ?? row.pemsSubmissions) : [],
+    // Blend pack
+    isBlend: Boolean(row.is_blend ?? row.isBlend),
+    blendComponents: (() => {
+      const components = row.blend_components ?? row.blendComponents;
+      if (!Array.isArray(components)) return [];
+      return components.map((c) => ({
+        commodityId: c.commodity_id ?? c.commodityId ?? null,
+        locationId: c.location_id ?? c.locationId ?? null,
+        quantity: c.quantity != null ? Number(c.quantity) : null,
+        commodityName: c.commodity?.description ?? c.commodityName ?? "",
+        locationName: c.location?.name ?? c.locationName ?? "",
+        commodityTypeId: c.commodity?.commodity_type_id ?? c.commodity?.commodityTypeId ?? c.commodityTypeId ?? null,
+      }));
+    })(),
+    blendPerformedAt: row.blend_performed_at ?? row.blendPerformedAt ?? null,
+    blendTransferId: row.blend_transfer_id ?? row.blendTransferId ?? null,
+    blendPending: Boolean((row.is_blend ?? row.isBlend) && !(row.blend_performed_at ?? row.blendPerformedAt)),
   };
 }
 
@@ -809,6 +830,17 @@ function packToScheduleRow(pack, existingRow) {
     })(),
     pemsDraft: { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) },
     pemsSubmissions: Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [],
+    // Blend pack
+    isBlend: Boolean(pack.isBlend),
+    blendComponents: Array.isArray(pack.blendComponents)
+      ? pack.blendComponents
+          .filter((c) => c.commodityId || c.locationId || c.quantity != null)
+          .map((c) => ({
+            commodityId: c.commodityId ?? null,
+            locationId: c.locationId ?? null,
+            quantity: c.quantity != null && c.quantity !== "" ? Number(c.quantity) : null,
+          }))
+      : [],
   };
 }
 
@@ -864,6 +896,467 @@ const gppirTableInspectionAoCol = "w-[9rem] min-w-[9rem] px-2 py-2 whitespace-no
 const gppirTableContainerCol = "w-[7rem] min-w-[7rem] px-2 py-2 whitespace-nowrap";
 const gppirTableCellCol = "px-1.5 py-1.5";
 const gppirTableRemarksCol = "w-[10rem] min-w-[10rem] px-2 py-2 align-top";
+
+function blankBlendComponent() {
+  return { commodityId: null, locationId: null, quantity: null, commodityName: "", locationName: "", commodityTypeId: null };
+}
+
+function BlendPerformAction({ pack, commodityOptions, stockLocations, mtTotal, onPerformed, sectionClass }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState([]);
+  const [sohByIndex, setSohByIndex] = useState({});
+  const [performing, setPerforming] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!pack?.isBlend || !pack?.id) return null;
+
+  const performed = Boolean(pack.blendPerformedAt);
+
+  async function loadSoh(rows) {
+    const accountId = pack.customerId;
+    const results = {};
+    await Promise.all(
+      rows.map(async (row, index) => {
+        if (!accountId || !row.commodityId || !row.locationId) {
+          results[index] = null;
+          return;
+        }
+        try {
+          results[index] = await fetchStockOnHand({
+            accountId,
+            commodityId: row.commodityId,
+            locationId: row.locationId,
+          });
+        } catch {
+          results[index] = null;
+        }
+      })
+    );
+    setSohByIndex(results);
+  }
+
+  function openModal() {
+    setError("");
+    const seeded = (Array.isArray(pack.blendComponents) ? pack.blendComponents : []).map((c) => ({
+      commodityId: c.commodityId ?? null,
+      commodityName: c.commodityName ?? "",
+      commodityTypeId: c.commodityTypeId ?? null,
+      locationId: c.locationId ?? null,
+      locationName: c.locationName ?? "",
+      quantity: c.quantity ?? null,
+    }));
+    setDraft(seeded.length ? seeded : [blankBlendComponent()]);
+    setSohByIndex({});
+    setOpen(true);
+    loadSoh(seeded);
+  }
+
+  function updateComponent(index, patch) {
+    setDraft((prev) => {
+      const next = prev.map((row, idx) => (idx === index ? { ...row, ...patch } : row));
+      if (patch.commodityId !== undefined || patch.locationId !== undefined) {
+        loadSoh(next);
+      }
+      return next;
+    });
+  }
+
+  function addComponent() {
+    setDraft((prev) => [...prev, blankBlendComponent()]);
+  }
+
+  function removeComponent(index) {
+    setDraft((prev) => prev.filter((_, idx) => idx !== index));
+  }
+
+  async function confirm() {
+    setError("");
+    const components = draft
+      .filter((c) => c.commodityId && c.locationId && Number(c.quantity) > 0)
+      .map((c) => ({
+        commodityId: c.commodityId,
+        locationId: c.locationId,
+        quantity: Number(c.quantity),
+      }));
+    if (components.length === 0) {
+      setError("Add at least one component with a commodity, location and quantity.");
+      return;
+    }
+    setPerforming(true);
+    try {
+      const updated = await performBlend(pack.id, components);
+      onPerformed(updated);
+      setOpen(false);
+    } catch (err) {
+      setError(err?.message || "Failed to perform blend.");
+    } finally {
+      setPerforming(false);
+    }
+  }
+
+  return (
+    <section className={sectionClass} aria-label="Perform blend">
+      {performed ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-800">
+          Blend completed{pack.blendTransferId ? ` — transfer ${pack.blendTransferId}` : ""}.
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-amber-800">
+            <AlertCircle className="size-3.5" />
+            Blend pending — perform the blend transfer once the pack is out-loaded.
+          </span>
+          <Button type="button" size="sm" onClick={openModal}>
+            Perform blend
+          </Button>
+        </div>
+      )}
+
+      {open ? (
+        <BlendPerformModal
+          pack={pack}
+          components={draft}
+          sohByIndex={sohByIndex}
+          isPerforming={performing}
+          error={error}
+          mtTotal={mtTotal}
+          commodityOptions={commodityOptions}
+          stockLocations={stockLocations}
+          onUpdateComponent={updateComponent}
+          onAddComponent={addComponent}
+          onRemoveComponent={removeComponent}
+          onConfirm={confirm}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function BlendPerformModal({
+  pack,
+  components,
+  sohByIndex,
+  isPerforming,
+  error,
+  mtTotal,
+  commodityOptions,
+  stockLocations,
+  onUpdateComponent,
+  onAddComponent,
+  onRemoveComponent,
+  onConfirm,
+  onClose,
+}) {
+  const commoditySelectOpts = (Array.isArray(commodityOptions) ? commodityOptions : []).map((c) => ({
+    value: String(c.id),
+    label: c.description,
+    _typeId: c.commodity_type_id ?? c.commodityTypeId ?? null,
+  }));
+
+  const locationSelectOpts = (Array.isArray(stockLocations) ? stockLocations : []).map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+
+  const finalCommodityLabel =
+    commoditySelectOpts.find((o) => String(o.value) === String(pack.commodityId ?? ""))?.label || "final commodity";
+
+  const componentQtySum = components
+    .map((c) => Number(c.quantity))
+    .filter((v) => Number.isFinite(v))
+    .reduce((s, v) => s + v, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800">Perform blend</h2>
+            <p className="text-xs text-slate-500">
+              Posts a commodity-to-commodity transfer per component into {finalCommodityLabel}.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+          {error ? (
+            <p className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700">
+              {error}
+            </p>
+          ) : null}
+
+          {components.map((component, index) => {
+            const soh = sohByIndex[index];
+            const exceeds = soh != null && Number(component.quantity) > Number(soh) + 0.001;
+            return (
+              <div
+                key={`blend-perform-${index}`}
+                className="grid gap-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2 sm:grid-cols-[1fr_1fr_5rem_auto]"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                    Source commodity
+                  </label>
+                  <ClutchSelect
+                    placeholder="- Select -"
+                    options={commoditySelectOpts}
+                    value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
+                    onChange={(option) =>
+                      onUpdateComponent(index, {
+                        commodityId: option ? option.value : null,
+                        commodityName: option ? option.label : "",
+                        commodityTypeId: option ? (option._typeId ?? null) : null,
+                      })
+                    }
+                  />
+                </div>
+                <div className="min-w-0 space-y-0.5">
+                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                    Stock location
+                  </label>
+                  <ClutchSelect
+                    placeholder="- Select -"
+                    options={locationSelectOpts}
+                    value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
+                    onChange={(option) =>
+                      onUpdateComponent(index, {
+                        locationId: option ? option.value : null,
+                        locationName: option ? option.label : "",
+                      })
+                    }
+                  />
+                  {soh != null ? (
+                    <p className={cn("text-[10px] font-medium", exceeds ? "text-rose-600" : "text-slate-500")}>
+                      On hand: {Number(soh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT
+                    </p>
+                  ) : null}
+                </div>
+                <div className="min-w-0 space-y-0.5">
+                  <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                    Qty (MT)
+                  </label>
+                  <input
+                    className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={component.quantity ?? ""}
+                    onChange={(e) =>
+                      onUpdateComponent(index, { quantity: e.target.value === "" ? null : Number(e.target.value) })
+                    }
+                    placeholder="0"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                    aria-label={`Remove component ${index + 1}`}
+                    onClick={() => onRemoveComponent(index)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            className="flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-600 hover:border-brand/40 hover:bg-brand/5 hover:text-brand-ink"
+            onClick={onAddComponent}
+          >
+            <Plus className="size-3.5" />
+            Add component
+          </button>
+
+          {mtTotal != null && Number.isFinite(Number(mtTotal)) ? (
+            <p className="text-[11px] text-slate-500">
+              Components sum to {componentQtySum.toLocaleString(undefined, { maximumFractionDigits: 3 })} MT · pack MT total{" "}
+              {Number(mtTotal).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={isPerforming}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={onConfirm} disabled={isPerforming}>
+            {isPerforming ? "Performing…" : "Perform blend"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BlendPackSection({ isBlend, blendComponents, commodityOptions, stockLocations, mtTotal, onToggle, onChange, sectionClass, inputClass }) {
+  const components = Array.isArray(blendComponents) ? blendComponents : [];
+
+  // Derived warnings (non-blocking)
+  const hasMultipleCommodityTypes = (() => {
+    if (!isBlend || components.length < 2) return false;
+    const types = components.map((c) => c.commodityTypeId).filter(Boolean);
+    return types.length >= 2 && new Set(types).size > 1;
+  })();
+
+  const componentQtySum = (() => {
+    if (!isBlend) return null;
+    const vals = components.map((c) => Number(c.quantity));
+    if (vals.some((v) => !Number.isFinite(v))) return null;
+    return vals.reduce((s, v) => s + v, 0);
+  })();
+
+  const qtySumMismatch = (() => {
+    if (componentQtySum == null || mtTotal == null || !Number.isFinite(Number(mtTotal))) return false;
+    return Math.abs(componentQtySum - Number(mtTotal)) > 0.001;
+  })();
+
+  const commoditySelectOpts = (Array.isArray(commodityOptions) ? commodityOptions : []).map((c) => ({
+    value: String(c.id),
+    label: c.description,
+    _typeId: c.commodity_type_id ?? c.commodityTypeId ?? null,
+  }));
+
+  const locationSelectOpts = (Array.isArray(stockLocations) ? stockLocations : []).map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+
+  function updateComponent(index, patch) {
+    const next = components.map((row, idx) => (idx === index ? { ...row, ...patch } : row));
+    onChange(next);
+  }
+
+  function addComponent() {
+    onChange([...components, blankBlendComponent()]);
+  }
+
+  function removeComponent(index) {
+    onChange(components.filter((_, idx) => idx !== index));
+  }
+
+  return (
+    <section className={sectionClass} aria-label="Blend pack">
+      <div className="flex items-center gap-3">
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+          <input
+            type="checkbox"
+            className="size-3.5 rounded border-slate-300 accent-brand"
+            checked={isBlend}
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          Blend pack
+        </label>
+        {isBlend ? (
+          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand-ink ring-1 ring-brand/20">
+            {components.length} component{components.length !== 1 ? "s" : ""}
+          </span>
+        ) : null}
+      </div>
+
+      {isBlend ? (
+        <div className="mt-2 space-y-2">
+          {hasMultipleCommodityTypes ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+              Components are of different commodity types.
+            </p>
+          ) : null}
+          {qtySumMismatch ? (
+            <p className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-800">
+              Component quantities sum to {Number(componentQtySum).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT
+              but pack MT total is {Number(mtTotal).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT.
+            </p>
+          ) : null}
+
+          {components.map((component, index) => (
+            <div
+              key={`blend-component-${index}`}
+              className="grid gap-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2 sm:grid-cols-[1fr_1fr_5rem_auto]"
+            >
+              <div className="min-w-0 space-y-0.5">
+                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                  Source commodity
+                </label>
+                <ClutchSelect
+                  placeholder="- Select -"
+                  options={commoditySelectOpts}
+                  value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
+                  onChange={(option) =>
+                    updateComponent(index, {
+                      commodityId: option ? option.value : null,
+                      commodityName: option ? option.label : "",
+                      commodityTypeId: option ? (option._typeId ?? null) : null,
+                    })
+                  }
+                />
+              </div>
+              <div className="min-w-0 space-y-0.5">
+                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                  Stock location
+                </label>
+                <ClutchSelect
+                  placeholder="- Select -"
+                  options={locationSelectOpts}
+                  value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
+                  onChange={(option) =>
+                    updateComponent(index, {
+                      locationId: option ? option.value : null,
+                      locationName: option ? option.label : "",
+                    })
+                  }
+                />
+              </div>
+              <div className="min-w-0 space-y-0.5">
+                <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                  Qty (MT)
+                </label>
+                <input
+                  className={inputClass}
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={component.quantity ?? ""}
+                  onChange={(e) => updateComponent(index, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                  placeholder="0"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                  aria-label={`Remove component ${index + 1}`}
+                  onClick={() => removeComponent(index)}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            className="flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-600 hover:border-brand/40 hover:bg-brand/5 hover:text-brand-ink"
+            onClick={addComponent}
+          >
+            <Plus className="size-3.5" />
+            Add component
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 export default function NewPackFormPage() {
   return (
@@ -2303,7 +2796,7 @@ function NewPackFormPageInner() {
                     );
                   })()}
                 </FormRow>
-                <FormRow label="Commodity">
+                <FormRow label={pack.isBlend ? "Final commodity (blend target)" : "Commodity"}>
                   {(() => {
                     const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: c.description }));
                     return (
@@ -2472,6 +2965,42 @@ function NewPackFormPageInner() {
                 ) : null}
               </div>
             </section>
+
+            <BlendPackSection
+              isBlend={pack.isBlend}
+              blendComponents={pack.blendComponents}
+              commodityOptions={commodityOptions}
+              stockLocations={queryLookups.stockLocations}
+              mtTotal={computedMtTotal}
+              onToggle={(enabled) =>
+                setPack((prev) => ({
+                  ...prev,
+                  isBlend: enabled,
+                  blendComponents: enabled && (!prev.blendComponents || prev.blendComponents.length === 0)
+                    ? [{ commodityId: null, locationId: null, quantity: null, commodityName: "", locationName: "", commodityTypeId: null }]
+                    : prev.blendComponents || [],
+                }))
+              }
+              onChange={(components) => set("blendComponents", components)}
+              sectionClass={sectionClass}
+              inputClass={inputClass}
+            />
+
+            <BlendPerformAction
+              pack={pack}
+              commodityOptions={commodityOptions}
+              stockLocations={queryLookups.stockLocations}
+              mtTotal={computedMtTotal}
+              onPerformed={(result) =>
+                setPack((prev) => ({
+                  ...prev,
+                  blendPerformedAt: result?.blendPerformedAt ?? new Date().toISOString(),
+                  blendTransferId: result?.blendTransferId ?? prev.blendTransferId,
+                  blendPending: false,
+                }))
+              }
+              sectionClass={sectionClass}
+            />
 
             <div className={containersShippingRowClass}>
               <section className={flushSectionClass} aria-label="Containers and quantity">

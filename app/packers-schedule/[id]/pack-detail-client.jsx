@@ -365,6 +365,7 @@ export default function PackDetailClient({ packId }) {
   const [filePreview, setFilePreview] = useState(null);
   const previewRevokeRef = useRef(null);
 
+
   const { packerNames, packerSelectOptions: allPackerSelectOptions } = lookups;
   const packPackerSelectOptions = useMemo(
     () => packAssignedPackerOptions(packRow, lookups.referencePackers ?? lookups.packers ?? []),
@@ -1196,6 +1197,7 @@ export default function PackDetailClient({ packId }) {
             </div>
           </div>
         </div>
+
       </section>
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-2">
@@ -2259,4 +2261,5 @@ function LabeledSelect({ label, value, options, onChange, placeholder = "Select 
     </div>
   );
 }
+
 

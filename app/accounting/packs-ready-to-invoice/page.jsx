@@ -175,7 +175,7 @@ export default function PacksReadyToInvoicePage() {
               value={DATE_MODE_OPTS.find((o) => o.value === dateFilterMode) ?? null}
               onChange={(option) => setDateFilterMode(option ? option.value : "all")}
               isClearable={false}
-              placeholder="Any Date"
+              placeholder="Any Dat"
             />
           </div>
           {dateFilterMode === "specific" ? (

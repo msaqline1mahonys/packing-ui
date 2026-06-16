@@ -17,6 +17,7 @@ import {
 } from "@/lib/Data";
 import BulkContainerImportPanel from "@/components/packing-schedule/bulk-container-import-dialog";
 import { ensureReleaseLineOnPack } from "@/lib/container-bulk-import";
+import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import {
   loadCertificateTemplates,
@@ -1204,7 +1205,7 @@ function BlendPerformModal({
 }) {
   const commoditySelectOpts = (Array.isArray(commodityOptions) ? commodityOptions : []).map((c) => ({
     value: String(c.id),
-    label: c.description,
+    label: commodityOptionLabel(c),
     _typeId: c.commodity_type_id ?? c.commodityTypeId ?? null,
   }));
 
@@ -1335,7 +1336,7 @@ function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptio
 
   const commoditySelectOpts = (Array.isArray(commodityOptions) ? commodityOptions : []).map((c) => ({
     value: String(c.id),
-    label: c.description,
+    label: commodityOptionLabel(c),
     _typeId: c.commodity_type_id ?? c.commodityTypeId ?? null,
   }));
 
@@ -2663,11 +2664,9 @@ function NewPackFormPageInner() {
                 </div>
               </section>
 
-              <section className={flushSectionClass} aria-label="Site and import">
+              {pack.packType === "bulk" || isImportJob ? (
+              <section className={flushSectionClass} aria-label="Import and bulk">
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
-                  <FormRow label="Site">
-                    <input className={inputClass} value={site?.label || site?.name || `Site ${currentSite}`} readOnly disabled />
-                  </FormRow>
                   {pack.packType === "bulk" ? (
                     <FormRow label="Test required">
                       <ClutchSelect
@@ -2690,6 +2689,7 @@ function NewPackFormPageInner() {
                   ) : null}
                 </div>
               </section>
+              ) : null}
 
               <section className={flushSectionClass} aria-label="Sample">
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
@@ -2898,7 +2898,7 @@ function NewPackFormPageInner() {
                 </FormRow>
                 <FormRow label={pack.isBlend ? "Final commodity (blend target)" : "Commodity"}>
                   {(() => {
-                    const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: c.description }));
+                    const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: commodityOptionLabel(c) }));
                     return (
                       <ClutchSelect
                         placeholder="- Select -"
@@ -2907,10 +2907,12 @@ function NewPackFormPageInner() {
                         onChange={(option) => {
                           const id = option ? option.value : "";
                           const row = id ? commodityOptions.find((c) => String(c.id) === id) : null;
+                          const pemsCode = row ? String(row.pems_code ?? row.pemsCode ?? "").trim() : "";
                           setPack((prev) => ({
                             ...prev,
                             commodityId: id,
                             commodityTypeId: (row?.commodity_type_id ?? row?.commodityTypeId) != null ? String(row.commodity_type_id ?? row.commodityTypeId) : "",
+                            rfpCommodityCode: pemsCode,
                           }));
                         }}
                       />

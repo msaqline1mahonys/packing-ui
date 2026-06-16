@@ -1,6 +1,7 @@
 "use client";
 
 import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
+import { commodityOptionLabel } from "@/lib/commodity-display";
 
 /**
  * Thin wrapper around MultiSelectCombobox configured for commodities.
@@ -14,8 +15,8 @@ export function CommodityMultiSelect({ commodities, value = [], onChange, allowE
       value={value}
       onChange={onChange}
       getId={(c) => c.id}
-      getLabel={(c) => c.description}
-      getMeta={(c) => c.commodityCode || ""}
+      getLabel={commodityOptionLabel}
+      getMeta={(c) => c.description || ""}
       placeholder="Select commodities..."
       searchPlaceholder="Filter commodities..."
       emptyMeansAll={allowEmpty}

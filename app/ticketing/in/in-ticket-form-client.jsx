@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import { commodityOptionLabel } from "@/lib/commodity-display";
 import { cn, nowDatetimeLocal, nowDatetimeLocalDate } from "@/lib/utils";
 import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import { enrichPrintSnapshot } from "@/lib/in-ticket-print";
@@ -56,7 +57,7 @@ function formatCmoCommoditySummary(cmo, commodities) {
   return lines
     .map((line) => {
       const comm = commodities.find((c) => c.id === line.commodityId);
-      return comm?.description || comm?.commodityCode || comm?.commodity_code || "Unknown";
+      return commodityOptionLabel(comm) || "Unknown";
     })
     .join(", ");
 }
@@ -701,7 +702,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         (!ticket.commodityTypeId || c.commodityTypeId === ticket.commodityTypeId) &&
                         (!cmo || allowedCommodityIds.size === 0 || allowedCommodityIds.has(c.id))
                     )
-                    .map((c) => ({ value: c.id, label: c.commodityCode }));
+                    .map((c) => ({ value: c.id, label: commodityOptionLabel(c) }));
                   return (
                     <ClutchSelect
                       options={identifiedCommodityOptions}
@@ -1178,7 +1179,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         }))
                       }
                     />
-                    <span>{c.commodityCode || c.description}</span>
+                    <span>{commodityOptionLabel(c)}</span>
                   </label>
                 ))}
             </div>
@@ -1449,7 +1450,7 @@ function CommodityIdentificationBody({
             )
             .map((comm) => {
               const isSuggested = suggestedCommodities.some((s) => s.commodityId === comm.id);
-              return { value: comm.id, label: `${comm.description}${isSuggested ? " (Suggested)" : ""}` };
+              return { value: comm.id, label: `${commodityOptionLabel(comm)}${isSuggested ? " (Suggested)" : ""}` };
             });
           return (
             <ClutchSelect
@@ -1488,7 +1489,7 @@ function CommodityIdentificationBody({
               onClose();
             }}
           >
-            Confirm {commodities.find((c) => c.id === ticket.commodityId)?.description}
+            Confirm {commodityOptionLabel(commodities.find((c) => c.id === ticket.commodityId))}
           </Button>
         ) : null}
         {ticket.commodityId && !suggestedCommodities.some((s) => s.commodityId === ticket.commodityId) ? (

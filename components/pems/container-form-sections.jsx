@@ -145,6 +145,7 @@ export default function ContainerFormSections({
   const containerNoError =
     containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
   const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
+  const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
   const duplicateCheckEnabled = containerNoNormalized.length === 11 && !containerNoError;
   const { matches: duplicateMatches, loading: duplicateLoading } = useContainerDuplicateCheck(
     containerNoValue,
@@ -375,8 +376,22 @@ export default function ContainerFormSections({
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Signoff</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
-          <PemsSelect label="Packer signoff" value={getValue(container, names, "packerSignoff")} options={packerNames} onChange={(value) => setField("packerSignoff", value)} inputClass={inputClass} />
-          <PemsSelect label="Out-loaded?" value={getValue(container, names, "outLoaded", "No")} options={yesNoOptions} onChange={(value) => setField("outLoaded", value)} inputClass={inputClass} />
+          <PemsSelect
+            label="Packer signoff"
+            value={getValue(container, names, "packerSignoff")}
+            options={packerNames}
+            onChange={(value) => setField("packerSignoff", value)}
+            disabled={sealRequiredForSignoff}
+            hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
+          />
+          <PemsSelect
+            label="Out-loaded?"
+            value={getValue(container, names, "outLoaded", "No")}
+            options={yesNoOptions}
+            onChange={(value) => setField("outLoaded", value)}
+            disabled={sealRequiredForSignoff}
+            hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
+          />
           <PemsSelect label="PRA signoff" value={getValue(container, names, "praSignoff")} options={packerNames} onChange={(value) => setField("praSignoff", value)} inputClass={inputClass} />
           <PemsSelect label="PRA template" value={getValue(container, names, "praTemplate")} options={praTemplateOptions} onChange={(value) => setField("praTemplate", value)} inputClass={inputClass} />
         </div>
@@ -528,7 +543,7 @@ function PemsInput({ label, value, onChange, type = "text", readOnly = false, st
   );
 }
 
-function PemsSelect({ label, value, options, onChange }) {
+function PemsSelect({ label, value, options, onChange, disabled = false, hint = "" }) {
   const opts = useMemo(() => normalizeSelectOptions(options), [options]);
   return (
     <div className="space-y-2">
@@ -538,7 +553,9 @@ function PemsSelect({ label, value, options, onChange }) {
         value={opts.find((o) => String(o.value) === String(value ?? "")) ?? null}
         onChange={(option) => onChange?.(option ? option.value : "")}
         placeholder={opts.length ? "Select option" : ""}
+        isDisabled={disabled}
       />
+      {hint ? <p className="text-xs text-amber-700">{hint}</p> : null}
     </div>
   );
 }

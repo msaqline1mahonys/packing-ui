@@ -1,3 +1,4 @@
+import { commodityOptionLabel } from "@/lib/commodity-display";
 import { cn } from "@/lib/utils";
 
 export const inputClass =
@@ -30,9 +31,7 @@ export function SummaryRow({ label, value, color }) {
 }
 
 export function commodityLabel(c) {
-  if (!c) return "";
-  const code = c.commodityCode ? ` (${c.commodityCode})` : "";
-  return `${c.description}${code}`;
+  return commodityOptionLabel(c);
 }
 
 export function nowDatetimeLocalDate() {

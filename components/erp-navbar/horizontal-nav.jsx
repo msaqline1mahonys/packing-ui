@@ -13,7 +13,7 @@ import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
 import { AccountDropdownHeader } from "./account-dropdown-header";
-import { pathnameMatchesHref, pathnameMatchesNavChild } from "./nav-path";
+import { pathnameMatchesHref, pathnameMatchesNavChild, navigateNavHref } from "./nav-path";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
 import { useSite } from "./site-context";
@@ -174,6 +174,7 @@ export function ErpHorizontalNav({ edge }) {
 }
 
 function HorizontalModule({ item, pathname }) {
+  const router = useRouter();
   const children = item.children;
   const active =
     pathnameMatchesHref(pathname, item.href) ||
@@ -200,22 +201,26 @@ function HorizontalModule({ item, pathname }) {
             className="z-50 min-w-[12rem] rounded-lg border border-slate-200 bg-white p-1 text-sm shadow-lg"
           >
             {children.map((sub) => (
-              <DropdownMenu.Item key={sub.href} asChild>
-                <Link
-                  href={sub.href}
-                  className={cn(
-                    "block cursor-pointer rounded-md px-2 py-2 outline-none",
-                    pathnameMatchesNavChild(
-                      pathname,
-                      sub.href,
-                      children.map((c) => c.href),
-                    )
-                      ? "bg-brand/15 font-medium text-brand-ink"
-                      : "hover:bg-slate-50"
-                  )}
-                >
-                  {sub.name}
-                </Link>
+              <DropdownMenu.Item
+                key={sub.href}
+                className={cn(
+                  "block cursor-pointer rounded-md px-2 py-2 outline-none",
+                  pathnameMatchesNavChild(
+                    pathname,
+                    sub.href,
+                    children.map((c) => c.href),
+                  )
+                    ? "bg-brand/15 font-medium text-brand-ink"
+                    : "hover:bg-slate-50"
+                )}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  navigateNavHref(router, pathname, sub.href, {
+                    siblingHrefs: children.map((c) => c.href),
+                  });
+                }}
+              >
+                {sub.name}
               </DropdownMenu.Item>
             ))}
           </DropdownMenu.Content>

@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
-import { pathnameMatchesHref, pathnameMatchesNavChild } from "./nav-path";
+import { pathnameMatchesHref, pathnameMatchesNavChild, navigateNavHref } from "./nav-path";
+import { NavRouteLink } from "./nav-route-link";
 import { NavDockSelect } from "./nav-dock-select";
 import { SiteSelect } from "./site-select";
 import { useSite } from "./site-context";
@@ -100,7 +101,9 @@ function NavMenu({
         aria-controls={expanded ? panelId : undefined}
         onClick={() => {
           if (!expanded) {
-            router.push(parentHref);
+            navigateNavHref(router, pathname, parentHref, {
+              siblingHrefs: items.map((item) => item.href),
+            });
             return;
           }
           setOpen((v) => !v);
@@ -151,8 +154,9 @@ function NavMenu({
               const subActive = pathnameMatchesNavChild(pathname, item.href, siblingHrefs);
               return (
                 <li key={`${parentHref}:${item.name}`}>
-                  <Link
+                  <NavRouteLink
                     href={item.href}
+                    siblingHrefs={siblingHrefs}
                     className={cn(
                       SURFACE_TRANSITION,
                       "flex items-center gap-x-2 rounded-md px-2 py-1.5 md:py-2",
@@ -162,7 +166,7 @@ function NavMenu({
                     )}
                   >
                     {item.name}
-                  </Link>
+                  </NavRouteLink>
                 </li>
               );
             })}

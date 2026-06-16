@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import { commodityOptionLabel } from "@/lib/commodity-display";
 import { cn } from "@/lib/utils";
 import {
   fetchCmo,
@@ -308,7 +309,7 @@ export default function CmoForm() {
                         checked={checked}
                         onChange={() => toggleCommodityId(c.id)}
                       />
-                      <span>{c.description || c.commodity_code || c.name}</span>
+                      <span>{commodityOptionLabel(c)}</span>
                     </label>
                   );
                 })}

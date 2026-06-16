@@ -62,6 +62,12 @@ export default function PackInvoiceBreakdownPage() {
     setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, unitPrice: nextUnitPrice } : item)));
   }
 
+  function handleQuantityChange(id, value) {
+    const parsed = Number.parseFloat(value);
+    const nextQuantity = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, quantity: nextQuantity } : item)));
+  }
+
   async function handleGenerateInvoice() {
     if (!selectedPack || isSubmitting || generatedInvoice) return;
     setIsSubmitting(true);
@@ -102,7 +108,7 @@ export default function PackInvoiceBreakdownPage() {
             Invoice Breakdown - {packDisplayRef(selectedPack)}
           </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Unit prices are guideline values from accounting pricing rules and can be edited before generating the invoice.
+            Unit prices and quantities are guideline values from accounting pricing rules and can be edited before generating the invoice.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -181,7 +187,7 @@ export default function PackInvoiceBreakdownPage() {
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Edit Breakdown</h3>
             <p className="mt-1 text-xs text-slate-500">
-              Remove line items as needed and edit unit prices. Additional fees can be added from Fees &amp; Charges.
+              Remove line items as needed and edit unit prices or quantities. Additional fees can be added from Fees &amp; Charges.
             </p>
           </div>
 
@@ -255,7 +261,21 @@ export default function PackInvoiceBreakdownPage() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 pr-3 text-slate-600">{item.quantity}</td>
+                    <td className="py-3 pr-3 text-slate-600">
+                      {isLocked ? (
+                        <span>{item.quantity}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.001}
+                          value={item.quantity}
+                          onWheel={(event) => event.currentTarget.blur()}
+                          onChange={(event) => handleQuantityChange(item.id, event.target.value)}
+                          className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20"
+                        />
+                      )}
+                    </td>
                     <td className="py-3 pr-3 text-slate-600">{item.basisText}</td>
                     <td className="py-3 pr-3 text-right font-semibold">{formatCurrency(calculateLineItemAmount(item))}</td>
                     <td className="py-3 text-right">

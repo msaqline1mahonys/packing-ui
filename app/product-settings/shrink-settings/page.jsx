@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { commodityOptionLabel } from "@/lib/commodity-display";
 
 const API_BASE_URL = (
     process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -482,7 +483,7 @@ export default function ShrinkSettingsPage() {
                             <option value="">Select commodity</option>
                             {formCommodities.map((item) => (
                                 <option key={item.id} value={item.id}>
-                                    {item.description}
+                                    {commodityOptionLabel(item)}
                                     {item.shrinkPct != null ? ` (current: ${item.shrinkPct}%)` : ""}
                                 </option>
                             ))}
@@ -546,7 +547,7 @@ export default function ShrinkSettingsPage() {
                             <option value="">Select commodity</option>
                             {formCommodities.map((item) => (
                                 <option key={item.id} value={item.id}>
-                                    {item.description}
+                                    {commodityOptionLabel(item)}
                                 </option>
                             ))}
                         </select>

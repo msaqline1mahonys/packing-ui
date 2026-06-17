@@ -173,6 +173,16 @@ function normalizeReleaseOption(r) {
   };
 }
 
+function normalizeCountryWarningItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => ({
+      description: String(item?.description ?? item?.warningDescription ?? "").trim(),
+      showOnPacks: item?.showOnPacks !== false && item?.show_on_packs !== false,
+    }))
+    .filter((item) => item.description);
+}
+
 function vesselDisplayName(voyage) {
   if (!voyage) return "";
   const vessel = voyage.vessel;
@@ -1510,6 +1520,7 @@ function NewPackFormPageInner() {
         id: c.id,
         name: c.country_name ?? c.countryName ?? "",
         code: c.country_code ?? c.countryCode ?? "",
+        warningItems: normalizeCountryWarningItems(c.warning_items ?? c.warningItems),
       })),
     [queryLookups.countries]
   );
@@ -2196,6 +2207,17 @@ function NewPackFormPageInner() {
       return Boolean(countryName && portCountryName === countryName);
     });
   }, [portOptions, pack.destinationCountry, destinationCountryId]);
+  const destinationCountryWarnings = useMemo(() => {
+    const raw = String(pack.destinationCountry || "").trim();
+    if (!raw) return [];
+    const lower = raw.toLowerCase();
+    const country =
+      countryOptions.find((c) => c.name === raw) ||
+      countryOptions.find((c) => c.name.toLowerCase() === lower) ||
+      countryOptions.find((c) => String(c.code || "").toLowerCase() === lower);
+    if (!country) return [];
+    return (country.warningItems ?? []).filter((warning) => warning.showOnPacks !== false);
+  }, [pack.destinationCountry, countryOptions]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
   const accountingPackId = String(pack.id || editingRow?.id || "").trim();
   const accountingRefreshKey = useMemo(() => {
@@ -3389,6 +3411,19 @@ function NewPackFormPageInner() {
                             );
                           })()}
                         </FormRow>
+                        {destinationCountryWarnings.length ? (
+                          <div className={cn(spanFullClass, "space-y-1.5")}>
+                            {destinationCountryWarnings.map((warning, index) => (
+                              <p
+                                key={`destination-country-warning-${index}`}
+                                className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800"
+                              >
+                                <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                                <span>{warning.description}</span>
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
                       </>
                     ) : null}
                     <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>

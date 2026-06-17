@@ -17,7 +17,9 @@ import {
   SAMPLE_STATUSES,
 } from "@/lib/Data";
 import BulkContainerImportPanel from "@/components/packing-schedule/bulk-container-import-dialog";
+import RemovePackContainersDialog from "@/components/packing-schedule/remove-pack-containers-dialog";
 import { ensureReleaseLineOnPack } from "@/lib/container-bulk-import";
+import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import {
@@ -28,6 +30,8 @@ import {
 } from "@/lib/fumigation-store";
 import {
   fetchCertificateTemplatesNormalized,
+  fetchFumigantsNormalized,
+  fetchMethodologiesNormalized,
   fetchRecordTemplatesNormalized,
 } from "@/lib/api/fumigation";
 import { defaultEnclosureTypeForTiming, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
@@ -45,7 +49,7 @@ import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsTab from "@/components/pems/pems-tab";
 import PackAccountingTab from "@/components/accounting/pack-accounting-tab";
 import { savePack } from "@/lib/pack-schedule-store";
-import { packAssignedPackerOptions, performBlend, updateContainer } from "@/lib/api/packing";
+import { packAssignedPackerOptions, performBlend, removePackContainers, updateContainer } from "@/lib/api/packing";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import {
   countPackedContainers,
@@ -318,6 +322,24 @@ function toRoundedNumber(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
+}
+
+function fumigantLabel(item) {
+  return `${item.code} - ${item.name}`;
+}
+
+function resolveMethodologyForFumigantChange(fumigantId, prevMethodologyId, methodologies) {
+  const nextMethodology =
+    prevMethodologyId != null && prevMethodologyId !== ""
+      ? methodologies.find((item) => String(item.id) === String(prevMethodologyId))
+      : null;
+  if (nextMethodology && fumigantId && String(nextMethodology.fumigantId) === String(fumigantId)) {
+    return prevMethodologyId;
+  }
+  const matching = fumigantId
+    ? methodologies.filter((item) => String(item.fumigantId) === String(fumigantId))
+    : [];
+  return matching.length === 1 ? matching[0].id : null;
 }
 
 function blankFumigationDetail() {
@@ -1810,13 +1832,15 @@ function NewPackFormPageInner() {
   const { data: pemsInspectionRemarks = { ecInspectionRemarks: [], goodsInspectionRemarks: [] } } =
     usePemsInspectionRemarksQuery();
 
-  const [fumigants] = useState(() => loadFumigants());
-  const [methodologies] = useState(() => loadMethodologies());
+  const [fumigants, setFumigants] = useState(() => loadFumigants());
+  const [methodologies, setMethodologies] = useState(() => loadMethodologies());
   const [certificateTemplates, setCertificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates, setRecordTemplates] = useState(() => loadRecordTemplates());
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
 
   useEffect(() => {
+    fetchFumigantsNormalized().then(setFumigants).catch(() => {});
+    fetchMethodologiesNormalized().then(setMethodologies).catch(() => {});
     fetchCertificateTemplatesNormalized().then(setCertificateTemplates).catch(() => {});
     fetchRecordTemplatesNormalized().then(setRecordTemplates).catch(() => {});
   }, []);
@@ -1896,6 +1920,7 @@ function NewPackFormPageInner() {
   const prevSampleCountRef = useRef(0);
 
   const [saveError, setSaveError] = useState("");
+  const [containersRequiredWarning, setContainersRequiredWarning] = useState("");
   const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
   const [quickReleaseMode, setQuickReleaseMode] = useState("add");
   const [quickReleaseDraft, setQuickReleaseDraft] = useState(() => blankRelease());
@@ -1904,6 +1929,11 @@ function NewPackFormPageInner() {
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
   const [bulkImportSaving, setBulkImportSaving] = useState(false);
   const [bulkImportError, setBulkImportError] = useState("");
+  const [removeContainersOpen, setRemoveContainersOpen] = useState(false);
+  const [removeContainersRequiredCount, setRemoveContainersRequiredCount] = useState(null);
+  const [removeContainersError, setRemoveContainersError] = useState("");
+  const [removeContainersSaving, setRemoveContainersSaving] = useState(false);
+  const [pendingSaveAfterRemove, setPendingSaveAfterRemove] = useState(null);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
 
@@ -2293,6 +2323,132 @@ function NewPackFormPageInner() {
     });
   }
 
+  function validateContainersRequiredOnBlur() {
+    if (mode !== "edit" || !editingRow) {
+      setContainersRequiredWarning("");
+      return;
+    }
+    const baselineCount = Number(
+      editingRow.containersRequired ?? editingRow.containers_required ?? 0
+    );
+    const nextCount =
+      pack.containersRequired === "" || pack.containersRequired == null
+        ? 0
+        : Number(pack.containersRequired);
+    if (!Number.isFinite(nextCount) || nextCount >= baselineCount) {
+      setContainersRequiredWarning("");
+      return;
+    }
+    const validation = validateContainersRequiredChange(
+      buildPackContainers(pack, editingRow),
+      baselineCount,
+      nextCount
+    );
+    setContainersRequiredWarning(validation.ok ? "" : validation.message || "");
+  }
+
+  function openRemoveContainersDialog(requiredCount = null, pendingSave = null) {
+    setRemoveContainersError("");
+    setRemoveContainersRequiredCount(requiredCount);
+    setPendingSaveAfterRemove(pendingSave);
+    setRemoveContainersOpen(true);
+  }
+
+  function closeRemoveContainersDialog() {
+    setRemoveContainersOpen(false);
+    setRemoveContainersError("");
+    setRemoveContainersRequiredCount(null);
+    setPendingSaveAfterRemove(null);
+  }
+
+  async function persistPackSave(normalized) {
+    if (mode === "edit" && editingRow) {
+      const baselineCount = Number(
+        editingRow.containersRequired ?? editingRow.containers_required ?? 0
+      );
+      const nextCount =
+        normalized.containersRequired == null ? 0 : Number(normalized.containersRequired);
+      const countChanged = baselineCount !== nextCount;
+      let includeContainers = false;
+
+      if (countChanged) {
+        const containersForSync = buildPackContainers(normalized, editingRow);
+        if (nextCount < baselineCount) {
+          const validation = validateContainersRequiredChange(
+            containersForSync,
+            baselineCount,
+            nextCount
+          );
+          if (!validation.ok) {
+            openRemoveContainersDialog(baselineCount - nextCount, normalized);
+            return;
+          }
+          if (validation.slotsToRemove > 0) {
+            const label = validation.slotsToRemove === 1 ? "slot" : "slots";
+            const confirmed = window.confirm(
+              `This will remove ${validation.slotsToRemove} empty container ${label} from the end. Continue?`
+            );
+            if (!confirmed) return;
+          }
+        }
+        includeContainers = true;
+      }
+
+      const updated = packToScheduleRow(normalized, editingRow, { includeContainers });
+      await savePack({ ...updated, id: editingRow.id });
+    } else {
+      const created = packToScheduleRow(normalized, null);
+      await savePack(created);
+    }
+    router.push("/packing-schedule");
+  }
+
+  async function confirmRemoveContainers(selectedIds) {
+    const ids = Array.isArray(selectedIds) ? selectedIds.map(String) : [];
+    if (!ids.length) return;
+    if (removeContainersRequiredCount != null && ids.length !== removeContainersRequiredCount) return;
+
+    const packId = pack.id ?? editingRow?.id;
+
+    setRemoveContainersSaving(true);
+    setRemoveContainersError("");
+    try {
+      let nextRequired = null;
+      if (isUuid(packId) && ids.every(isUuid)) {
+        const refreshed = await removePackContainers(packId, ids);
+        nextRequired = Number(refreshed.containersRequired ?? refreshed.containers_required ?? 0);
+        setEditingRow(refreshed);
+        setPack(rowToPack(refreshed, currentSite, customerOptions, commodityOptions));
+      } else {
+        const nextContainers = applyContainerRemovals(buildPackContainers(pack, editingRow), ids);
+        nextRequired = nextContainers.length;
+        setPack((prev) => ({
+          ...prev,
+          containers: nextContainers,
+          containersRequired: nextContainers.length,
+        }));
+      }
+
+      const pending = pendingSaveAfterRemove;
+      closeRemoveContainersDialog();
+
+      if (pending) {
+        try {
+          await persistPackSave({
+            ...pending,
+            containersRequired: nextRequired ?? pending.containersRequired,
+          });
+        } catch (err) {
+          setSaveError(err?.message || "Failed to save pack.");
+        }
+      }
+    } catch (err) {
+      setRemoveContainersError(err?.message || "Failed to remove containers.");
+    } finally {
+      setRemoveContainersSaving(false);
+    }
+  }
+
   function updatePackContainer(containerId, patch) {
     setPack((prev) => {
       const existing = buildPackContainers(prev, editingRow);
@@ -2351,7 +2507,7 @@ function NewPackFormPageInner() {
     }
   }
 
-  async function applyBulkContainerImport(updatedContainers, _appliedRows, logistics) {
+  async function applyBulkContainerImport(updatedContainers, appliedRows, logistics) {
     // Add the release/park/transporter used for this import to the pack if it's a
     // combo the pack doesn't already carry.
     const nextReleaseDetails = ensureReleaseLineOnPack(pack.releaseDetails, logistics);
@@ -2629,6 +2785,27 @@ function NewPackFormPageInner() {
       },
     }));
   }, [pack.fumigationRequired, pack.fumigationTiming, pack.fumigationDetail?.enclosureType]);
+
+  useEffect(() => {
+    if (!pack.fumigationRequired || pack.fumigantId) return;
+    const text = String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim();
+    if (!text) return;
+    const matched = fumigants.find((item) => fumigantLabel(item) === text);
+    if (!matched) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPack((prev) => ({
+      ...prev,
+      fumigantId: matched.id,
+      methodologyId: resolveMethodologyForFumigantChange(matched.id, prev.methodologyId, methodologies),
+    }));
+  }, [
+    fumigants,
+    methodologies,
+    pack.fumigantId,
+    pack.fumigationRequired,
+    pack.fumigation,
+    pack.fumigationDetail?.fumigationNotes,
+  ]);
 
   const aoNumberByName = useMemo(() => {
     const map = new Map();
@@ -2939,14 +3116,7 @@ function NewPackFormPageInner() {
     };
     setSaveError("");
     try {
-      if (mode === "edit" && editingRow) {
-        const updated = packToScheduleRow(normalized, editingRow, { includeContainers: false });
-        await savePack({ ...updated, id: editingRow.id });
-      } else {
-        const created = packToScheduleRow(normalized, null);
-        await savePack(created);
-      }
-      router.push("/packing-schedule");
+      await persistPackSave(normalized);
     } catch (err) {
       setSaveError(err?.message || "Failed to save pack.");
     }
@@ -3346,25 +3516,35 @@ function NewPackFormPageInner() {
                     {pack.fumigationRequired ? (
                       <FormRow label="Fumigant selector">
                         {(() => {
-                          const fumigantSelectOpts = fumigants.map((item) => {
-                            const lbl = `${item.code} - ${item.name}`;
-                            return { value: lbl, label: lbl, _id: item.id };
-                          });
+                          const fumigantSelectOpts = fumigants.map((item) => ({
+                            value: item.id,
+                            label: fumigantLabel(item),
+                          }));
                           return (
                             <ClutchSelect
                               placeholder="- Select fumigant -"
                               options={fumigantSelectOpts}
-                              value={fumigantSelectOpts.find((o) => o.value === (pack.fumigationDetail?.fumigationNotes || pack.fumigation || "")) ?? null}
+                              value={
+                                fumigantSelectOpts.find((o) => String(o.value) === String(pack.fumigantId ?? "")) ?? null
+                              }
                               onChange={(option) => {
-                                const value = option ? option.value : "";
-                                const matched = fumigants.find((item) => `${item.code} - ${item.name}` === value);
+                                const fumigantId = option ? option.value : null;
+                                const matched = fumigantId
+                                  ? fumigants.find((item) => String(item.id) === String(fumigantId))
+                                  : null;
+                                const label = matched ? fumigantLabel(matched) : "";
                                 setPack((prev) => ({
                                   ...prev,
-                                  fumigantId: matched ? matched.id : prev.fumigantId,
-                                  fumigation: value,
+                                  fumigantId,
+                                  methodologyId: resolveMethodologyForFumigantChange(
+                                    fumigantId,
+                                    prev.methodologyId,
+                                    methodologies
+                                  ),
+                                  fumigation: label,
                                   fumigationDetail: {
                                     ...(prev.fumigationDetail || blankFumigationDetail()),
-                                    fumigationNotes: value,
+                                    fumigationNotes: label,
                                   },
                                 }));
                               }}
@@ -3451,7 +3631,57 @@ function NewPackFormPageInner() {
                 <div className={cn(innerPanelClass, flushSectionBodyClass)}>
                   <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
                     <FormRow label="Containers Required">
-                      <input className={inputClass} type="number" value={pack.containersRequired} onChange={(e) => set("containersRequired", e.target.value)} placeholder="0" />
+                      <div className="flex items-center gap-2">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          value={pack.containersRequired}
+                          onChange={(e) => {
+                            set("containersRequired", e.target.value);
+                            if (containersRequiredWarning) setContainersRequiredWarning("");
+                          }}
+                          onBlur={validateContainersRequiredOnBlur}
+                          placeholder="0"
+                        />
+                        {mode === "edit" && packContainers.length > 0 ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => openRemoveContainersDialog()}
+                          >
+                            Remove…
+                          </Button>
+                        ) : null}
+                      </div>
+                      {containersRequiredWarning ? (
+                        <div className="mt-1 space-y-1">
+                          <p className="text-xs font-medium text-amber-800">{containersRequiredWarning}</p>
+                          {mode === "edit" ? (
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-brand underline"
+                              onClick={() => {
+                                const baselineCount = Number(
+                                  editingRow?.containersRequired ?? editingRow?.containers_required ?? 0
+                                );
+                                const nextCount =
+                                  pack.containersRequired === "" || pack.containersRequired == null
+                                    ? 0
+                                    : Number(pack.containersRequired);
+                                const required =
+                                  Number.isFinite(nextCount) && nextCount < baselineCount
+                                    ? baselineCount - nextCount
+                                    : null;
+                                openRemoveContainersDialog(required);
+                              }}
+                            >
+                              Choose containers to remove
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </FormRow>
                     <FormRow label="Containers Left To Pack">
                       <input className={inputClass} value={containersLeftToPackDisplay} readOnly disabled placeholder="0" />
@@ -4326,28 +4556,34 @@ function NewPackFormPageInner() {
                       <div className={fumigationTopGridClass}>
                         <FormRow label="Fumigant">
                           {(() => {
-                            const fumigantOpts = fumigants.map((item) => ({ value: item.id, label: `${item.code} - ${item.name}` }));
+                            const fumigantOpts = fumigants.map((item) => ({ value: item.id, label: fumigantLabel(item) }));
                             return (
                               <ClutchSelect
                                 placeholder="- Select -"
                                 options={fumigantOpts}
-                                value={fumigantOpts.find((o) => o.value === (pack.fumigantId ?? null)) ?? null}
+                                value={
+                                  fumigantOpts.find((o) => String(o.value) === String(pack.fumigantId ?? "")) ?? null
+                                }
                                 onChange={(option) => {
                                   const fumigantId = option ? option.value : null;
-                                  setPack((prev) => {
-                                    const nextMethodology =
-                                      prev.methodologyId && Number(prev.methodologyId)
-                                        ? methodologies.find((item) => Number(item.id) === Number(prev.methodologyId))
-                                        : null;
-                                    return {
-                                      ...prev,
+                                  const matched = fumigantId
+                                    ? fumigants.find((item) => String(item.id) === String(fumigantId))
+                                    : null;
+                                  const label = matched ? fumigantLabel(matched) : "";
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    fumigantId,
+                                    methodologyId: resolveMethodologyForFumigantChange(
                                       fumigantId,
-                                      methodologyId:
-                                        nextMethodology && fumigantId && Number(nextMethodology.fumigantId) === Number(fumigantId)
-                                          ? prev.methodologyId
-                                          : null,
-                                    };
-                                  });
+                                      prev.methodologyId,
+                                      methodologies
+                                    ),
+                                    fumigation: label,
+                                    fumigationDetail: {
+                                      ...(prev.fumigationDetail || blankFumigationDetail()),
+                                      fumigationNotes: label,
+                                    },
+                                  }));
                                 }}
                               />
                             );
@@ -4363,7 +4599,9 @@ function NewPackFormPageInner() {
                               <ClutchSelect
                                 placeholder="- Select -"
                                 options={methodologyOpts}
-                                value={methodologyOpts.find((o) => o.value === (pack.methodologyId ?? null)) ?? null}
+                                value={
+                                  methodologyOpts.find((o) => String(o.value) === String(pack.methodologyId ?? "")) ?? null
+                                }
                                 isDisabled={!pack.fumigantId}
                                 onChange={(option) => set("methodologyId", option ? option.value : null)}
                               />
@@ -5390,6 +5628,16 @@ function NewPackFormPageInner() {
             </div>
           </div>
         </footer>
+
+        <RemovePackContainersDialog
+          open={removeContainersOpen}
+          containers={packContainers}
+          requiredCount={removeContainersRequiredCount}
+          error={removeContainersError}
+          saving={removeContainersSaving}
+          onClose={closeRemoveContainersDialog}
+          onConfirm={confirmRemoveContainers}
+        />
 
         <ReleaseModal
           open={quickReleaseOpen}

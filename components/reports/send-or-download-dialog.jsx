@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RecipientPicker } from "@/components/reports/recipient-picker";
 import { appendHistory, getCurrentUserEmail } from "@/lib/reports-store";
 import { buildCustomerBundle, buildMultiBundle, downloadBlob } from "@/lib/reports-csv";
-import { collectReportData, fetchCustomerDirectory, sameId } from "@/lib/reports-data";
+import { collectReports, fetchCustomerDirectory, REPORT_LAYOUT_COMBINED, sameId } from "@/lib/reports-data";
 
 function getAuthToken() {
   if (typeof window === "undefined") return null;
@@ -41,19 +41,16 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
   if (!open || !request) return null;
 
   const selectedCustomerIds = request.customerIds || [];
+  const isCombined = request.reportLayout === REPORT_LAYOUT_COMBINED;
 
   async function buildReportsForAll() {
-    const reports = [];
-    for (const cid of selectedCustomerIds) {
-      const r = await collectReportData({
-        dateRange: request.dateRange,
-        customerId: cid,
-        commodityIds: request.commodityIds,
-        sections: request.sections,
-      });
-      reports.push(r);
-    }
-    return reports;
+    return collectReports({
+      dateRange: request.dateRange,
+      customerIds: selectedCustomerIds,
+      commodityIds: request.commodityIds,
+      sections: request.sections,
+      layout: request.reportLayout,
+    });
   }
 
   async function handleDownload() {
@@ -105,11 +102,14 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
         dateRange: request.dateRange,
         commodityIds: request.commodityIds,
         sections: request.sections,
+        reportLayout: request.reportLayout,
         replyTo,
-        recipients: selectedCustomerIds.map((cid) => ({
-          customerId: cid,
-          emails: recipientsByCustomer[cid] || [],
-        })),
+        recipients: isCombined
+          ? [{ customerId: null, customerIds: selectedCustomerIds, emails: recipientsByCustomer.combined || [] }]
+          : selectedCustomerIds.map((cid) => ({
+              customerId: cid,
+              emails: recipientsByCustomer[cid] || [],
+            })),
       };
       let delivered = "email";
       let status = "ok";
@@ -139,11 +139,13 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
       appendHistory({
         source: request.source || "ad-hoc",
         dateRange: request.dateRange,
-        recipients: reports.map((r) => ({
-          customerId: r.customer?.id ?? null,
-          emails: recipientsByCustomer[r.customer?.id] || [],
-          deliveredAs: delivered,
-        })),
+        recipients: isCombined
+          ? [{ customerId: null, emails: recipientsByCustomer.combined || [], deliveredAs: delivered }]
+          : reports.map((r) => ({
+              customerId: r.customer?.id ?? null,
+              emails: recipientsByCustomer[r.customer?.id] || [],
+              deliveredAs: delivered,
+            })),
         artifacts: reports.map((r) => ({
           customerId: r.customer?.id ?? null,
           fileName: `${r.customer?.code || r.customer?.name || "all"}.zip`,
@@ -161,7 +163,9 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
     }
   }
 
-  const canSend = selectedCustomerIds.length > 0 && selectedCustomerIds.every((cid) => (recipientsByCustomer[cid] || []).length > 0);
+  const canSend = isCombined
+    ? (recipientsByCustomer.combined || []).length > 0
+    : selectedCustomerIds.length > 0 && selectedCustomerIds.every((cid) => (recipientsByCustomer[cid] || []).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
@@ -170,7 +174,10 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
           <div>
             <p className="text-[11px] uppercase tracking-wide text-slate-500">Send or download</p>
             <h2 className="text-sm font-semibold text-slate-900">
-              {selectedCustomerIds.length} customer{selectedCustomerIds.length === 1 ? "" : "s"} · {request.dateRange?.from || "?"} → {request.dateRange?.to || "?"}
+              {isCombined
+                ? `Combined report · ${selectedCustomerIds.length} customer${selectedCustomerIds.length === 1 ? "" : "s"}`
+                : `${selectedCustomerIds.length} customer${selectedCustomerIds.length === 1 ? "" : "s"}`}{" "}
+              · {request.dateRange?.from || "?"} → {request.dateRange?.to || "?"}
             </h2>
           </div>
           <button type="button" onClick={onClose} className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50" disabled={busy}>
@@ -179,25 +186,42 @@ export function SendOrDownloadDialog({ open, request, onClose, onComplete }) {
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           <p className="mb-3 text-[11px] text-slate-500">
-            Each customer&apos;s bundle is filtered to their own data. Reply-to on outbound mail: <span className="font-mono">{replyTo || "(not logged in)"}</span>.
+            {isCombined
+              ? "One combined bundle covering all selected customers. Reply-to on outbound mail:"
+              : "Each customer\u2019s bundle is filtered to their own data. Reply-to on outbound mail:"}{" "}
+            <span className="font-mono">{replyTo || "(not logged in)"}</span>.
           </p>
           <div className="space-y-4">
-            {selectedCustomerIds.map((cid) => {
-              const customer = customers.find((c) => sameId(c.id, cid));
-              return (
-                <div key={cid} className="rounded-lg border border-slate-200 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[12px] font-semibold text-slate-800">{customer?.name || "Unknown"}</p>
-                    <span className="text-[10px] uppercase tracking-wide text-slate-400">{customer?.code || ""}</span>
-                  </div>
-                  <RecipientPicker
-                    customerId={cid}
-                    value={recipientsByCustomer[cid] || []}
-                    onChange={(emails) => setRecipientsByCustomer((prev) => ({ ...prev, [cid]: emails }))}
-                  />
+            {isCombined ? (
+              <div className="rounded-lg border border-slate-200 p-3">
+                <div className="mb-2">
+                  <p className="text-[12px] font-semibold text-slate-800">Combined report recipients</p>
+                  <p className="text-[10px] text-slate-500">Addresses from all selected customers are listed below.</p>
                 </div>
-              );
-            })}
+                <RecipientPicker
+                  customerIds={selectedCustomerIds}
+                  value={recipientsByCustomer.combined || []}
+                  onChange={(emails) => setRecipientsByCustomer((prev) => ({ ...prev, combined: emails }))}
+                />
+              </div>
+            ) : (
+              selectedCustomerIds.map((cid) => {
+                const customer = customers.find((c) => sameId(c.id, cid));
+                return (
+                  <div key={cid} className="rounded-lg border border-slate-200 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[12px] font-semibold text-slate-800">{customer?.name || "Unknown"}</p>
+                      <span className="text-[10px] uppercase tracking-wide text-slate-400">{customer?.code || ""}</span>
+                    </div>
+                    <RecipientPicker
+                      customerId={cid}
+                      value={recipientsByCustomer[cid] || []}
+                      onChange={(emails) => setRecipientsByCustomer((prev) => ({ ...prev, [cid]: emails }))}
+                    />
+                  </div>
+                );
+              })
+            )}
           </div>
           {error ? <p className="mt-3 text-[11px] text-destructive">{error}</p> : null}
         </div>

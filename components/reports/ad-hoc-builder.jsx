@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ALL_SECTIONS, SECTION_LABELS, collectReportData, fetchCommodityDirectory, fetchCustomerDirectory } from "@/lib/reports-data";
+import { ALL_SECTIONS, SECTION_LABELS, collectReports, fetchCommodityDirectory, fetchCustomerDirectory, needsReportLayoutChoice, REPORT_LAYOUT_COMBINED, REPORT_LAYOUT_SPLIT, splitLayoutHint } from "@/lib/reports-data";
 import { Button } from "@/components/ui/button";
 import { CommodityMultiSelect } from "@/components/reports/commodity-multi-select";
 import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
@@ -38,6 +38,7 @@ export function AdHocBuilder({ onRanComplete }) {
   const [activePreset, setActivePreset] = useState("yesterday");
   const [commodityIds, setCommodityIds] = useState([]);
   const [customerIds, setCustomerIds] = useState([]);
+  const [reportLayout, setReportLayout] = useState(REPORT_LAYOUT_SPLIT);
   const [sections, setSections] = useState(ALL_SECTIONS);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [previewReports, setPreviewReports] = useState([]);
@@ -59,6 +60,11 @@ export function AdHocBuilder({ onRanComplete }) {
     setSections((prev) => (prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]));
   }
 
+  const showLayoutChoice = useMemo(
+    () => needsReportLayoutChoice(customerIds, commodityIds),
+    [customerIds, commodityIds]
+  );
+
   const canRun = customerIds.length > 0 && sections.length > 0 && dateRange?.from && dateRange?.to;
 
   async function handlePreview() {
@@ -66,11 +72,13 @@ export function AdHocBuilder({ onRanComplete }) {
     setPreviewError("");
     setPreviewSections(sections);
     try {
-      const reports = [];
-      for (const cid of customerIds) {
-        const r = await collectReportData({ dateRange, customerId: cid, commodityIds, sections });
-        reports.push(r);
-      }
+      const reports = await collectReports({
+        dateRange,
+        customerIds,
+        commodityIds,
+        sections,
+        layout: showLayoutChoice ? reportLayout : REPORT_LAYOUT_SPLIT,
+      });
       setPreviewReports(reports);
     } catch (e) {
       setPreviewReports([]);
@@ -153,6 +161,42 @@ export function AdHocBuilder({ onRanComplete }) {
         </section>
       </div>
 
+      {showLayoutChoice ? (
+        <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Report layout</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setReportLayout(REPORT_LAYOUT_SPLIT)}
+              className={cn(
+                "inline-flex min-w-[200px] flex-1 flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
+                reportLayout === REPORT_LAYOUT_SPLIT
+                  ? "border-brand/30 bg-brand/15 shadow-sm"
+                  : "border-slate-200 bg-white hover:bg-slate-50"
+              )}
+            >
+              <span className="text-[11px] font-semibold text-slate-800">Separate reports</span>
+              <span className="mt-0.5 text-[10px] text-slate-500">{splitLayoutHint(customerIds, commodityIds)}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportLayout(REPORT_LAYOUT_COMBINED)}
+              className={cn(
+                "inline-flex min-w-[200px] flex-1 flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
+                reportLayout === REPORT_LAYOUT_COMBINED
+                  ? "border-brand/30 bg-brand/15 shadow-sm"
+                  : "border-slate-200 bg-white hover:bg-slate-50"
+              )}
+            >
+              <span className="text-[11px] font-semibold text-slate-800">Combined report</span>
+              <span className="mt-0.5 text-[10px] text-slate-500">
+                One cumulative report with all selected customers and commodities.
+              </span>
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Report sections</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -208,6 +252,7 @@ export function AdHocBuilder({ onRanComplete }) {
           customerIds,
           commodityIds,
           sections,
+          reportLayout: showLayoutChoice ? reportLayout : REPORT_LAYOUT_SPLIT,
         }}
         onClose={() => setDialogOpen(false)}
         onComplete={() => onRanComplete?.()}

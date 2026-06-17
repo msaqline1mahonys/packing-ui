@@ -19,19 +19,20 @@ function toGridColumns(defs) {
 }
 
 function customerLabel(report) {
+  if (report?.reportLabel) return report.reportLabel;
   const c = report?.customer;
   if (!c) return "All customers";
   return c.code ? `${c.name} (${c.code})` : c.name;
 }
 
 function customerKey(report, index) {
-  return report?.customer?.id ?? index;
+  return report?.reportKey ?? report?.customer?.id ?? index;
 }
 
 function rowIdFor(section) {
   return (row) => {
     if (row?.id != null) return row.id;
-    if (section === "containers") return `${row.packId}-${row.order}-${row.containerNumber}`;
+    if (section === "containers") return row.reportKey ?? `${row.packNumber}-${row.order}-${row.containerNumber}`;
     if (section === "stockOnHand") return `${row.accountId}-${row.commodityName}-${row.locationName}`;
     return JSON.stringify(row);
   };
@@ -82,7 +83,7 @@ export function ReportPreview({ reportsByCustomer = [], sections = [], loading =
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preview</p>
           {reportsByCustomer.length > 1 ? (
             <div className="flex items-center gap-2 text-[11px]">
-              <label className="text-slate-500">Customer</label>
+              <label className="text-slate-500">{reportsByCustomer.length > 1 ? "Report" : "Customer"}</label>
               <select
                 className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none focus:border-brand/35 focus:ring-2 focus:ring-brand/15"
                 value={selectedKey ?? ""}

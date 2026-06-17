@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { getRecipientChoicesForCustomer } from "@/lib/reports-data";
+import { getRecipientChoicesForCustomer, getRecipientChoicesForCustomers } from "@/lib/reports-data";
 import { cn } from "@/lib/utils";
 
 function isValidEmail(value) {
@@ -13,19 +13,30 @@ function isValidEmail(value) {
  * Lets the user pick which emails (from customer.emails + contacts) should receive
  * a report for a given customer, plus type in extra ad-hoc addresses.
  */
-export function RecipientPicker({ customerId, value = [], onChange }) {
-  const { customer, emails } = useMemo(() => getRecipientChoicesForCustomer(customerId), [customerId]);
+export function RecipientPicker({ customerId, customerIds, value = [], onChange }) {
+  const { customer, customers, emails } = useMemo(() => {
+    if (Array.isArray(customerIds) && customerIds.length > 0) {
+      const merged = getRecipientChoicesForCustomers(customerIds);
+      return {
+        customer: null,
+        customers: merged.customers,
+        emails: merged.emails,
+      };
+    }
+    const single = getRecipientChoicesForCustomer(customerId);
+    return { customer: single.customer, customers: [], emails: single.emails };
+  }, [customerId, customerIds]);
   const [adHoc, setAdHoc] = useState("");
   const valueSet = useMemo(() => new Set(value.map((v) => v.toLowerCase())), [value]);
 
   /* If selection is empty (newly opened), pre-tick every known address. */
   useEffect(() => {
-    if (!customer) return;
+    if (emails.length === 0 && !customers.length && !customer) return;
     if (value.length > 0) return;
     const initial = emails.map((e) => e.email);
     if (initial.length) onChange(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId]);
+  }, [customerId, customerIds]);
 
   function toggle(email) {
     const lower = email.toLowerCase();
@@ -52,7 +63,7 @@ export function RecipientPicker({ customerId, value = [], onChange }) {
   const known = new Set(emails.map((e) => e.email.toLowerCase()));
   const adHocValues = value.filter((v) => !known.has(v.toLowerCase()));
 
-  if (!customer) {
+  if (!customer && customers.length === 0) {
     return (
       <div className="space-y-2">
         <p className="rounded-md border border-dashed border-slate-200 px-2 py-2 text-[11px] italic text-slate-500">

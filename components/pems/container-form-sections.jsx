@@ -1,19 +1,26 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
 import {
+  findSamePackContainerDuplicates,
+  findSamePackSealDuplicates,
   normalizeContainerNumber,
+  normalizeSealNumber,
   sanitizeContainerNumberInput,
   sanitizeSealNumberInput,
   validateContainerNumber,
   validateSealNumber,
 } from "@/lib/container-number-validation";
-import { useContainerDuplicateCheck } from "@/lib/hooks/use-container-duplicate-check";
+import {
+  resolveEntityId,
+  useContainerDuplicateCheck,
+} from "@/lib/hooks/use-container-duplicate-check";
+import { useSealDuplicateCheck } from "@/lib/hooks/use-seal-duplicate-check";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -96,6 +103,10 @@ function getValue(container, fieldNames, key, fallback = "") {
   return value == null ? fallback : value;
 }
 
+function isInspectionFailed(value) {
+  return String(value ?? "").trim().toLowerCase() === "failed";
+}
+
 function formatDuplicateMatch(match) {
   const parts = [
     match.jobReference || match.packNumber || "Pack",
@@ -104,6 +115,53 @@ function formatDuplicateMatch(match) {
     match.order ? `container #${match.order}` : null,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function formatSamePackDuplicateOrders(matches) {
+  if (!matches?.length) return "";
+  if (matches.length === 1) return `container #${matches[0].order ?? "?"}`;
+  return `containers #${matches.map((match) => match.order ?? "?").join(", #")}`;
+}
+
+function CrossPackDuplicateWarning({ fieldLabel, matches }) {
+  if (!matches?.length) return null;
+  return (
+    <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+      <p className="font-semibold">
+        This {fieldLabel} is already used on{" "}
+        {matches.length === 1 ? "another pack" : `${matches.length} other packs`} in the last 3 months
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {matches.map((match) => (
+          <li key={`${match.packId}-${match.containerId}`}>
+            {match.packId ? (
+              <Link
+                href={`/packing-schedule/new-pack-form?mode=edit&id=${match.packId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-amber-400 underline-offset-2 hover:text-amber-900"
+              >
+                {formatDuplicateMatch(match)}
+              </Link>
+            ) : (
+              formatDuplicateMatch(match)
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SamePackDuplicateWarning({ fieldLabel, matches }) {
+  if (!matches?.length) return null;
+  return (
+    <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+      <p className="font-semibold">
+        This {fieldLabel} is already used on {formatSamePackDuplicateOrders(matches)} in this pack
+      </p>
+    </div>
+  );
 }
 
 export default function ContainerFormSections({
@@ -136,6 +194,8 @@ export default function ContainerFormSections({
   packReleases = [],
   containerParkOptions = [],
   transporterOptions = [],
+  packContainers = [],
+  isImportPack = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
@@ -146,11 +206,76 @@ export default function ContainerFormSections({
     containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
   const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
-  const duplicateCheckEnabled = containerNoNormalized.length === 11 && !containerNoError;
+  const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
+  const resolvedContainerId = resolveEntityId(containerId, container?.id);
+  const [baselineContainerNo, setBaselineContainerNo] = useState("");
+  const [baselineSealNo, setBaselineSealNo] = useState("");
+  useEffect(() => {
+    setBaselineContainerNo(normalizeContainerNumber(getValue(container, names, "containerNo")));
+    setBaselineSealNo(normalizeSealNumber(getValue(container, names, "sealNo")));
+    // Snapshot saved values when switching containers — not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedContainerId]);
+  const isOriginalContainerNumber =
+    Boolean(resolvedContainerId) &&
+    containerNoNormalized.length === 11 &&
+    containerNoNormalized === baselineContainerNo;
+  const duplicateCheckEnabled =
+    containerNoNormalized.length === 11 && !containerNoError && !isOriginalContainerNumber;
   const { matches: duplicateMatches, loading: duplicateLoading } = useContainerDuplicateCheck(
     containerNoValue,
-    { packId, containerId, enabled: duplicateCheckEnabled }
+    {
+      packId: resolvedPackId,
+      containerId: resolvedContainerId,
+      baselineContainerNumber: baselineContainerNo,
+      enabled: duplicateCheckEnabled,
+    }
   );
+  const samePackDuplicates = useMemo(() => {
+    if (containerNoNormalized.length !== 11 || containerNoError) return [];
+    return findSamePackContainerDuplicates(containerNoValue, packContainers, {
+      excludeContainerId: resolvedContainerId ?? container?.id,
+      excludeOrder: container?.order,
+    });
+  }, [
+    containerNoValue,
+    containerNoNormalized,
+    containerNoError,
+    packContainers,
+    resolvedContainerId,
+    container?.id,
+    container?.order,
+  ]);
+  const sealNoNormalized = normalizeSealNumber(sealNoValue);
+  const isOriginalSealNumber =
+    Boolean(resolvedContainerId) &&
+    Boolean(sealNoNormalized) &&
+    sealNoNormalized === baselineSealNo;
+  const sealDuplicateCheckEnabled = Boolean(sealNoNormalized) && !sealNoError && !isOriginalSealNumber;
+  const { matches: sealDuplicateMatches, loading: sealDuplicateLoading } = useSealDuplicateCheck(
+    sealNoValue,
+    {
+      packId: resolvedPackId,
+      containerId: resolvedContainerId,
+      baselineSealNumber: baselineSealNo,
+      enabled: sealDuplicateCheckEnabled,
+    }
+  );
+  const samePackSealDuplicates = useMemo(() => {
+    if (!sealNoNormalized || sealNoError) return [];
+    return findSamePackSealDuplicates(sealNoValue, packContainers, {
+      excludeContainerId: resolvedContainerId ?? container?.id,
+      excludeOrder: container?.order,
+    });
+  }, [
+    sealNoValue,
+    sealNoNormalized,
+    sealNoError,
+    packContainers,
+    resolvedContainerId,
+    container?.id,
+    container?.order,
+  ]);
   const submitted = Boolean(getValue(container, names, "praSubmitted", false));
   // AO sign-off action gating
   const canAoSignoff = hasPermission("packing.container.ao-signoff");
@@ -211,8 +336,8 @@ export default function ContainerFormSections({
 
   const ecRemarkOptions = buildRemarkSelectOptions(ecInspectionRemarks);
   const goodsRemarkOptions = buildRemarkSelectOptions(goodsInspectionRemarks);
-  const emptyFailed = getValue(container, names, "emptyInspection") === "Failed";
-  const grainFailed = getValue(container, names, "grainInspection") === "Failed";
+  const emptyFailed = isInspectionFailed(getValue(container, names, "emptyInspection"));
+  const grainFailed = isInspectionFailed(getValue(container, names, "grainInspection"));
 
   function applyRemarkPatch(patch) {
     onChange?.(patch);
@@ -249,6 +374,13 @@ export default function ContainerFormSections({
             error={containerNoError}
             inputClass={inputClass}
           />
+          {duplicateLoading && duplicateCheckEnabled ? (
+            <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
+              Checking for duplicate container numbers…
+            </p>
+          ) : null}
+          <SamePackDuplicateWarning fieldLabel="container number" matches={samePackDuplicates} />
+          <CrossPackDuplicateWarning fieldLabel="container number" matches={duplicateMatches} />
           <PemsInput
             label="Seal No"
             value={sealNoValue}
@@ -257,38 +389,13 @@ export default function ContainerFormSections({
             error={sealNoError}
             inputClass={inputClass}
           />
-          {duplicateLoading && duplicateCheckEnabled ? (
+          {sealDuplicateLoading && sealDuplicateCheckEnabled ? (
             <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
-              Checking for duplicate container numbers…
+              Checking for duplicate seal numbers…
             </p>
           ) : null}
-          {duplicateMatches.length > 0 ? (
-            <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              <p className="font-semibold">
-                This container number is already used on{" "}
-                {duplicateMatches.length === 1
-                  ? "another pack"
-                  : `${duplicateMatches.length} other packs`}{" "}
-                in the last 3 months
-              </p>
-              <ul className="mt-1.5 space-y-1">
-                {duplicateMatches.map((match) => (
-                  <li key={`${match.packId}-${match.containerId}`}>
-                    {match.packId ? (
-                      <Link
-                        href={`/packing-schedule/new-pack-form?mode=edit&id=${match.packId}`}
-                        className="underline decoration-amber-400 underline-offset-2 hover:text-amber-900"
-                      >
-                        {formatDuplicateMatch(match)}
-                      </Link>
-                    ) : (
-                      formatDuplicateMatch(match)
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+          <SamePackDuplicateWarning fieldLabel="seal number" matches={samePackSealDuplicates} />
+          <CrossPackDuplicateWarning fieldLabel="seal number" matches={sealDuplicateMatches} />
           <PemsSelect label="Container ISO" value={getValue(container, names, "isoCode")} options={isoOptions} onChange={(value) => setField("isoCode", value)} inputClass={inputClass} />
           <div className="space-y-1 md:col-span-2 xl:col-span-1">
             <label className="text-xs font-medium text-slate-600">Start Date &amp; Time</label>
@@ -385,30 +492,40 @@ export default function ContainerFormSections({
             hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
           />
           <PemsSelect
-            label="Out-loaded?"
+            label={isImportPack ? "In-loaded?" : "Out-loaded?"}
             value={getValue(container, names, "outLoaded", "No")}
             options={yesNoOptions}
             onChange={(value) => setField("outLoaded", value)}
             disabled={sealRequiredForSignoff}
             hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
           />
-          <PemsSelect label="PRA signoff" value={getValue(container, names, "praSignoff")} options={packerNames} onChange={(value) => setField("praSignoff", value)} inputClass={inputClass} />
-          <PemsSelect label="PRA template" value={getValue(container, names, "praTemplate")} options={praTemplateOptions} onChange={(value) => setField("praTemplate", value)} inputClass={inputClass} />
+          {!isImportPack ? (
+            <>
+              <PemsSelect label="PRA signoff" value={getValue(container, names, "praSignoff")} options={packerNames} onChange={(value) => setField("praSignoff", value)} inputClass={inputClass} />
+              <PemsSelect label="PRA template" value={getValue(container, names, "praTemplate")} options={praTemplateOptions} onChange={(value) => setField("praTemplate", value)} inputClass={inputClass} />
+            </>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3">
           <Button type="button" variant="secondary" size="sm" onClick={onResetContainer}>
             Reset container
           </Button>
           <Button type="button" size="sm" onClick={onMarkPacked}>
-            Mark packed
+            {isImportPack ? "Mark in-loaded" : "Mark packed"}
           </Button>
-          <Button type="button" size="sm" onClick={onSubmitPra}>
-            Submit PRA
-          </Button>
-          <span className="ms-auto text-sm font-semibold text-rose-600">{submitted ? "PRA Submitted" : "PRA Pending"}</span>
+          {!isImportPack ? (
+            <>
+              <Button type="button" size="sm" onClick={onSubmitPra}>
+                Submit PRA
+              </Button>
+              <span className="ms-auto text-sm font-semibold text-rose-600">{submitted ? "PRA Submitted" : "PRA Pending"}</span>
+            </>
+          ) : null}
         </div>
       </div>
 
+      {!isImportPack ? (
+      <>
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>1-Stop PRA Info</div>
         <div className="grid gap-3 p-3 md:grid-cols-3">
@@ -446,28 +563,40 @@ export default function ContainerFormSections({
             />
           ) : null}
         </div>
-        {emptyFailed && ecRemarkOptions.length ? (
+        {emptyFailed ? (
           <div className="px-3 pb-2">
             <label className="mb-1 block text-xs font-medium text-slate-600">Empty container fail reason</label>
-            <ClutchSelect
-              options={ecRemarkOptions}
-              value={ecRemarkOptions.find((opt) => opt.value === getValue(container, names, "ecInspectionRemarkCode")) ?? null}
-              onChange={(option) => handleRemarkCodeSelect("ec", option)}
-              placeholder="Select fail reason…"
-              isClearable
-            />
+            {ecRemarkOptions.length ? (
+              <ClutchSelect
+                options={ecRemarkOptions}
+                value={ecRemarkOptions.find((opt) => opt.value === getValue(container, names, "ecInspectionRemarkCode")) ?? null}
+                onChange={(option) => handleRemarkCodeSelect("ec", option)}
+                placeholder="Select fail reason…"
+                isClearable
+              />
+            ) : (
+              <p className="text-[11px] text-amber-700">
+                Fail-reason codes are not loaded. Run backend migrations and seed PEMS inspection remarks, then refresh this page.
+              </p>
+            )}
           </div>
         ) : null}
-        {grainFailed && goodsRemarkOptions.length ? (
+        {grainFailed ? (
           <div className="px-3 pb-2">
             <label className="mb-1 block text-xs font-medium text-slate-600">Grain inspection fail reason</label>
-            <ClutchSelect
-              options={goodsRemarkOptions}
-              value={goodsRemarkOptions.find((opt) => opt.value === getValue(container, names, "grainInspectionRemarkCode")) ?? null}
-              onChange={(option) => handleRemarkCodeSelect("goods", option)}
-              placeholder="Select fail reason…"
-              isClearable
-            />
+            {goodsRemarkOptions.length ? (
+              <ClutchSelect
+                options={goodsRemarkOptions}
+                value={goodsRemarkOptions.find((opt) => opt.value === getValue(container, names, "grainInspectionRemarkCode")) ?? null}
+                onChange={(option) => handleRemarkCodeSelect("goods", option)}
+                placeholder="Select fail reason…"
+                isClearable
+              />
+            ) : (
+              <p className="text-[11px] text-amber-700">
+                Fail-reason codes are not loaded. Run backend migrations and seed PEMS inspection remarks, then refresh this page.
+              </p>
+            )}
           </div>
         ) : null}
         <div className="px-3 pb-3">
@@ -499,6 +628,8 @@ export default function ContainerFormSections({
           ) : null}
         </div>
       </div>
+      </>
+      ) : null}
 
       {showPackersNote ? (
         <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>

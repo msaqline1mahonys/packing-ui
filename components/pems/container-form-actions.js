@@ -1,9 +1,9 @@
 import { formatOutloadError, getOutloadBlockers } from "@/lib/packers-container-validation";
 
-export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "", onBlocked }) {
+export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "", onBlocked, isImport = false }) {
   function blockIfOutloadInvalid(patch) {
     const next = { ...container, ...patch };
-    const blockers = getOutloadBlockers(next);
+    const blockers = getOutloadBlockers(next, { isImport });
     if (blockers.length) {
       onBlocked?.(formatOutloadError(blockers));
       return true;

@@ -59,6 +59,7 @@ import { numberInputProps } from "@/lib/number-input";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
 import { hasPermission } from "@/lib/use-user-permissions";
+import { isImportPack } from "@/lib/pack-import";
 
 const customerOptions = CUSTOMER_CONTACT_ROWS;
 const countryOptions = REFERENCE_COUNTRIES_ROWS.map((row) => row.countryName);
@@ -73,6 +74,9 @@ const PACK_CHECK_FIELDS = [
   { key: "rfpDetailsChecked", label: "RFP details checked", short: "RFP" },
   { key: "micorRequirementsChecked", label: "MICOR requirements checked", short: "MICOR" },
 ];
+const IMPORT_PACK_CHECK_FIELDS = PACK_CHECK_FIELDS.filter(
+  (field) => field.key === "importDetailsChecked" || field.key === "sampleRequirementsChecked"
+);
 
 const inputClass = PEMS_TAB_INPUT_CLASS;
 const sectionCardClass = "overflow-hidden rounded-xl border border-slate-200/90 bg-white";
@@ -160,6 +164,12 @@ function normalizePackAttachmentFiles(items) {
   });
 }
 
+function formatYesNo(value) {
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  return "—";
+}
+
 function collectPackAttachments(packRow) {
   if (!packRow) return [];
   const rows = [];
@@ -168,6 +178,14 @@ function collectPackAttachments(packRow) {
       rows.push({ ...item, group, listKey: `${group}-${item.id}` });
     });
   };
+  if (isImportPack(packRow)) {
+    add(packRow.importPermitFiles, "Permit");
+    add(packRow.importOrderFiles, "Import order");
+    add(packRow.importPackingListFiles, "Packing list");
+    add(packRow.importAdditionalFiles, "Additional");
+    add(packRow.importContainerListFiles, "Container list");
+    return rows;
+  }
   add(packRow.importPermitFiles, "Permit");
   add(packRow.rfpFiles, "RFP");
   add(packRow.packingInstructionFiles, "Instruction");
@@ -216,6 +234,10 @@ const ATTACHMENT_GROUP_STYLES = {
   RFP: { pill: "bg-sky-500/10 text-sky-900 ring-sky-500/20" },
   Instruction: { pill: "bg-amber-500/10 text-amber-900 ring-amber-500/25" },
   Declaration: { pill: "bg-violet-500/10 text-violet-900 ring-violet-500/20" },
+  "Import order": { pill: "bg-teal-500/10 text-teal-900 ring-teal-500/20" },
+  "Packing list": { pill: "bg-cyan-500/10 text-cyan-900 ring-cyan-500/20" },
+  Additional: { pill: "bg-indigo-500/10 text-indigo-900 ring-indigo-500/20" },
+  "Container list": { pill: "bg-fuchsia-500/10 text-fuchsia-900 ring-fuchsia-500/20" },
 };
 
 function attachmentGroupStyles(group) {
@@ -421,11 +443,14 @@ export default function PackDetailClient({ packId }) {
 
   const packSummary = useMemo(() => {
     if (!packRow || !selectedPackDraft) return { total: 0, submitted: 0, complete: 0, progress: 0 };
+    const isImport = isImportPack(packRow);
     const total = selectedPackDraft.containers.length;
-    const submitted = selectedPackDraft.containers.filter((container) => container.praSubmitted).length;
-    const complete = selectedPackDraft.containers.filter(isContainerOutloadComplete).length;
+    const submitted = isImport
+      ? selectedPackDraft.containers.filter((container) => container.outLoaded === "Yes").length
+      : selectedPackDraft.containers.filter((container) => container.praSubmitted).length;
+    const complete = selectedPackDraft.containers.filter((container) => isContainerOutloadComplete(container, { isImport })).length;
     const progress = complete;
-    return { total, submitted, complete, progress };
+    return { total, submitted, complete, progress, isImport };
   }, [packRow, selectedPackDraft]);
 
   // These must be declared before any early return to satisfy Rules of Hooks
@@ -467,6 +492,7 @@ export default function PackDetailClient({ packId }) {
 
   function updateContainerById(containerId, patch) {
     if (!packRow) return;
+    const isImport = isImportPack(packRow);
     updateSelectedPack((current) => ({
       ...current,
       containers: current.containers.map((container) => {
@@ -476,14 +502,15 @@ export default function PackDetailClient({ packId }) {
         const grossWeight = next.grossWeight != null && next.grossWeight !== "" ? toRoundedNumber(next.grossWeight) : null;
         const nettWeight = tare != null && grossWeight != null ? toRoundedNumber(Math.max(grossWeight - tare, 0)) : null;
         const normalized = { ...next, tare, grossWeight, nettWeight };
-        return { ...normalized, status: containerStage(normalized) };
+        return { ...normalized, status: containerStage(normalized, isImport) };
       }),
     }));
   }
 
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
-    const result = applyContainerPatch(selectedContainer, patch);
+    const isImport = isImportPack(packRow);
+    const result = applyContainerPatch(selectedContainer, patch, { isImport });
     if (!result.ok) {
       showContainerValidationError(result.error);
       return;
@@ -500,8 +527,9 @@ export default function PackDetailClient({ packId }) {
       applyPatch: updateSelectedContainer,
       fallbackPacker: packerNames[0] || "",
       onBlocked: showContainerValidationError,
+      isImport: isImportPack(packRow),
     });
-  }, [selectedContainer, packerNames, showContainerValidationError]);
+  }, [selectedContainer, packRow, packerNames, showContainerValidationError]);
 
   function persistPackRowToStore(nextRow, workDraft) {
     const containers = (workDraft?.containers || []).map((container) => buildContainerApiRecord(container, nextRow));
@@ -799,7 +827,7 @@ export default function PackDetailClient({ packId }) {
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
 
-    const saveError = validateContainerForSave(selectedContainer);
+    const saveError = validateContainerForSave(selectedContainer, { isImport: isImportPack(packRow) });
     if (saveError) {
       showContainerValidationError(saveError);
       return;
@@ -843,7 +871,7 @@ export default function PackDetailClient({ packId }) {
         const nettWeight =
           tare != null && grossWeight != null ? toRoundedNumber(Math.max(grossWeight - tare, 0)) : null;
         const normalized = { ...container, ...next, tare, grossWeight, nettWeight };
-        return { ...normalized, status: containerStage(normalized) };
+        return { ...normalized, status: containerStage(normalized, isImportPack(packRow)) };
       }),
     }));
 
@@ -912,15 +940,19 @@ export default function PackDetailClient({ packId }) {
   const permitDateLine = packRow.importPermitDate ? formatDateDisplay(packRow.importPermitDate) : "";
   const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
   const packingNoteText = String(packRow.jobNotes || packRow.packingNote || "").trim();
+  const importPackNotesText = String(packRow.importPackNotes || "").trim();
   const packWarningText =
     packRow.packWarningRequired && String(packRow.packWarning || "").trim()
       ? String(packRow.packWarning).trim()
       : "";
-  const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer) : [];
-  const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer) : [];
+  const isImportJob = isImportPack(packRow);
+  const packCheckFields = isImportJob ? IMPORT_PACK_CHECK_FIELDS : PACK_CHECK_FIELDS;
+  const packDetailTabs = isImportJob ? ["Packing"] : PACK_DETAIL_TABS;
+  const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer, { isImport: isImportJob }) : [];
+  const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer, { isImport: isImportJob }) : [];
   const packChecks = selectedPackDraft?.packChecks || {};
-  const packChecksCompleteCount = PACK_CHECK_FIELDS.filter((field) => Boolean(packChecks[field.key])).length;
-  const allPackChecksComplete = packChecksCompleteCount === PACK_CHECK_FIELDS.length;
+  const packChecksCompleteCount = packCheckFields.filter((field) => Boolean(packChecks[field.key])).length;
+  const allPackChecksComplete = packChecksCompleteCount === packCheckFields.length;
   const packDisplayRef = String(packRow.jobReference || "").trim() || String(packRow.id);
 
   return (
@@ -930,8 +962,17 @@ export default function PackDetailClient({ packId }) {
           <div className="flex min-w-0 flex-wrap items-center gap-y-1">
             <h2 className="shrink-0 text-lg font-semibold text-slate-900">Pack #{packDisplayRef}</h2>
             <span className="min-w-0 border-l border-slate-200 pl-3 text-sm text-slate-600 sm:ml-1">
-              PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
-              {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
+              {isImportJob ? (
+                <>
+                  In-loaded {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
+                  {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
+                </>
+              ) : (
+                <>
+                  PRA {packSummary.submitted}/{packRow.containersRequired} · Complete {packSummary.complete} · Nett total{" "}
+                  {aggregateNettWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT
+                </>
+              )}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -945,15 +986,37 @@ export default function PackDetailClient({ packId }) {
         </div>
         <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Customer" value={safeValue(packRow.customer)} />
-          <Field label="Releases" value={releaseRefsSummary} />
-          <Field label="Cut-off" value={formatDateTimeValue(packRow.vesselCutoffDate)} />
-          <Field
-            label="Fumigation"
-            value={safeValue(fumigantDisplay)}
-            labelClassName="text-purple-700"
-            valueClassName="border-purple-200 bg-purple-50 text-purple-900"
-          />
+          {isImportJob ? (
+            <>
+              <Field label="Unloading location" value={safeValue(packRow.unloadingLocation)} />
+              <Field label="Import directions" value={formatYesNo(packRow.importDirectionsReceived)} />
+              <Field label="Direction code" value={safeValue(packRow.importDirectionCode)} />
+            </>
+          ) : (
+            <>
+              <Field label="Releases" value={releaseRefsSummary} />
+              <Field label="Cut-off" value={formatDateTimeValue(packRow.vesselCutoffDate)} />
+              <Field
+                label="Fumigation"
+                value={safeValue(fumigantDisplay)}
+                labelClassName="text-purple-700"
+                valueClassName="border-purple-200 bg-purple-50 text-purple-900"
+              />
+            </>
+          )}
         </div>
+        {isImportJob ? (
+          <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="EDO received" value={formatYesNo(packRow.edoReceived)} />
+            <Field label="Date collected" value={formatDateTimeValue(packRow.dateCollected)} />
+            <Field label="Free days" value={packRow.freeDays != null && packRow.freeDays !== "" ? String(packRow.freeDays) : "—"} />
+            <Field label="Dehire by" value={formatDateTimeValue(packRow.dehireByDate)} />
+            <Field label="Final dehire" value={formatDateTimeValue(packRow.finalDehireDate)} />
+            <Field label="Vessel" value={safeValue(packRow.vessel)} />
+            <Field label="ETD" value={formatDateDisplay(packRow.etd)} />
+            <Field label="Releases" value={releaseRefsSummary} />
+          </div>
+        ) : null}
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <PriorityField label="Commodity" value={safeValue(packRow.commodity)} />
           <PriorityField label="Weight per container" value={weightPerContainer == null ? "—" : `${weightPerContainer} MT`} />
@@ -961,10 +1024,10 @@ export default function PackDetailClient({ packId }) {
         </div>
         <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/90 bg-gradient-to-r from-amber-50 via-amber-50 to-amber-100/60 shadow-sm shadow-amber-200/30">
           <div className="border-b border-amber-200/70 bg-amber-100/50 px-3 py-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Packing note</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">{isImportJob ? "Import pack notes" : "Packing note"}</p>
           </div>
           <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-amber-950">
-            {safeValue(packRow.jobNotes || packRow.packingNote)}
+            {safeValue(isImportJob ? importPackNotesText || packingNoteText : packingNoteText)}
           </p>
           {packWarningText ? (
             <>
@@ -983,7 +1046,9 @@ export default function PackDetailClient({ packId }) {
         >
           <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200/80 bg-white/90 px-2.5 py-2">
             <div className="min-w-0 flex-1">
-              <h3 className="text-[13px] font-semibold leading-tight tracking-tight text-slate-900">Pack attachments and pre-pack checks</h3>
+              <h3 className="text-[13px] font-semibold leading-tight tracking-tight text-slate-900">
+                {isImportJob ? "Import documents and pre-pack checks" : "Pack attachments and pre-pack checks"}
+              </h3>
             </div>
             <span
               className={cn(
@@ -991,13 +1056,13 @@ export default function PackDetailClient({ packId }) {
                 allPackChecksComplete ? "bg-emerald-100 text-emerald-900 ring-emerald-200/90" : "bg-amber-100 text-amber-900 ring-amber-200/80"
               )}
             >
-              Checks {packChecksCompleteCount}/{PACK_CHECK_FIELDS.length}
+              Checks {packChecksCompleteCount}/{packCheckFields.length}
             </span>
           </div>
 
           {/* Pack documents */}
           <div className="px-2.5 pb-2.5 pt-2">
-            {(packRow.importPermitRequired || permitMetaLine) && (
+            {(isImportJob || packRow.importPermitRequired || permitMetaLine) && (
               <div className="mb-1.5 flex flex-wrap items-center gap-1 rounded-md border border-slate-200/80 bg-white/90 px-2 py-1">
                 <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Import permit</span>
                 {!packRow.importPermitRequired ? (
@@ -1017,8 +1082,9 @@ export default function PackDetailClient({ packId }) {
               <div className="rounded-lg border border-dashed border-slate-300/90 bg-white/60 px-3 py-6 text-center">
                 <p className="text-xs font-semibold text-slate-800">No documents on this pack yet</p>
                 <p className="mx-auto mt-1.5 max-w-md text-[11px] leading-relaxed text-slate-600">
-                  Attach permits, RFPs, packing instructions, or declarations from the pack schedule. You can still complete the checks below if
-                  those documents are managed outside the system.
+                  {isImportJob
+                    ? "Attach import orders, packing lists, container lists, or permits from the pack schedule. You can still complete the checks below if those documents are managed outside the system."
+                    : "Attach permits, RFPs, packing instructions, or declarations from the pack schedule. You can still complete the checks below if those documents are managed outside the system."}
                 </p>
               </div>
             ) : (
@@ -1074,8 +1140,8 @@ export default function PackDetailClient({ packId }) {
           <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
 
           <div className="bg-white/95 px-2.5 py-2">
-            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4" role="group" aria-label="Pre-pack checks">
-              {PACK_CHECK_FIELDS.map((field) => {
+            <div className={cn("grid gap-1.5", isImportJob ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-4")} role="group" aria-label="Pre-pack checks">
+              {packCheckFields.map((field) => {
                 const checked = Boolean(packChecks[field.key]);
                 return (
                   <label
@@ -1115,7 +1181,7 @@ export default function PackDetailClient({ packId }) {
 
       <section className="rounded-xl border border-slate-200/90 bg-white p-2">
         <div className="flex flex-wrap items-center gap-2">
-          {PACK_DETAIL_TABS.map((tab) => (
+          {packDetailTabs.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -1128,7 +1194,7 @@ export default function PackDetailClient({ packId }) {
               {tab}
             </button>
           ))}
-          {activeTab === "PEMs" ? (
+          {!isImportJob && activeTab === "PEMs" ? (
             <span className="ms-auto text-sm text-slate-600">{stagedContainers.length} staged</span>
           ) : null}
         </div>
@@ -1162,7 +1228,7 @@ export default function PackDetailClient({ packId }) {
                 </div>
               ) : null}
               {filteredContainerRows.map((container) => {
-                const stage = containerStage(container);
+                const stage = containerStage(container, isImportJob);
                 return (
                   <button
                     key={container.id}
@@ -1188,6 +1254,7 @@ export default function PackDetailClient({ packId }) {
               })}
             </div>
           </section>
+          {!isImportJob ? (
           <section className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
             <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Pack-level controls</div>
             <div className="grid gap-3 p-3">
@@ -1201,6 +1268,7 @@ export default function PackDetailClient({ packId }) {
               </div>
             </div>
           </section>
+          ) : null}
           <section className="rounded-xl border border-slate-200/90 bg-white p-3">
             <div className="mb-1 flex items-center justify-between gap-2">
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Container list</label>
@@ -1239,10 +1307,10 @@ export default function PackDetailClient({ packId }) {
                 <span
                   className={cn(
                     "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    stageBadgeClass(containerStage(selectedContainer))
+                    stageBadgeClass(containerStage(selectedContainer, isImportJob))
                   )}
                 >
-                  {containerStage(selectedContainer)}
+                  {containerStage(selectedContainer, isImportJob)}
                 </span>
                 <div className="ms-auto flex shrink-0 items-center gap-2">
                   {isDirty ? (
@@ -1318,6 +1386,7 @@ export default function PackDetailClient({ packId }) {
               onChange={updateSelectedContainer}
               packId={packRow.id}
               containerId={selectedContainer.id}
+              packContainers={containerRows}
               packerNames={packerNames}
               packerSelectOptions={packPackerSelectOptions.length ? packPackerSelectOptions : allPackerSelectOptions}
               yesNoOptions={YES_NO_OPTIONS}
@@ -1338,9 +1407,10 @@ export default function PackDetailClient({ packId }) {
               onResetContainer={selectedContainerActions?.onResetContainer}
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
+              isImportPack={isImportJob}
             />
 
-            {packCommodityTypeId ? (
+            {!isImportJob && packCommodityTypeId ? (
               <div className={cn(sectionCardClass, "mt-4")}>
                 <div className={sectionHeaderClass}>Test results</div>
                 <div className="p-3">
@@ -1365,7 +1435,7 @@ export default function PackDetailClient({ packId }) {
           </section>
         )}
         </div>
-      ) : (
+      ) : !isImportJob ? (
         <PemsTab
           containers={containerRows}
           packerNames={packerNames}
@@ -1402,7 +1472,7 @@ export default function PackDetailClient({ packId }) {
           onUpdateContainer={updateContainerById}
           inputClass={inputClass}
         />
-      )}
+      ) : null}
       {filePreview ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-3 backdrop-blur-[1px]"

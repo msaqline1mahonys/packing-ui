@@ -33,6 +33,7 @@ import {
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
 import {
   buildTestsByName,
+  commodityTypeRequiresTestConfirmation,
   getCommodityThresholds,
   sumGroupMembers,
   testAppliesToSurface,
@@ -310,14 +311,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       (c) => c.id === (ticket.commodityId || lines[0]?.commodityId || selectedCmo.commodityId)
     );
     const unit = commodityForCmo?.unitType ?? commodityForCmo?.unit_type;
-    const totalReceived = completedTickets
+    const totalReceivedKg = completedTickets
       .filter((t) => t.type === ticketType && t.status === "completed" && t.cmoId === cmoId)
       .reduce((sum, t) => {
         const netWeight =
           (t.grossWeights || []).reduce((a, b) => a + b, 0) - (t.tareWeights || []).reduce((a, b) => a + b, 0);
         return sum + netWeight;
       }, 0);
-    const receivedDisplay = displayFromStorageKg(totalReceived, unit);
+    const receivedFromTickets = displayFromStorageKg(totalReceivedKg, unit);
+    const receivedDisplay = Number(selectedCmo.actualAmountDelivered) || receivedFromTickets;
     const remaining = selectedCmo.estimatedAmount - receivedDisplay;
     return {
       total: selectedCmo.estimatedAmount,
@@ -411,6 +413,18 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const tareTotal = useMemo(() => (ticket.tareWeights || []).reduce((a, b) => a + b, 0), [ticket.tareWeights]);
   const netTotal = grossTotal - tareTotal;
 
+  const requiresCommodityConfirmation = useMemo(
+    () =>
+      commodityTypeRequiresTestConfirmation({
+        commodities,
+        commodityTypeId: ticket.commodityTypeId,
+        allowedCommodityIds,
+        testsCatalog: tests,
+        surface: testSurface,
+      }),
+    [commodities, ticket.commodityTypeId, allowedCommodityIds, tests, testSurface]
+  );
+
   const confirmCommodity = () => {
     if (!ticket.commodityTypeId) return;
     const testsByName = buildTestsByName(tests);
@@ -481,12 +495,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     setShowCommodityModal(true);
   };
 
+  const commodityReady = requiresCommodityConfirmation ? ticket.commodityConfirmed : Boolean(ticket.commodityId);
+
   const canComplete =
     ticket.cmoId &&
     ticket.truck &&
     grossTotal > 0 &&
     tareTotal > 0 &&
-    ticket.commodityConfirmed &&
+    commodityReady &&
     ticket.signoffUserId &&
     (isIncoming ? ticket.unloadedLocation : ticket.loadingLocation);
 
@@ -511,6 +527,21 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       saved = await completeTicket(saved.id, saved);
       setTicket(saved);
       setCompletedTickets((prev) => [...prev.filter((t) => t.id !== saved.id), saved]);
+      if (saved.cmoId) {
+        const gross = (saved.grossWeights || []).reduce((a, b) => a + b, 0);
+        const tare = (saved.tareWeights || []).reduce((a, b) => a + b, 0);
+        const netMt = Math.max(0, gross - tare) / 1000;
+        setCmos((prev) =>
+          prev.map((cmo) =>
+            cmo.id === saved.cmoId
+              ? {
+                  ...cmo,
+                  actualAmountDelivered: Number((Number(cmo.actualAmountDelivered || 0) + netMt).toFixed(4)),
+                }
+              : cmo
+          )
+        );
+      }
       setShowPrintConfirm(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Complete failed.");
@@ -881,7 +912,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             </div>
           </Card>
 
-          {ticket.commodityTypeId ? (
+          {ticket.commodityTypeId && requiresCommodityConfirmation ? (
             <Card title="Test Results">
               <TestResultsSection
                 commodityTypeId={ticket.commodityTypeId}
@@ -1100,7 +1131,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               {!canComplete && !isCompleted ? (
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   <span className="font-semibold text-slate-600">Required:</span> CMO, truck, gross &amp; tare weights,
-                  commodity confirmed, signoff, and {isIncoming ? "unload" : "load"} location.
+                  {requiresCommodityConfirmation ? " commodity confirmed," : " commodity,"} signoff, and{" "}
+                  {isIncoming ? "unload" : "load"} location.
                 </p>
               ) : null}
             </div>
@@ -1268,7 +1300,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           <input
             className={inputClass}
             value={newTruck.name}
-            onChange={(e) => setNewTruck({ ...newTruck, name: e.target.value })}
+            onChange={(e) => setNewTruck({ ...newTruck, name: e.target.value.toUpperCase() })}
             placeholder="e.g. TRK-006"
           />
         </FormRow>
@@ -1301,7 +1333,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               try {
                 setError("");
                 const created = await saveTruck({
-                  name: newTruck.name.trim(),
+                  name: newTruck.name.trim().toUpperCase(),
                   driver: newTruck.driver.trim(),
                   tare: newTruck.tare,
                 });

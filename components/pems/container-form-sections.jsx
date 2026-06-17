@@ -41,6 +41,28 @@ function getTodayDatetime() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
+function hasStoredStartDateTime(container, names) {
+  return Boolean(String(container?.[names.startDate] ?? "").trim());
+}
+
+function buildCurrentStartDatetimePatch(names) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    [names.startDate]: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    [names.startHour]: pad(now.getHours()),
+    [names.startMinute]: pad(now.getMinutes()),
+  };
+}
+
+function buildIdentityFieldPatch(container, names, key, value) {
+  const patch = { [names[key] || key]: value };
+  if ((key === "containerNo" || key === "sealNo") && String(value ?? "").trim() && !hasStoredStartDateTime(container, names)) {
+    Object.assign(patch, buildCurrentStartDatetimePatch(names));
+  }
+  return patch;
+}
+
 /** Split a datetime-local value back into startDate / startHour / startMinute. */
 function splitDatetimeValue(value, names) {
   if (!value) {
@@ -369,7 +391,9 @@ export default function ContainerFormSections({
           <PemsInput
             label="Container No"
             value={containerNoValue}
-            onChange={(value) => setField("containerNo", sanitizeContainerNumberInput(value))}
+            onChange={(value) =>
+              onChange?.(buildIdentityFieldPatch(container, names, "containerNo", sanitizeContainerNumberInput(value)))
+            }
             placeholder="e.g. MSKU1234567"
             error={containerNoError}
             inputClass={inputClass}
@@ -384,7 +408,9 @@ export default function ContainerFormSections({
           <PemsInput
             label="Seal No"
             value={sealNoValue}
-            onChange={(value) => setField("sealNo", sanitizeSealNumberInput(value))}
+            onChange={(value) =>
+              onChange?.(buildIdentityFieldPatch(container, names, "sealNo", sanitizeSealNumberInput(value)))
+            }
             placeholder="e.g. SL12345"
             error={sealNoError}
             inputClass={inputClass}

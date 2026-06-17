@@ -57,6 +57,11 @@ export default function BulkContainerImportPanel({
     [release]
   );
 
+  const parkName =
+    containerParkOptions.find((p) => String(p.id) === String(parkId))?.name || "";
+  const transporterName =
+    transporterOptions.find((t) => String(t.id) === String(transporterId))?.name || "";
+
   const plan = useMemo(
     () =>
       planBulkImport({
@@ -127,7 +132,16 @@ export default function BulkContainerImportPanel({
         />
         <p className="text-[10px] text-slate-500">
           One per line, or separated by commas or tabs. Numbers fill empty slots on this pack and are
-          tagged with release <span className="font-semibold">{selectedReleaseRef || "—"}</span>.
+          tagged with release <span className="font-semibold">{selectedReleaseRef || "—"}</span>
+          {parkName || transporterName ? (
+            <>
+              {" "}
+              · park <span className="font-semibold">{parkName || "—"}</span>
+              {" "}
+              · transporter <span className="font-semibold">{transporterName || "—"}</span>
+            </>
+          ) : null}
+          .
         </p>
       </div>
 

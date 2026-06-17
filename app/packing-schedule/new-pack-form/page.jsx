@@ -18,7 +18,14 @@ import {
 } from "@/lib/Data";
 import BulkContainerImportPanel from "@/components/packing-schedule/bulk-container-import-dialog";
 import RemovePackContainersDialog from "@/components/packing-schedule/remove-pack-containers-dialog";
-import { ensureReleaseLineOnPack } from "@/lib/container-bulk-import";
+import {
+  countContainersForReleaseLine,
+  dedupeReleaseLines,
+  ensureReleaseLineOnPack,
+  expandParksToPackLines,
+  mergeReleaseLines,
+  releaseLineKey,
+} from "@/lib/container-bulk-import";
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
@@ -1927,6 +1934,7 @@ function NewPackFormPageInner() {
   const [quickReleaseError, setQuickReleaseError] = useState("");
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
+  const [quickReleaseActiveLine, setQuickReleaseActiveLine] = useState(null);
   const [bulkImportSaving, setBulkImportSaving] = useState(false);
   const [bulkImportError, setBulkImportError] = useState("");
   const [removeContainersOpen, setRemoveContainersOpen] = useState(false);
@@ -1941,6 +1949,7 @@ function NewPackFormPageInner() {
     setQuickReleaseError("");
     setQuickReleaseMode("add");
     setQuickReleaseTargetIndex(targetIndex);
+    setQuickReleaseActiveLine(null);
     setQuickReleaseDraft(blankRelease());
     setQuickReleaseOpen(true);
   }
@@ -1970,6 +1979,11 @@ function NewPackFormPageInner() {
     setQuickReleaseError("");
     setQuickReleaseMode("edit");
     setQuickReleaseTargetIndex(lineIndex);
+    setQuickReleaseActiveLine({
+      releaseRef,
+      emptyContainerParkId: line.emptyContainerParkId ?? null,
+      transporterId: line.transporterId ?? null,
+    });
     setQuickReleaseDraft(draft);
     setQuickReleaseOpen(true);
   }
@@ -1988,6 +2002,7 @@ function NewPackFormPageInner() {
     setQuickReleaseOpen(false);
     setQuickReleaseError("");
     setQuickReleaseTargetIndex(null);
+    setQuickReleaseActiveLine(null);
     setQuickReleaseMode("add");
   }
 
@@ -2079,24 +2094,24 @@ function NewPackFormPageInner() {
 
     await invalidateReferenceData("releases");
 
-    const firstPark = cleanedParks[0];
-    const firstTransporterId = firstPark.transporterIds[0] ?? "";
-    const newLine = {
-      releaseRef,
-      emptyContainerParkId: firstPark.containerParkId,
-      transporterId: firstTransporterId,
-    };
+    const expandedLines = expandParksToPackLines(releaseRef, cleanedParks);
 
     setPack((prev) => {
       const currentReleases = Array.isArray(prev.releaseDetails) ? prev.releaseDetails : [];
+      const populated = currentReleases.filter(
+        (row) => row.releaseRef || row.emptyContainerParkId || row.transporterId
+      );
+
       let nextReleases;
-      if (quickReleaseTargetIndex != null && currentReleases[quickReleaseTargetIndex]) {
-        nextReleases = currentReleases.map((row, idx) =>
-          idx === quickReleaseTargetIndex ? { ...row, ...newLine } : row,
+      if (quickReleaseMode === "edit") {
+        const withoutRef = populated.filter(
+          (row) => String(row.releaseRef ?? "").trim() !== releaseRef
         );
+        nextReleases = dedupeReleaseLines([...withoutRef, ...expandedLines]);
       } else {
-        nextReleases = [...currentReleases.filter((row) => row.releaseRef || row.emptyContainerParkId || row.transporterId), newLine];
+        nextReleases = dedupeReleaseLines(mergeReleaseLines(populated, expandedLines));
       }
+
       return { ...prev, releaseDetails: nextReleases };
     });
 
@@ -2734,21 +2749,11 @@ function NewPackFormPageInner() {
       .join("|");
     return `${accountingPackId}:${packedSignature}:${pack.containersRequired ?? ""}:${pack.mtTotal ?? ""}`;
   }, [accountingPackId, packContainers, pack.containersRequired, pack.mtTotal]);
-  // Count of filled containers (those with a container number) assigned to each release ref,
-  // keyed by upper-cased ref. Used for the per-release count badges on the release lines.
-  const containerCountByReleaseRef = useMemo(() => {
-    const map = {};
-    for (const c of packContainers) {
-      const num = String(c.containerNumber ?? c.container_number ?? "").trim();
-      if (!num) continue;
-      const ref = String(c.releaseNumber ?? c.release_number ?? "").trim().toUpperCase();
-      if (!ref) continue;
-      map[ref] = (map[ref] || 0) + 1;
-    }
-    return map;
-  }, [packContainers]);
-  const countForReleaseRef = (ref) =>
-    containerCountByReleaseRef[String(ref ?? "").trim().toUpperCase()] || 0;
+  // Count of filled containers per release line (ref + park + transporter).
+  const countForReleaseLine = useCallback(
+    (line) => countContainersForReleaseLine(packContainers, line),
+    [packContainers]
+  );
   const pemsDraft = useMemo(() => ({ ...defaultPemsDraft(), ...(pack.pemsDraft || {}) }), [pack.pemsDraft]);
   const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
   const siteRows = useMemo(() => {
@@ -3780,7 +3785,14 @@ function NewPackFormPageInner() {
                       const baseRows = releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }];
                       const isKnownRelease = releaseOptions.some((r) => r.releaseNumber === entry.releaseRef);
                       return (
-                      <div key={`release-row-${index}`} className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]">
+                      <div
+                        key={
+                          entry.releaseRef || entry.emptyContainerParkId || entry.transporterId
+                            ? releaseLineKey(entry)
+                            : `release-row-blank-${index}`
+                        }
+                        className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]"
+                      >
                         {(() => {
                           const releaseSelectOpts = [
                             ...(!isKnownRelease && entry.releaseRef ? [{ value: entry.releaseRef, label: entry.releaseRef }] : []),
@@ -3794,19 +3806,25 @@ function NewPackFormPageInner() {
                               onChange={(option) => {
                                 const num = option ? option.value : "";
                                 const rel = releaseOptions.find((r) => r.releaseNumber === num);
-                                const firstPark = rel?.parks?.[0];
-                                const next = baseRows.map((row, idx) =>
-                                  idx === index
-                                    ? {
-                                        ...row,
-                                        releaseRef: num,
-                                        emptyContainerParkId: firstPark?.containerParkId || row.emptyContainerParkId || "",
-                                        transporterId: firstPark?.transporterIds?.[0] || row.transporterId || "",
-                                      }
-                                    : row
-                                );
+                                const expanded = num
+                                  ? expandParksToPackLines(num, rel?.parks)
+                                  : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }];
+
+                                const before = baseRows.slice(0, index);
+                                const after = baseRows.slice(index + 1);
+                                let next = dedupeReleaseLines([
+                                  ...before,
+                                  ...(expanded.length
+                                    ? expanded
+                                    : [{ releaseRef: num, emptyContainerParkId: "", transporterId: "" }]),
+                                  ...after,
+                                ]);
+
                                 // Keep a trailing blank row so more releases can be added without a separate button.
-                                if (num && index === baseRows.length - 1) {
+                                const hasBlank = next.some(
+                                  (row) => !row.releaseRef && !row.emptyContainerParkId && !row.transporterId
+                                );
+                                if (num && !hasBlank) {
                                   next.push({ releaseRef: "", emptyContainerParkId: "", transporterId: "" });
                                 }
                                 set("releaseDetails", next);
@@ -3846,9 +3864,9 @@ function NewPackFormPageInner() {
                           {entry.releaseRef ? (
                             <span
                               className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-600"
-                              title="Containers assigned to this release on this pack"
+                              title="Containers assigned to this release line on this pack"
                             >
-                              {countForReleaseRef(entry.releaseRef)} ctr
+                              {countForReleaseLine(entry)} ctr
                             </span>
                           ) : null}
                           {entry.releaseRef ? (
@@ -3948,33 +3966,6 @@ function NewPackFormPageInner() {
                             options={shippingLineSelectOpts}
                             value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
                             onChange={(option) => set("shippingLineId", option ? option.value : "")}
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label={isImportJob ? "Terminal" : "Terminal (port of loading)"}>
-                      {(() => {
-                        const terminalSelectOpts = terminalOptions.map((t) => ({
-                          value: String(t.id),
-                          label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
-                        }));
-                        return (
-                          <ClutchSelect
-                            placeholder="- Select -"
-                            options={terminalSelectOpts}
-                            value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
-                            onChange={(option) => {
-                              const terminalId = option ? option.value : "";
-                              const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
-                              setPack((prev) => ({
-                                ...prev,
-                                terminalId,
-                                portOfLoading:
-                                  (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
-                                    ? (matched.port_of_loading ?? matched.portOfLoading)
-                                    : prev.portOfLoading,
-                              }));
-                            }}
                           />
                         );
                       })()}
@@ -5646,7 +5637,10 @@ function NewPackFormPageInner() {
           error={quickReleaseError}
           saving={quickReleaseSaving}
           lookups={quickReleaseLookups}
-          assignedContainerCount={countForReleaseRef(quickReleaseDraft.releaseNumber)}
+          activeLine={quickReleaseActiveLine}
+          assignedContainerCount={
+            quickReleaseActiveLine ? countForReleaseLine(quickReleaseActiveLine) : 0
+          }
           canDetach={quickReleaseMode === "edit" && quickReleaseTargetIndex != null}
           onDetach={() => detachReleaseLine(quickReleaseTargetIndex)}
           onClose={closeQuickAddRelease}
@@ -5696,6 +5690,7 @@ function ReleaseModal({
   error,
   saving = false,
   lookups,
+  activeLine = null,
   assignedContainerCount = 0,
   canDetach = false,
   onDetach,
@@ -5754,7 +5749,7 @@ function ReleaseModal({
               <span className="rounded-full bg-brand/10 px-2 py-0.5 font-semibold tabular-nums text-brand-ink">
                 {assignedContainerCount}
               </span>
-              container{assignedContainerCount === 1 ? "" : "s"} on this release for this pack.
+              container{assignedContainerCount === 1 ? "" : "s"} on this release line for this pack.
             </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
@@ -5925,8 +5920,8 @@ function ReleaseModal({
 
           <p className="mt-3 text-[10px] text-slate-500">
             {isEdit
-              ? "Saving updates this Release record in Reference Data and refreshes the release reference + first park/transporter on this pack."
-              : "Saving creates a Release record in Reference Data and adds the release reference + first park/transporter to this pack."}
+              ? "Saving updates this Release record in Reference Data and syncs all park/transporter lines onto this pack."
+              : "Saving creates a Release record in Reference Data and adds all park/transporter lines to this pack."}
           </p>
 
           <div className="mt-5 border-t border-slate-200 pt-4">
@@ -5934,7 +5929,11 @@ function ReleaseModal({
               Bulk import containers
             </p>
             <BulkContainerImportPanel
-              release={{ releaseRef, parks }}
+              release={{
+                releaseRef,
+                emptyContainerParkId: activeLine?.emptyContainerParkId ?? null,
+                transporterId: activeLine?.transporterId ?? null,
+              }}
               containers={bulkContainers}
               containerNumberField="containerNumber"
               containerParkOptions={bulkContainerParkOptions}

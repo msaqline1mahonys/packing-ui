@@ -28,7 +28,7 @@ const config = {
     { key: "tare", label: "Tare (T)", numeric: true },
   ],
   formFields: [
-    { key: "name", label: "Rego", required: true, placeholder: "e.g. MHY-104" },
+    { key: "name", label: "Rego", required: true, placeholder: "e.g. MHY-104", uppercase: true },
     { key: "driver", label: "Driver", placeholder: "Driver name" },
     { key: "combination", label: "Combination", placeholder: "e.g. B-Double" },
     { key: "tare", label: "Tare (T)", type: "number", placeholder: "0.00" },
@@ -133,7 +133,7 @@ function toApiPayload(draft) {
   }
   return {
     ...getTenantPayload(),
-    rego: String(draft.name ?? "").trim() || null,
+    rego: String(draft.name ?? "").trim().toUpperCase() || null,
     driver: String(draft.driver ?? "").trim() || null,
     combination: String(draft.combination ?? "").trim() || null,
     tare,
@@ -464,7 +464,12 @@ function TrucksPageContent() {
               field={field}
               value={draft[field.key] ?? ""}
               disabled={isSaving}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+              onChange={(value) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  [field.key]: field.uppercase ? String(value).toUpperCase() : value,
+                }))
+              }
             />
           ))}
         </div>

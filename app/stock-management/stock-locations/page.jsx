@@ -200,7 +200,7 @@ function toApiPayload(normalized, validCommodityIds) {
     site_id: siteId || undefined,
     name: String(normalized.name ?? "").trim(),
     location_type: String(normalized.locationType ?? "").trim() || null,
-    status: String(normalized.status ?? "").trim() || null,
+    status: String(normalized.status ?? "").trim() || "Active",
     capacity,
     commodity_mode: commodityMode,
     commodity_type_ids: commodityTypeIds,
@@ -216,8 +216,13 @@ function buildDraft(row) {
       next.siteId = row?.siteId ? String(row.siteId) : defaultSiteId;
       continue;
     }
+    if (field.key === "status") {
+      next.status = row?.status ?? "Active";
+      continue;
+    }
     next[field.key] = row?.[field.key] ?? "";
   }
+  if (!next.status) next.status = "Active";
   next.commodityMode = row?.commodityMode === "selected" ? "selected" : "all";
   next.commodityTypeIds = Array.isArray(row?.commodityTypeIds) ? [...row.commodityTypeIds] : [];
   return next;

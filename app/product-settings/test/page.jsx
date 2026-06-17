@@ -20,6 +20,18 @@ const inputClass =
 const APPLIES_TO_OPTIONS = ["Incoming Tickets", "Outgoing Tickets", "Outgoing Containers"];
 const TEST_TYPES = ["Percentage", "Count", "Group"];
 
+function defaultUnitForTestType(type) {
+  switch (String(type ?? "").trim()) {
+    case "Percentage":
+      return "%";
+    case "Count":
+    case "Group":
+      return "count";
+    default:
+      return "";
+  }
+}
+
 function formatMembers(ids, allRows) {
   if (!Array.isArray(ids) || ids.length === 0) return "";
   const lookup = new Map((allRows ?? []).map((r) => [r.id, r.testName]));
@@ -95,6 +107,10 @@ function buildDraft(row) {
   for (const field of config.formFields) {
     const isArrayField = field.type === "checkboxes" || field.type === "test-members";
     next[field.key] = row?.[field.key] ?? (isArrayField ? [] : "");
+  }
+  if (!next.status) next.status = "Active";
+  if (!String(next.unit ?? "").trim() && next.type) {
+    next.unit = defaultUnitForTestType(next.type);
   }
   return next;
 }
@@ -172,7 +188,7 @@ function toApiPayload(draft) {
     applies_to: Array.isArray(draft.appliesTo) ? draft.appliesTo : [],
     members: isGroup && Array.isArray(draft.members) ? draft.members : [],
     description: String(draft.description ?? "").trim() || null,
-    status: String(draft.status ?? "").trim() || null,
+    status: String(draft.status ?? "").trim() || "Active",
   };
 }
 
@@ -435,7 +451,15 @@ export default function TestPage() {
                 field={field}
                 value={draft[field.key] ?? (field.type === "checkboxes" || field.type === "test-members" ? [] : "")}
                 disabled={isSaving}
-                onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+                onChange={(value) => {
+                  setDraft((prev) => {
+                    const next = { ...prev, [field.key]: value };
+                    if (field.key === "type") {
+                      next.unit = defaultUnitForTestType(value);
+                    }
+                    return next;
+                  });
+                }}
                 memberCandidates={
                   field.type === "test-members"
                     ? rows.filter((r) => {

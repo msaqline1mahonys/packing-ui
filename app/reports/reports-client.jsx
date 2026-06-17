@@ -27,13 +27,26 @@ export default function ReportsClient() {
   }
 
   useEffect(() => {
-    setAllowed({
+    const nextAllowed = {
       view: canViewReports(),
       run: canRunAdHocReports(),
       manage: canManageSubscriptions(),
-    });
+    };
+    setAllowed(nextAllowed);
     setPermsChecked(true);
     refreshHistory();
+
+    const nextVisible = TABS.filter((tab) => {
+      if (tab.key === "build") return nextAllowed.run;
+      if (tab.key === "subscriptions") return nextAllowed.manage;
+      return nextAllowed.view;
+    });
+    if (nextVisible.length > 0) {
+      setActiveTab((current) =>
+        nextVisible.some((tab) => tab.key === current) ? current : nextVisible[0].key
+      );
+    }
+
     const cleanup = startSchedulerSimulator({ onTick: () => refreshHistory() });
     return cleanup;
   }, []);
@@ -58,7 +71,7 @@ export default function ReportsClient() {
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === "build") return allowed.run;
     if (tab.key === "subscriptions") return allowed.manage;
-    return true;
+    return allowed.view;
   });
 
   return (

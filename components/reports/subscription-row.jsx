@@ -33,9 +33,17 @@ export function SubscriptionRow({ subscription, onEdit, onDelete, onToggle }) {
   function customerLabel() {
     if (customerIds.length === 0) return "No customers";
     if (allSelected) return "All customers";
-    if (selectedCustomers.length === 1) return selectedCustomers[0].name;
-    if (selectedCustomers.length === 2) return `${selectedCustomers[0].name} & ${selectedCustomers[1].name}`;
-    return `${selectedCustomers[0].name} +${selectedCustomers.length - 1} more`;
+    if (selectedCustomers.length === 0) {
+      return `${customerIds.length} customer${customerIds.length === 1 ? "" : "s"}`;
+    }
+    if (selectedCustomers.length === 1) return selectedCustomers[0]?.name || "Unknown customer";
+    if (selectedCustomers.length === 2) {
+      const a = selectedCustomers[0]?.name || "Unknown";
+      const b = selectedCustomers[1]?.name || "Unknown";
+      return `${a} & ${b}`;
+    }
+    const first = selectedCustomers[0]?.name || "Unknown";
+    return `${first} +${selectedCustomers.length - 1} more`;
   }
 
   return (

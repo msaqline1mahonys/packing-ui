@@ -134,7 +134,7 @@ function toApiPayload(draft) {
     description: String(draft.description ?? "").trim() || null,
     hs_code: String(draft.hsCode ?? "").trim() || null,
     pems_code: String(draft.pemsCode ?? "").trim() || null,
-    status: String(draft.status ?? "").trim() || null,
+    status: String(draft.status ?? "").trim() || "Active",
     unit_type: String(draft.unitType ?? "").trim() || null,
     test_thresholds: (draft.testThresholds || [])
       .filter((t) => t.test)
@@ -607,7 +607,6 @@ export default function CommodityPage() {
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, status: e.target.value }))}
               >
-                <option value="">Select...</option>
                 {["Active", "Inactive"].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             )}

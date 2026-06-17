@@ -136,6 +136,7 @@ export default function ClutchSelect({
 
       <Select
         inputId={inputId}
+        instanceId={inputId}
         name={name}
         value={value}
         onChange={handleChange}

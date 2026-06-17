@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useNavDock, useSite } from "@/components/erp-navbar";
@@ -57,6 +58,7 @@ import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
 import TestResultsSection from "@/components/quality-tests/TestResultsSection";
 import { useInvalidateReferenceData, usePemsInspectionRemarksQuery } from "@/lib/hooks/use-reference-data-queries";
+import { useJobReferenceDuplicateCheck } from "@/lib/hooks/use-job-reference-duplicate-check";
 import {
   RELEASE_STATUSES,
   blankRelease,
@@ -113,6 +115,8 @@ const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
 const inputClass =
   "w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+const selectMatchInputClass =
+  "h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
 
 const gridClass = "grid gap-x-2.5 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
 const gridClassDense = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
@@ -123,7 +127,10 @@ const flushSectionBodyClass = "flex min-h-0 flex-1 flex-col";
 const sectionColumnsClass = cn(sectionRowClass, "xl:grid-cols-2 2xl:grid-cols-3");
 const containersShippingRowClass = cn(sectionRowClass, "xl:grid-cols-2");
 const shippingGridClass = "grid min-h-0 flex-1 grid-cols-3 grid-rows-4 items-start gap-x-2 gap-y-2";
-const topRowSectionsClass = cn(sectionRowClass, "lg:grid-cols-3");
+const importScheduleGridClass =
+  "grid gap-x-2 gap-y-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7";
+const topRowSectionsClass = (showImportBulkSection) =>
+  cn(sectionRowClass, showImportBulkSection ? "lg:grid-cols-4" : "lg:grid-cols-3");
 const sectionStackClass = "grid grid-cols-1 gap-y-1.5";
 const spanFullClass = "col-span-full";
 const importPermitRfpRowClass = cn(sectionRowClass, "xl:grid-cols-[minmax(13rem,20rem)_minmax(0,1fr)]");
@@ -444,9 +451,17 @@ function buildPackContainers(pack, existingRow) {
     : Array.isArray(existingRow?.containers)
       ? existingRow.containers
       : [];
-  return Array.from({ length: requiredCount }, (_, index) =>
-    createDraftContainer(pack, index, existingContainers[index] || {})
-  );
+  const containersByOrder = new Map();
+  for (const container of existingContainers) {
+    const order = Number(container?.order);
+    if (Number.isFinite(order) && order > 0) {
+      containersByOrder.set(order, container);
+    }
+  }
+  return Array.from({ length: requiredCount }, (_, index) => {
+    const order = index + 1;
+    return createDraftContainer(pack, index, containersByOrder.get(order) || existingContainers[index] || {});
+  });
 }
 
 const blankPack = (siteId) => ({
@@ -491,6 +506,112 @@ function createSampleEntry() {
     status: SAMPLE_STATUSES[0] ?? "Pending",
     notes: "",
   };
+}
+
+function formatSampleEntrySummary(entry) {
+  const parts = [entry.type, entry.status];
+  if (entry.sampleSentDate) parts.push(formatDateDisplay(entry.sampleSentDate));
+  if (entry.sampleLocation) parts.push(entry.sampleLocation);
+  if (entry.notes) parts.push(entry.notes);
+  return parts.filter(Boolean);
+}
+
+function SampleEntrySummary({ entry, index, onActivate, onRemove }) {
+  const parts = formatSampleEntrySummary(entry);
+
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-slate-200/80 bg-white px-1.5 py-0.5">
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[11px] leading-tight text-slate-600 hover:bg-slate-50"
+        onClick={() => onActivate(index)}
+      >
+        {parts.map((part, partIndex) => (
+          <span key={`${index}-${partIndex}`}>
+            {partIndex > 0 ? <span className="text-slate-400"> · </span> : null}
+            <span className={partIndex === 0 ? "font-medium text-slate-700" : undefined}>{part}</span>
+          </span>
+        ))}
+      </button>
+      <button
+        type="button"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+        aria-label="Remove sample"
+        onClick={() => onRemove(index)}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove }) {
+  return (
+    <div className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5">
+      <div className="grid grid-cols-2 gap-1">
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Type</label>
+          <ClutchSelect
+            isClearable={false}
+            options={SAMPLE_TYPE_OPTIONS}
+            value={SAMPLE_TYPE_OPTIONS.find((o) => o.value === entry.type) ?? null}
+            onChange={(option) => onUpdate({ type: option ? option.value : "" })}
+          />
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Status</label>
+          <ClutchSelect
+            isClearable={false}
+            options={SAMPLE_STATUS_OPTIONS}
+            value={SAMPLE_STATUS_OPTIONS.find((o) => o.value === entry.status) ?? null}
+            onChange={(option) => onUpdate({ status: option ? option.value : "" })}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Sent date</label>
+          <input
+            className={inputClass}
+            type="date"
+            aria-label="Sample sent date"
+            value={entry.sampleSentDate}
+            onChange={(e) => onUpdate({ sampleSentDate: e.target.value })}
+          />
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Location</label>
+          <input
+            className={inputClass}
+            value={entry.sampleLocation}
+            aria-label="Sample location"
+            onChange={(e) => onUpdate({ sampleLocation: e.target.value })}
+            placeholder="Location"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-[1fr_auto] items-end gap-1">
+        <div className="min-w-0 space-y-0.5">
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Notes</label>
+          <input
+            className={inputClass}
+            value={entry.notes || ""}
+            aria-label="Sample notes"
+            onChange={(e) => onUpdate({ notes: e.target.value })}
+            placeholder="Notes"
+          />
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+          aria-label={`Remove sample ${index + 1}`}
+          onClick={() => onRemove(index)}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const normalizeFileItems = normalizePackAttachmentFiles;
@@ -569,6 +690,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
   const resolvedShippingLineId = row.shipping_line_id ?? row.shippingLineId ?? "";
   return {
     ...blankPack(siteId),
+    id: row.id ?? null,
     importExport: (row.import_export ?? row.importExport) || "Export",
     status: row.status || "Pending",
     customerId: resolvedCustomerId,
@@ -734,10 +856,10 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
   };
 }
 
-function packToScheduleRow(pack, existingRow) {
+function packToScheduleRow(pack, existingRow, { includeContainers = true } = {}) {
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
   const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
-  const containers = buildPackContainers(pack, existingRow);
+  const containers = includeContainers ? buildPackContainers(pack, existingRow) : null;
   const detail =
     pack.fumigationDetail && typeof pack.fumigationDetail === "object"
       ? { ...blankFumigationDetail(), ...pack.fumigationDetail }
@@ -762,7 +884,7 @@ function packToScheduleRow(pack, existingRow) {
     maxQtyPerContainer: pack.maxQtyPerContainer === "" || pack.maxQtyPerContainer == null ? null : Number(pack.maxQtyPerContainer),
     mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? null : Number(pack.mtTotal),
     releases: releaseDetails.filter((r) => r.releaseRef || r.emptyContainerParkId || r.transporterId),
-    containers,
+    ...(includeContainers ? { containers } : {}),
     destinationCountry: pack.destinationCountry || "",
     destinationPort: pack.destinationPort || "",
     transshipmentPort: pack.transshipmentPort || "",
@@ -874,6 +996,49 @@ function FormRow({ label, labelClassName, children, className = "" }) {
         {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+function formatJobReferenceDuplicateMatch(match) {
+  const parts = [
+    match.jobReference || match.packNumber || "Pack",
+    match.customerName,
+    match.packStatus,
+    match.packingStartDate || match.packDate,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function JobReferenceDuplicateWarning({ matches, loading, enabled }) {
+  if (loading && enabled) {
+    return <p className="text-[10px] text-slate-500">Checking for duplicate job references…</p>;
+  }
+  if (!matches?.length) return null;
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-950">
+      <p className="font-semibold">
+        This job reference is already used on{" "}
+        {matches.length === 1 ? "another pack" : `${matches.length} other packs`}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {matches.map((match) => (
+          <li key={match.packId}>
+            {match.packId ? (
+              <Link
+                href={`/packing-schedule/new-pack-form?mode=edit&id=${match.packId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-amber-400 underline-offset-2 hover:text-amber-900"
+              >
+                {formatJobReferenceDuplicateMatch(match)}
+              </Link>
+            ) : (
+              formatJobReferenceDuplicateMatch(match)
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -995,6 +1160,52 @@ function BlendStockByLocationPanel({ locationStock, loading, selectedLocationId,
   );
 }
 
+function formatBlendComponentSummary(component, commoditySelectOpts, locationSelectOpts) {
+  const commodityLabel =
+    component.commodityName ||
+    commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? ""))?.label ||
+    "No commodity";
+  const locationLabel =
+    component.locationName ||
+    locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? ""))?.label ||
+    "";
+  const parts = [commodityLabel];
+  if (locationLabel) parts.push(locationLabel);
+  if (component.quantity != null && component.quantity !== "") {
+    parts.push(`${Number(component.quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT`);
+  }
+  return parts;
+}
+
+function BlendComponentSummary({ component, index, commoditySelectOpts, locationSelectOpts, onActivate, onRemove }) {
+  const parts = formatBlendComponentSummary(component, commoditySelectOpts, locationSelectOpts);
+
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-slate-200/80 bg-white px-1.5 py-0.5">
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[11px] leading-tight text-slate-600 hover:bg-slate-50"
+        onClick={() => onActivate(index)}
+      >
+        {parts.map((part, partIndex) => (
+          <span key={`${index}-${partIndex}`}>
+            {partIndex > 0 ? <span className="text-slate-400"> · </span> : null}
+            <span className={partIndex === 0 ? "font-medium text-slate-700" : undefined}>{part}</span>
+          </span>
+        ))}
+      </button>
+      <button
+        type="button"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+        aria-label={`Remove component ${index + 1}`}
+        onClick={() => onRemove(index)}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function BlendComponentEditor({
   component,
   index,
@@ -1004,6 +1215,7 @@ function BlendComponentEditor({
   inputClass,
   onUpdate,
   onRemove,
+  compact = false,
 }) {
   const { locationStock, loadingStock } = useBlendLocationStock(customerId, component.commodityId);
   const selectedSoh =
@@ -1018,7 +1230,84 @@ function BlendComponentEditor({
   }
 
   return (
-    <div className="space-y-1.5 rounded-md border border-slate-200/80 bg-slate-50/40 p-2">
+    <div className={cn("rounded-md border border-slate-200/80 bg-slate-50/40", compact ? "space-y-1 p-1.5" : "space-y-1.5 p-2")}>
+      {compact ? (
+        <div className="space-y-1">
+          <div className="grid grid-cols-2 gap-1">
+            <div className="min-w-0 space-y-0.5">
+              <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                Source commodity
+              </label>
+              <ClutchSelect
+                placeholder="- Select -"
+                options={commoditySelectOpts}
+                value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
+                onChange={(option) =>
+                  onUpdate({
+                    commodityId: option ? option.value : null,
+                    commodityName: option ? option.label : "",
+                    commodityTypeId: option ? (option._typeId ?? null) : null,
+                    locationId: null,
+                    locationName: "",
+                  })
+                }
+              />
+            </div>
+            <div className="min-w-0 space-y-0.5">
+              <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                Stock location
+              </label>
+              <ClutchSelect
+                placeholder="- Select -"
+                options={locationSelectOpts}
+                value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
+                onChange={(option) =>
+                  onUpdate({
+                    locationId: option ? option.value : null,
+                    locationName: option ? option.label : "",
+                  })
+                }
+              />
+            </div>
+          </div>
+          {selectedSoh != null ? (
+            <p className={cn("text-[10px] font-medium leading-tight", exceeds ? "text-amber-700" : "text-slate-500")}>
+              {exceeds ? (
+                <span className="inline-flex items-center gap-1">
+                  <AlertCircle className="size-3 shrink-0" />
+                  Exceeds on hand ({Number(selectedSoh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT)
+                </span>
+              ) : (
+                <>On hand: {Number(selectedSoh).toLocaleString(undefined, { maximumFractionDigits: 3 })} MT</>
+              )}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-[1fr_auto] items-end gap-1">
+            <div className="min-w-0 space-y-0.5">
+              <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+                Qty (MT)
+              </label>
+              <input
+                className={inputClass ?? "h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"}
+                type="number"
+                min="0"
+                step="0.001"
+                value={component.quantity ?? ""}
+                onChange={(e) => onUpdate({ quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+              aria-label={`Remove component ${index + 1}`}
+              onClick={() => onRemove(index)}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_5rem_auto]">
         <div className="min-w-0 space-y-0.5">
           <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
@@ -1092,8 +1381,9 @@ function BlendComponentEditor({
           </button>
         </div>
       </div>
+      )}
 
-      {component.commodityId ? (
+      {component.commodityId && !compact ? (
         <BlendStockByLocationPanel
           locationStock={locationStock}
           loading={loadingStock}
@@ -1325,8 +1615,23 @@ function BlendPerformModal({
   );
 }
 
-function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptions, stockLocations, mtTotal, actualPackedMt, onToggle, onChange, sectionClass, inputClass }) {
+function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptions, stockLocations, mtTotal, actualPackedMt, onToggle, onChange, sectionClass, inputClass, compact = false }) {
   const components = Array.isArray(blendComponents) ? blendComponents : [];
+  const [activeBlendIndex, setActiveBlendIndex] = useState(0);
+  const prevBlendCountRef = useRef(0);
+
+  useEffect(() => {
+    const count = components.length;
+    if (count > prevBlendCountRef.current) {
+      setActiveBlendIndex(count - 1);
+    } else if (count > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveBlendIndex((prev) => (prev >= count ? count - 1 : prev));
+    } else {
+      setActiveBlendIndex(0);
+    }
+    prevBlendCountRef.current = count;
+  }, [components.length]);
 
   // Derived warnings (non-blocking)
   const hasMultipleCommodityTypes = (() => {
@@ -1378,26 +1683,32 @@ function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptio
   }
 
   return (
-    <section className={sectionClass} aria-label="Blend pack">
-      <div className="flex items-center gap-3">
-        <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
-          <input
-            type="checkbox"
-            className="size-3.5 rounded border-slate-300 accent-brand"
-            checked={isBlend}
-            onChange={(e) => onToggle(e.target.checked)}
-          />
-          Blend pack
-        </label>
-        {isBlend ? (
-          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand-ink ring-1 ring-brand/20">
-            {components.length} component{components.length !== 1 ? "s" : ""}
-          </span>
-        ) : null}
-      </div>
+    <section className={cn(sectionClass, compact && "justify-start")} aria-label="Blend pack">
+      <div
+        className={cn(
+          compact && "flex min-h-0 w-full flex-1 flex-col items-start justify-start",
+          compact && sectionStackClass,
+        )}
+      >
+        <div className="flex flex-wrap items-start gap-2">
+          <label className="flex cursor-pointer items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            <input
+              type="checkbox"
+              className="size-3.5 rounded border-slate-300 accent-brand"
+              checked={isBlend}
+              onChange={(e) => onToggle(e.target.checked)}
+            />
+            Blend pack
+          </label>
+          {isBlend ? (
+            <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[9px] font-semibold text-brand-ink ring-1 ring-brand/20">
+              {components.length} component{components.length !== 1 ? "s" : ""}
+            </span>
+          ) : null}
+        </div>
 
-      {isBlend ? (
-        <div className="mt-2 space-y-2">
+        {isBlend ? (
+          <div className={cn(compact ? "space-y-1" : "mt-2 space-y-2")}>
           {!customerId ? (
             <p className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-800">
               Select a customer to view stock on hand by location.
@@ -1421,19 +1732,42 @@ function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptio
             </p>
           ) : null}
 
-          {components.map((component, index) => (
-            <BlendComponentEditor
-              key={`blend-component-${index}`}
-              component={component}
-              index={index}
-              customerId={customerId}
-              commoditySelectOpts={commoditySelectOpts}
-              locationSelectOpts={locationSelectOpts}
-              inputClass={inputClass}
-              onUpdate={(patch) => updateComponent(index, patch)}
-              onRemove={removeComponent}
-            />
-          ))}
+          {components.length > 1
+            ? components.map((component, index) => {
+                if (index === activeBlendIndex) return null;
+
+                return (
+                  <BlendComponentSummary
+                    key={`blend-component-summary-${index}`}
+                    component={component}
+                    index={index}
+                    commoditySelectOpts={commoditySelectOpts}
+                    locationSelectOpts={locationSelectOpts}
+                    onActivate={setActiveBlendIndex}
+                    onRemove={removeComponent}
+                  />
+                );
+              })
+            : null}
+
+          {components.map((component, index) => {
+            if (components.length !== 1 && index !== activeBlendIndex) return null;
+
+            return (
+              <BlendComponentEditor
+                key={`blend-component-${index}`}
+                component={component}
+                index={index}
+                customerId={customerId}
+                commoditySelectOpts={commoditySelectOpts}
+                locationSelectOpts={locationSelectOpts}
+                inputClass={inputClass}
+                compact={compact}
+                onUpdate={(patch) => updateComponent(index, patch)}
+                onRemove={removeComponent}
+              />
+            );
+          })}
 
           <button
             type="button"
@@ -1443,8 +1777,9 @@ function BlendPackSection({ isBlend, blendComponents, customerId, commodityOptio
             <Plus className="size-3.5" />
             Add component
           </button>
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -2038,10 +2373,20 @@ function NewPackFormPageInner() {
     setBulkImportSaving(true);
     setBulkImportError("");
     try {
-      const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
+      const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack, { includeContainers: false });
       await savePack({ ...rowToSave, id: packId });
-      // Only reflect the import in the form once it is safely persisted, so a failed
-      // import leaves the panel in a clean, retryable state.
+
+      const changedIds = new Set((appliedRows || []).map((row) => row.targetSlotId).filter(Boolean));
+      const toSave = updatedContainers.filter((container) => changedIds.has(container.id));
+      for (const container of toSave) {
+        if (!isUuid(container.id)) continue;
+        const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(
+          container,
+          { ...nextPack, id: packId }
+        );
+        await updateContainer(packId, container.id, payload);
+      }
+
       setPack(nextPack);
       return true;
     } catch (err) {
@@ -2151,28 +2496,38 @@ function NewPackFormPageInner() {
           sealNo: container.sealNumber,
         })),
       });
-      setPack((prev) => {
-        const currentDraft = { ...defaultPemsDraft(), ...(prev.pemsDraft || {}) };
-        const previousSubs = Array.isArray(prev.pemsSubmissions) ? prev.pemsSubmissions : [];
-        const stagedSet = new Set(stagedIds);
-        const nextPack = {
-          ...prev,
-          pemsDraft: { ...currentDraft, stagedContainerIds: [] },
-          pemsSubmissions: [submission, ...previousSubs],
-          containers: (Array.isArray(prev.containers) ? prev.containers : []).map((container) => {
-            if (!stagedSet.has(container.id)) return container;
-            return isGppir
-              ? { ...container, gppirSubmitted: true, gppirLastSubmittedAt: submittedAt, gppirLastBatchId: batchId }
-              : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
-          }),
-        };
-        const packId = nextPack.id ?? editingRow?.id;
-        if (packId) {
-          const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack);
-          savePack({ ...rowToSave, id: packId }).catch(() => {});
+      const stagedSet = new Set(stagedIds);
+      const currentDraft = { ...defaultPemsDraft(), ...(pack.pemsDraft || {}) };
+      const previousSubs = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
+      const nextPack = {
+        ...pack,
+        pemsDraft: { ...currentDraft, stagedContainerIds: [] },
+        pemsSubmissions: [submission, ...previousSubs],
+        containers: packContainers.map((container) => {
+          if (!stagedSet.has(container.id)) return container;
+          return isGppir
+            ? { ...container, gppirSubmitted: true, gppirLastSubmittedAt: submittedAt, gppirLastBatchId: batchId }
+            : { ...container, ecrSubmitted: true, ecrLastSubmittedAt: submittedAt, ecrLastBatchId: batchId };
+        }),
+      };
+
+      const packId = nextPack.id ?? editingRow?.id;
+      if (packId && isUuid(packId)) {
+        const rowToSave = packToScheduleRow(nextPack, editingRow ?? nextPack, { includeContainers: false });
+        await savePack({ ...rowToSave, id: packId });
+
+        const stagedContainers = nextPack.containers.filter((container) => stagedSet.has(container.id));
+        for (const container of stagedContainers) {
+          if (!isUuid(container.id)) continue;
+          const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(
+            container,
+            { ...nextPack, id: packId }
+          );
+          await updateContainer(packId, container.id, payload);
         }
-        return nextPack;
-      });
+      }
+
+      setPack(nextPack);
     } catch (error) {
       setPemsSubmitError(isPemsRfpRefreshError(error) ? pemsRfpRefreshUserMessage() : error?.message || "PEMs submission failed.");
     } finally {
@@ -2185,6 +2540,7 @@ function NewPackFormPageInner() {
     return vesselVoyageOptions.find((v) => String(v.id) === String(pack.vesselDepartureId)) || null;
   }, [pack.vesselDepartureId, vesselVoyageOptions]);
   const isImportJob = pack.importExport === "Import";
+  const showImportBulkSection = pack.packType === "bulk" || isImportJob;
   const vesselImportDates = useMemo(() => vesselImportScheduleFields(selectedVessel), [selectedVessel]);
   const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
   const destinationCountryId = useMemo(() => {
@@ -2365,6 +2721,16 @@ function NewPackFormPageInner() {
     [pack.commodityId]
   );
   const packDisplayId = String(pack.id || editingRow?.id || "").trim() || "—";
+  const baselineJobReference = editingRow?.jobReference ?? editingRow?.job_reference ?? "";
+  const jobReferenceDuplicateCheckEnabled = Boolean(String(pack.jobReference || "").trim());
+  const {
+    matches: jobReferenceDuplicateMatches,
+    loading: jobReferenceDuplicateLoading,
+  } = useJobReferenceDuplicateCheck(pack.jobReference, {
+    packId: pack.id || editingRow?.id || editId,
+    baselineJobReference,
+    enabled: jobReferenceDuplicateCheckEnabled,
+  });
   const containersLeftToPack = packContainers.filter((container) => {
     const status = String(container.status || "").toLowerCase();
     return status !== "complete" && status !== "completed";
@@ -2578,7 +2944,7 @@ function NewPackFormPageInner() {
     setSaveError("");
     try {
       if (mode === "edit" && editingRow) {
-        const updated = packToScheduleRow(normalized, editingRow);
+        const updated = packToScheduleRow(normalized, editingRow, { includeContainers: false });
         await savePack({ ...updated, id: editingRow.id });
       } else {
         const created = packToScheduleRow(normalized, null);
@@ -2679,7 +3045,7 @@ function NewPackFormPageInner() {
 
         {activeTab === "general" ? (
           <>
-            <div className={topRowSectionsClass}>
+            <div className={topRowSectionsClass(showImportBulkSection)}>
               <section className={flushSectionClass} aria-label="Pack basics">
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -2719,7 +3085,7 @@ function NewPackFormPageInner() {
                 </div>
               </section>
 
-              {pack.packType === "bulk" || isImportJob ? (
+              {showImportBulkSection ? (
               <section className={flushSectionClass} aria-label="Import and bulk">
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
                   {pack.packType === "bulk" ? (
@@ -2780,147 +3146,80 @@ function NewPackFormPageInner() {
                     />
                   </FormRow>
                   {pack.sampleRequired ? (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       {sampleEntries.map((entry, index) => {
                         const isExpanded = sampleRowCount === 1 || index === activeSampleIndex;
 
                         if (!isExpanded) {
                           return (
-                            <div
+                            <SampleEntrySummary
                               key={`sample-${index}`}
-                              className="flex items-center gap-1 rounded-md border border-slate-200/80 bg-white px-1.5 py-1"
-                            >
-                              <button
-                                type="button"
-                                className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[13px] text-slate-600 hover:bg-slate-50"
-                                onClick={() => setActiveSampleIndex(index)}
-                              >
-                                <span className="font-medium text-slate-700">{entry.type}</span>
-                                <span className="text-slate-400"> · </span>
-                                {entry.status}
-                                {entry.sampleSentDate ? (
-                                  <>
-                                    <span className="text-slate-400"> · </span>
-                                    {formatDateDisplay(entry.sampleSentDate)}
-                                  </>
-                                ) : null}
-                                {entry.sampleLocation ? (
-                                  <>
-                                    <span className="text-slate-400"> · </span>
-                                    {entry.sampleLocation}
-                                  </>
-                                ) : null}
-                              </button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                type="button"
-                                className="h-7 shrink-0 px-2 text-slate-400 hover:text-destructive"
-                                aria-label="Remove sample"
-                                onClick={() => {
-                                  const next = sampleEntries.filter((_, idx) => idx !== index);
-                                  set("sampleEntries", next);
-                                }}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
+                              entry={entry}
+                              index={index}
+                              onActivate={setActiveSampleIndex}
+                              onRemove={(removeIndex) => {
+                                const next = sampleEntries.filter((_, idx) => idx !== removeIndex);
+                                set("sampleEntries", next);
+                              }}
+                            />
                           );
                         }
 
                         return (
-                          <div
+                          <SampleEntryEditor
                             key={`sample-${index}`}
-                            className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5"
-                          >
-                            <div className="grid grid-cols-3 gap-1">
-                              <ClutchSelect
-                                isClearable={false}
-                                options={SAMPLE_TYPE_OPTIONS}
-                                value={SAMPLE_TYPE_OPTIONS.find((o) => o.value === entry.type) ?? null}
-                                onChange={(option) => {
-                                  const next = [...sampleEntries];
-                                  next[index] = { ...next[index], type: option ? option.value : "" };
-                                  set("sampleEntries", next);
-                                }}
-                              />
-                              <ClutchSelect
-                                isClearable={false}
-                                options={SAMPLE_STATUS_OPTIONS}
-                                value={SAMPLE_STATUS_OPTIONS.find((o) => o.value === entry.status) ?? null}
-                                onChange={(option) => {
-                                  const next = [...sampleEntries];
-                                  next[index] = { ...next[index], status: option ? option.value : "" };
-                                  set("sampleEntries", next);
-                                }}
-                              />
-                              <input
-                                className={inputClass}
-                                type="date"
-                                aria-label="Sample sent date"
-                                value={entry.sampleSentDate}
-                                onChange={(e) => {
-                                  const next = [...sampleEntries];
-                                  next[index] = { ...next[index], sampleSentDate: e.target.value };
-                                  set("sampleEntries", next);
-                                }}
-                              />
-                            </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1">
-                              <input
-                                className={inputClass}
-                                value={entry.sampleLocation}
-                                aria-label="Sample location"
-                                onChange={(e) => {
-                                  const next = [...sampleEntries];
-                                  next[index] = { ...next[index], sampleLocation: e.target.value };
-                                  set("sampleEntries", next);
-                                }}
-                                placeholder="Location"
-                              />
-                              <input
-                                className={inputClass}
-                                value={entry.notes || ""}
-                                aria-label="Sample notes"
-                                onChange={(e) => {
-                                  const next = [...sampleEntries];
-                                  next[index] = { ...next[index], notes: e.target.value };
-                                  set("sampleEntries", next);
-                                }}
-                                placeholder="Notes"
-                              />
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                type="button"
-                                className="h-7 shrink-0 px-2"
-                                aria-label="Remove sample"
-                                onClick={() => {
-                                  const next = sampleEntries.filter((_, idx) => idx !== index);
-                                  set("sampleEntries", next);
-                                }}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
-                          </div>
+                            entry={entry}
+                            index={index}
+                            inputClass={inputClass}
+                            onUpdate={(patch) => {
+                              const next = [...sampleEntries];
+                              next[index] = { ...next[index], ...patch };
+                              set("sampleEntries", next);
+                            }}
+                            onRemove={(removeIndex) => {
+                              const next = sampleEntries.filter((_, idx) => idx !== removeIndex);
+                              set("sampleEntries", next);
+                            }}
+                          />
                         );
                       })}
-                      <Button
-                        variant="secondary"
-                        size="sm"
+                      <button
                         type="button"
-                        className="h-7 w-full"
+                        className="flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-600 hover:border-brand/40 hover:bg-brand/5 hover:text-brand-ink"
                         onClick={() => {
                           set("sampleEntries", [...sampleEntries, createSampleEntry()]);
                         }}
                       >
-                        + Add sample
-                      </Button>
+                        <Plus className="size-3.5" />
+                        Add sample
+                      </button>
                     </div>
                   ) : null}
                 </div>
               </section>
+
+              <BlendPackSection
+                isBlend={pack.isBlend}
+                blendComponents={pack.blendComponents}
+                customerId={pack.customerId}
+                commodityOptions={commodityOptions}
+                stockLocations={queryLookups.stockLocations}
+                mtTotal={computedMtTotal}
+                actualPackedMt={actualPackedMt}
+                onToggle={(enabled) =>
+                  setPack((prev) => ({
+                    ...prev,
+                    isBlend: enabled,
+                    blendComponents: enabled && (!prev.blendComponents || prev.blendComponents.length === 0)
+                      ? [{ commodityId: null, locationId: null, quantity: null, commodityName: "", locationName: "", commodityTypeId: null }]
+                      : prev.blendComponents || [],
+                  }))
+                }
+                onChange={(components) => set("blendComponents", components)}
+                sectionClass={flushSectionClass}
+                inputClass={inputClass}
+                compact
+              />
             </div>
 
             <section className={sectionClass} aria-label="Basic details">
@@ -2980,7 +3279,17 @@ function NewPackFormPageInner() {
                   </FormRow>
                 ) : null}
                 <FormRow label="Job reference">
-                  <input className={inputClass} value={pack.jobReference} onChange={(e) => set("jobReference", e.target.value)} placeholder="Job reference" />
+                  <input
+                    className={selectMatchInputClass}
+                    value={pack.jobReference}
+                    onChange={(e) => set("jobReference", e.target.value)}
+                    placeholder="Job reference"
+                  />
+                  <JobReferenceDuplicateWarning
+                    matches={jobReferenceDuplicateMatches}
+                    loading={jobReferenceDuplicateLoading}
+                    enabled={jobReferenceDuplicateCheckEnabled}
+                  />
                 </FormRow>
                 <FormRow label="Packing start date">
                   <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
@@ -3122,28 +3431,6 @@ function NewPackFormPageInner() {
                 ) : null}
               </div>
             </section>
-
-            <BlendPackSection
-              isBlend={pack.isBlend}
-              blendComponents={pack.blendComponents}
-              customerId={pack.customerId}
-              commodityOptions={commodityOptions}
-              stockLocations={queryLookups.stockLocations}
-              mtTotal={computedMtTotal}
-              actualPackedMt={actualPackedMt}
-              onToggle={(enabled) =>
-                setPack((prev) => ({
-                  ...prev,
-                  isBlend: enabled,
-                  blendComponents: enabled && (!prev.blendComponents || prev.blendComponents.length === 0)
-                    ? [{ commodityId: null, locationId: null, quantity: null, commodityName: "", locationName: "", commodityTypeId: null }]
-                    : prev.blendComponents || [],
-                }))
-              }
-              onChange={(components) => set("blendComponents", components)}
-              sectionClass={sectionClass}
-              inputClass={inputClass}
-            />
 
             <BlendPerformAction
               pack={pack}
@@ -3649,9 +3936,8 @@ function NewPackFormPageInner() {
               </section>
 
               {isImportJob ? (
-                <section className={flushSectionClass} aria-label="Import schedule details">
-                  <div className={cn(flushSectionBodyClass, "gap-1")}>
-                    <div className={shippingGridClass}>
+                <section className={cn(sectionClass, spanFullClass)} aria-label="Import schedule details">
+                  <div className={importScheduleGridClass}>
                       <FormRow label="Planned inspection date">
                         <input
                           className={inputClass}
@@ -3776,7 +4062,6 @@ function NewPackFormPageInner() {
                           onChange={(e) => set("finalDehireDate", e.target.value)}
                         />
                       </FormRow>
-                    </div>
                   </div>
                 </section>
               ) : null}
@@ -5005,6 +5290,7 @@ function NewPackFormPageInner() {
                     onChange={(patch) => updatePackContainer(selectedEditContainer.id, patch)}
                     packId={pack.id ?? editingRow?.id}
                     containerId={selectedEditContainer.id}
+                    packContainers={packContainers}
                     packerNames={packerNames}
                     packerSelectOptions={packerSelectOptions}
                     yesNoOptions={YES_NO_STRINGS}

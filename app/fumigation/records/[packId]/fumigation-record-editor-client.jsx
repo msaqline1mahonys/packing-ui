@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
@@ -17,9 +17,17 @@ import {
   loadFumigationRecordSnapshot as loadRecordSnapshot,
   saveRecordIssue as issueRecord,
 } from "@/lib/fumigation-record-storage";
-import { resolveFumigationRecord } from "@/lib/fumigation-record-print";
+import { resolveFumigationRecord, resolveFumigationRecordAsync } from "@/lib/fumigation-record-print";
+import { mergeCertDraftFromPack } from "@/lib/fumigation-detail";
 import { getPack } from "@/lib/api/packing";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import { loadContactUsers } from "@/lib/contact-users-store";
+import { filterAuthorisedOfficers } from "@/lib/user-classifications";
+import {
+  findContactUserByName,
+  resolveSignoffFields,
+} from "@/lib/fumigation-signatures";
+import { SignatureDisplay } from "@/components/fumigation/fumigation-signoff-display";
 
 // ─── Default concentration readings grid ─────────────────────────────────────
 
@@ -45,6 +53,9 @@ function normalizeRecord(m) {
     // Section A
     fumigatorName: "",
     fumigatorAccreditationNumber: "",
+    fumigatorLicenceNumber: "",
+    fumigatorSignature: "",
+    fumigatorSignatureImage: "",
     // Section B
     treatmentProviderId: "",
     customerName: "",
@@ -105,7 +116,12 @@ function normalizeRecord(m) {
     // Section E
     fumigationResult: "",
     governmentOfficerName: "",
+    governmentOfficerNumber: "",
+    governmentOfficerLicenseNumber: "",
     governmentOfficerSignature: "",
+    governmentOfficerSignatureImage: "",
+    additionalDeclarations: "",
+    fumigationNotes: "",
     // Meta
     fumigant: null,
     methodology: null,
@@ -118,6 +134,33 @@ function normalizeRecord(m) {
   };
 }
 
+function applySignoffFromSelection(prev, field, name, users) {
+  if (field === "fumigator") {
+    const sig = resolveSignoffFields(name, "", users);
+    const fumigator = findContactUserByName(users, name);
+    const licence = String(fumigator?.fumigatorLicence || "").trim();
+    return {
+      ...prev,
+      fumigatorName: name,
+      fumigatorSignature: sig.signatureText,
+      fumigatorSignatureImage: sig.signatureImageUrl,
+      fumigatorAccreditationNumber: licence || prev.fumigatorAccreditationNumber,
+      fumigatorLicenceNumber: licence,
+    };
+  }
+  const sig = resolveSignoffFields(name, "", users);
+  const ao = findContactUserByName(users, name);
+  const aoLicence = String(ao?.aoLicenseNumber || "").trim();
+  return {
+    ...prev,
+    governmentOfficerName: name,
+    governmentOfficerNumber: String(ao?.aoNumber || "").trim(),
+    governmentOfficerLicenseNumber: aoLicence,
+    governmentOfficerSignature: sig.signatureText,
+    governmentOfficerSignatureImage: sig.signatureImageUrl,
+  };
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function FumigationRecordEditorClient({ packId }) {
@@ -127,20 +170,28 @@ export default function FumigationRecordEditorClient({ packId }) {
   const [packRow, setPackRow] = useState(null);
   const [packLoading, setPackLoading] = useState(true);
 
-  const [rec, setRec] = useState(() => normalizeRecord(loadRecordSnapshot(packId)));
+  const [rec, setRec] = useState(null);
+  const [hydratedFromPack, setHydratedFromPack] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setPackLoading(true);
+    setHydratedFromPack(false);
     getPack(packId)
-      .then((row) => {
+      .then(async (row) => {
         if (cancelled || !row) return;
         setPackRow(row);
-        setRec((prev) => prev ?? normalizeRecord(resolveFumigationRecord(packId, row)));
+        const resolved = await resolveFumigationRecordAsync(packId, row);
+        const fromPack = normalizeRecord(resolved);
+        const snapshot = loadRecordSnapshot(packId);
+        setRec(normalizeRecord(mergeCertDraftFromPack(fromPack, snapshot)));
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) setPackLoading(false);
+        if (!cancelled) {
+          setPackLoading(false);
+          setHydratedFromPack(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -148,18 +199,26 @@ export default function FumigationRecordEditorClient({ packId }) {
   }, [packId]);
 
   useEffect(() => {
-    if (rec) saveRecordSnapshot(packId, rec);
-  }, [rec, packId]);
+    if (!hydratedFromPack || !rec) return;
+    saveRecordSnapshot(packId, rec);
+  }, [rec, packId, hydratedFromPack]);
 
   const set = useCallback((field, value) => {
     setRec((prev) => ({ ...prev, [field]: value }));
   }, []);
 
-  const refreshFromPack = useCallback(() => {
+  const contactUsers = useMemo(() => loadContactUsers(), []);
+  const fumigatorOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.isFumigator && u.active !== false),
+    [contactUsers],
+  );
+  const aoOptions = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
+
+  const refreshFromPack = useCallback(async () => {
     if (!packRow) return;
-    const fresh = resolveFumigationRecord(packId, packRow);
-    if (fresh) setRec(normalizeRecord(fresh));
-  }, [packId, packRow]);
+    const fresh = await resolveFumigationRecordAsync(packId, packRow);
+    if (fresh) setRec(normalizeRecord(mergeCertDraftFromPack(fresh, rec)));
+  }, [packId, packRow, rec]);
 
   // Concentration reading helpers
   const updateReading = useCallback((rowId, col, value) => {
@@ -222,9 +281,9 @@ export default function FumigationRecordEditorClient({ packId }) {
     router.push(`/fumigation/records/${packId}/print`);
   }, [rec, packId, router]);
 
-  const handleDiscard = useCallback(() => {
+  const handleDiscard = useCallback(async () => {
     if (!packRow) return;
-    const fresh = resolveFumigationRecord(packId, packRow);
+    const fresh = await resolveFumigationRecordAsync(packId, packRow);
     if (fresh) setRec(normalizeRecord(fresh));
   }, [packId, packRow]);
 
@@ -267,11 +326,38 @@ export default function FumigationRecordEditorClient({ packId }) {
           <SectionCard>
             <SectionHeading>Section A — Fumigator in charge (pre-filled from pack)</SectionHeading>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField label="Full name">
-                <input className={inputClass} value={rec.fumigatorName ?? ""} onChange={(e) => set("fumigatorName", e.target.value)} />
+              <FormField label="Fumigator name">
+                <select
+                  className={inputClass}
+                  value={rec.fumigatorName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setRec((prev) => applySignoffFromSelection(prev, "fumigator", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select fumigator —</option>
+                  {fumigatorOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                    </option>
+                  ))}
+                </select>
               </FormField>
-              <FormField label="Accreditation number">
-                <input className={inputClass} value={rec.fumigatorAccreditationNumber ?? ""} onChange={(e) => set("fumigatorAccreditationNumber", e.target.value)} />
+              <FormField label="Fumigator licence number">
+                <input
+                  className={inputClass}
+                  value={rec.fumigatorLicenceNumber ?? rec.fumigatorAccreditationNumber ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setRec((prev) => ({
+                      ...prev,
+                      fumigatorLicenceNumber: value,
+                      fumigatorAccreditationNumber: value,
+                    }));
+                  }}
+                  placeholder="Pre-filled from fumigator profile"
+                />
               </FormField>
             </div>
           </SectionCard>
@@ -549,8 +635,84 @@ export default function FumigationRecordEditorClient({ packId }) {
                   <option value="fail">Fail</option>
                 </select>
               </FormField>
-              <FormField label="Authorised officer (if supervised)">
-                <input className={inputClass} value={rec.governmentOfficerName ?? ""} onChange={(e) => set("governmentOfficerName", e.target.value)} placeholder="Authorised officer name" />
+              <FormField label="Fumigator in charge">
+                <select
+                  className={inputClass}
+                  value={rec.fumigatorName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setRec((prev) => applySignoffFromSelection(prev, "fumigator", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select fumigator —</option>
+                  {fumigatorOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Fumigator licence number">
+                <input
+                  className={inputClass}
+                  value={rec.fumigatorLicenceNumber ?? rec.fumigatorAccreditationNumber ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setRec((prev) => ({
+                      ...prev,
+                      fumigatorLicenceNumber: value,
+                      fumigatorAccreditationNumber: value,
+                    }));
+                  }}
+                  placeholder="Pre-filled from fumigator profile"
+                />
+              </FormField>
+              <FormField label="Authorised officer">
+                <select
+                  className={inputClass}
+                  value={rec.governmentOfficerName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setRec((prev) => applySignoffFromSelection(prev, "ao", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select AO —</option>
+                  {aoOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.aoNumber ? ` (${u.aoNumber})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="AO licence number">
+                <input
+                  className={inputClass}
+                  value={rec.governmentOfficerLicenseNumber ?? ""}
+                  onChange={(e) => set("governmentOfficerLicenseNumber", e.target.value)}
+                  placeholder="Pre-filled from AO profile"
+                />
+              </FormField>
+              <FormField label="Fumigator signature">
+                <SignatureDisplay
+                  text={rec.fumigatorSignature}
+                  imageUrl={rec.fumigatorSignatureImage}
+                  className="min-h-[3rem] rounded border border-slate-200 bg-white px-2 py-1"
+                />
+              </FormField>
+              <FormField label="AO signature">
+                <SignatureDisplay
+                  text={rec.governmentOfficerSignature}
+                  imageUrl={rec.governmentOfficerSignatureImage}
+                  className="min-h-[3rem] rounded border border-slate-200 bg-white px-2 py-1"
+                />
+              </FormField>
+              <FormField label="Additional declarations" wide>
+                <textarea className={inputClass} rows={3} value={rec.additionalDeclarations ?? ""} onChange={(e) => set("additionalDeclarations", e.target.value)} />
+              </FormField>
+              <FormField label="Notes (internal)" wide>
+                <textarea className={inputClass} rows={2} value={rec.fumigationNotes ?? ""} onChange={(e) => set("fumigationNotes", e.target.value)} />
               </FormField>
             </div>
           </SectionCard>

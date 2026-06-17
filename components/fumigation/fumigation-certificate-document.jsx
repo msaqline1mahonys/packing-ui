@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print";
 import { formatDateTime } from "@/lib/fumigation-cert-print";
 import { CERTIFICATE_SECTIONS, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import { CertificateSignoffGrid } from "@/components/fumigation/fumigation-signoff-display";
 
 const ALL_CERT_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
 
@@ -59,6 +60,10 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
   const template = model.template ?? {};
   const headerLogo = template.logoDataUrl || "/mahonys-logo.png";
   const footerLogo = template.footerLogoDataUrl || "";
+  const headerLines = String(template.headerText || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const show = (key) => sectionEnabled(template, key);
   // suppress unused warning when template defaults to everything
   void ALL_CERT_SECTION_KEYS;
@@ -99,11 +104,21 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
             )}
           </div>
           <div className="flex-1 text-right text-xs leading-tight text-slate-700">
-            {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
-            {addr.line2 && <p className="font-semibold text-slate-900">{addr.line2}</p>}
-            {addr.phone && <p>Phone: {addr.phone}</p>}
-            {addr.email && <p>Email: {addr.email}</p>}
-            {addr.web && <p>Web: {addr.web}</p>}
+            {headerLines.length > 0 ? (
+              headerLines.map((line) => (
+                <p key={line} className="font-semibold text-slate-900">
+                  {line}
+                </p>
+              ))
+            ) : (
+              <>
+                {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
+                {addr.line2 && <p className="font-semibold text-slate-900">{addr.line2}</p>}
+                {addr.phone && <p>Phone: {addr.phone}</p>}
+                {addr.email && <p>Email: {addr.email}</p>}
+                {addr.web && <p>Web: {addr.web}</p>}
+              </>
+            )}
           </div>
         </div>
 
@@ -295,34 +310,17 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
         {/* ── DECLARATION ── */}
         {show("declaration") && (
         <div className="mb-6 rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Declaration</h2>
-          <p className="mb-3 leading-relaxed">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Declaration &amp; result</h2>
+          <p className="mb-2 leading-relaxed">
             I, the fumigator-in-charge declare: The fumigation certified was conducted in accordance with the treatment
             schedule, import conditions, and all the requirements in the {fumigantName} Fumigation Methodology, and the
             information I have provided is true and correct.
           </p>
-          <div className="grid grid-cols-2 gap-8 mt-4">
-            <div>
-              <p className="font-semibold mb-6">Full name:</p>
-              <div className="border-b border-gray-400 mb-1" />
-              {model.fumigatorName && <p className="text-gray-700 italic mt-1">{model.fumigatorName}</p>}
-            </div>
-            <div>
-              <p className="font-semibold mb-6">Signature:</p>
-              <div className="border-b border-gray-400 mb-1" />
-            </div>
-            <div>
-              <p className="font-semibold mb-6">Date (dd/mm/yyyy):</p>
-              <div className="border-b border-gray-400" />
-            </div>
-            <div>
-              <p className="font-semibold mb-6">Accreditation number:</p>
-              <div className="border-b border-gray-400 mb-1" />
-              {model.fumigatorAccreditationNumber && (
-                <p className="text-gray-700 italic mt-1">{model.fumigatorAccreditationNumber}</p>
-              )}
-            </div>
-          </div>
+          <p className="mb-3 leading-relaxed">
+            I, the authorised officer declare: I have supervised this fumigation treatment and confirm the information
+            recorded on this certificate is true and correct to the best of my knowledge.
+          </p>
+          <CertificateSignoffGrid model={model} />
           {model.additionalDeclarations && (
             <div className="mt-4">
               <p className="font-semibold text-gray-600 mb-1">Additional declarations:</p>

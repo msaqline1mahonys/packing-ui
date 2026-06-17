@@ -25,9 +25,14 @@ import {
   loadMethodologies,
   loadRecordTemplates,
 } from "@/lib/fumigation-store";
-import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import {
+  fetchCertificateTemplatesNormalized,
+  fetchRecordTemplatesNormalized,
+} from "@/lib/api/fumigation";
+import { defaultEnclosureTypeForTiming, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { filterAuthorisedOfficers } from "@/lib/user-classifications";
+import { signatureFieldsForUser } from "@/lib/fumigation-signatures";
 import {
   buildPemsInspectionPayload,
   isPemsRfpRefreshError,
@@ -350,8 +355,12 @@ function blankFumigationDetail() {
     clearanceValue: "",
     topUpEntries: [],
     fumigatorName: "",
+    fumigatorSignature: "",
+    fumigatorLicenceNumber: "",
     fumigationResult: "pass",
     governmentOfficerName: "",
+    governmentOfficerNumber: "",
+    governmentOfficerLicenseNumber: "",
     governmentOfficerSignature: "",
     additionalDeclarations: "",
     fumigationNotes: "",
@@ -1457,9 +1466,14 @@ function NewPackFormPageInner() {
 
   const [fumigants] = useState(() => loadFumigants());
   const [methodologies] = useState(() => loadMethodologies());
-  const [certificateTemplates] = useState(() => loadCertificateTemplates());
-  const [recordTemplates] = useState(() => loadRecordTemplates());
+  const [certificateTemplates, setCertificateTemplates] = useState(() => loadCertificateTemplates());
+  const [recordTemplates, setRecordTemplates] = useState(() => loadRecordTemplates());
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
+
+  useEffect(() => {
+    fetchCertificateTemplatesNormalized().then(setCertificateTemplates).catch(() => {});
+    fetchRecordTemplatesNormalized().then(setRecordTemplates).catch(() => {});
+  }, []);
 
   const customerOptions = queryLookups.customers;
   const commodityOptions = queryLookups.commodities;
@@ -1881,31 +1895,31 @@ function NewPackFormPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedActualTonnageMT]);
 
-  // Auto-fill calculated dose = prescribedDoseRate × volume (g) when blank
+  // Auto-fill calculated dose = prescribedDoseRate × volume (g)
   useEffect(() => {
     const current = pack.fumigationDetail ?? {};
-    const empty = (v) => v == null || String(v).trim() === "";
-    if (!empty(current.calculatedDosageValue)) return;
     const rate = Number(current.prescribedDoseRate);
     const volume = Number(current.volumeM3);
     if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    const nextValue = String(Number((rate * volume).toFixed(2)));
+    if (String(current.calculatedDosageValue ?? "") === nextValue) return;
     updateFumigationDetail({
-      calculatedDosageValue: String(Number((rate * volume).toFixed(2))),
+      calculatedDosageValue: nextValue,
       calculatedDosageUnit: "g",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fd.prescribedDoseRate, fd.volumeM3]);
 
-  // Auto-fill amount of fumigant applied = appliedDoseRate × volume (g) when blank
+  // Auto-fill amount of fumigant applied = appliedDoseRate × volume (g)
   useEffect(() => {
     const current = pack.fumigationDetail ?? {};
-    const empty = (v) => v == null || String(v).trim() === "";
-    if (!empty(current.actualDosageAppliedValue)) return;
     const rate = Number(current.dosageValue);
     const volume = Number(current.volumeM3);
     if (!Number.isFinite(rate) || !Number.isFinite(volume) || rate <= 0 || volume <= 0) return;
+    const nextValue = String(Number((rate * volume).toFixed(2)));
+    if (String(current.actualDosageAppliedValue ?? "") === nextValue) return;
     updateFumigationDetail({
-      actualDosageAppliedValue: String(Number((rate * volume).toFixed(2))),
+      actualDosageAppliedValue: nextValue,
       actualDosageAppliedUnit: "g",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2207,7 +2221,10 @@ function NewPackFormPageInner() {
     containerCountByReleaseRef[String(ref ?? "").trim().toUpperCase()] || 0;
   const pemsDraft = useMemo(() => ({ ...defaultPemsDraft(), ...(pack.pemsDraft || {}) }), [pack.pemsDraft]);
   const pemsSubmissions = Array.isArray(pack.pemsSubmissions) ? pack.pemsSubmissions : [];
-  const siteRows = useMemo(() => readSiteRows(), []);
+  const siteRows = useMemo(() => {
+    if (queryLookups.sites.length) return queryLookups.sites;
+    return readSiteRows();
+  }, [queryLookups.sites]);
   const selectedPackSite = useMemo(() => {
     const byId = siteRows.find((row) => String(row.id) === String(pack.siteId));
     return byId || siteRows[0] || null;
@@ -2216,12 +2233,28 @@ function NewPackFormPageInner() {
   // Treatment Provider ID auto-derive from the pack's selected site (only when blank)
   useEffect(() => {
     const site = selectedPackSite;
-    if (!site?.treatmentProviderId) return;
+    const treatmentId = String(site?.treatmentProviderId ?? "").trim();
+    if (!treatmentId) return;
     if (String(pack.treatmentProviderId ?? "").trim()) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPack((prev) => ({ ...prev, treatmentProviderId: site.treatmentProviderId }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPackSite?.id]);
+    setPack((prev) => ({ ...prev, treatmentProviderId: treatmentId }));
+  }, [selectedPackSite?.id, selectedPackSite?.treatmentProviderId, pack.treatmentProviderId]);
+
+  useEffect(() => {
+    if (!pack.fumigationRequired) return;
+    const defaultEnclosure = defaultEnclosureTypeForTiming(pack.fumigationTiming);
+    if (!defaultEnclosure) return;
+    const current = String(pack.fumigationDetail?.enclosureType ?? "").trim();
+    if (current) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPack((prev) => ({
+      ...prev,
+      fumigationDetail: {
+        ...(prev.fumigationDetail || blankFumigationDetail()),
+        enclosureType: defaultEnclosure,
+      },
+    }));
+  }, [pack.fumigationRequired, pack.fumigationTiming, pack.fumigationDetail?.enclosureType]);
 
   const aoNumberByName = useMemo(() => {
     const map = new Map();
@@ -4026,7 +4059,23 @@ function NewPackFormPageInner() {
                             placeholder="Select timing…"
                             options={FUMIGATION_TIMING_OPTIONS}
                             value={FUMIGATION_TIMING_OPTIONS.find((o) => o.value === (pack.fumigationTiming ?? "")) ?? null}
-                            onChange={(option) => set("fumigationTiming", option ? option.value : "")}
+                            onChange={(option) => {
+                              const timing = option ? option.value : "";
+                              setPack((prev) => {
+                                const detail =
+                                  prev.fumigationDetail && typeof prev.fumigationDetail === "object"
+                                    ? prev.fumigationDetail
+                                    : blankFumigationDetail();
+                                const defaultEnclosure = defaultEnclosureTypeForTiming(timing);
+                                return {
+                                  ...prev,
+                                  fumigationTiming: timing,
+                                  fumigationDetail: defaultEnclosure
+                                    ? { ...detail, enclosureType: defaultEnclosure }
+                                    : detail,
+                                };
+                              });
+                            }}
                           />
                         </FormRow>
                       </div>
@@ -4042,16 +4091,21 @@ function NewPackFormPageInner() {
                                 onChange={(option) => {
                                   const name = option ? option.value : "";
                                   const matched = fumigatorOptions.find((u) => u.name === name) || null;
+                                  const sig = signatureFieldsForUser(matched);
                                   setPack((prev) => {
                                     const detail = (prev.fumigationDetail && typeof prev.fumigationDetail === "object")
                                       ? prev.fumigationDetail
                                       : blankFumigationDetail();
-                                    // Pre-fill accreditation (fumigatorLicence) on selection; user can still override.
                                     const accreditation = matched?.fumigatorLicence ?? prev.fumigatorAccreditationNumber ?? "";
                                     return {
                                       ...prev,
                                       fumigatorAccreditationNumber: accreditation,
-                                      fumigationDetail: { ...detail, fumigatorName: name },
+                                      fumigationDetail: {
+                                        ...detail,
+                                        fumigatorName: name,
+                                        fumigatorSignature: sig.signatureText,
+                                        fumigatorLicenceNumber: matched?.fumigatorLicence ?? accreditation,
+                                      },
                                     };
                                   });
                                 }}
@@ -4059,7 +4113,7 @@ function NewPackFormPageInner() {
                             );
                           })()}
                         </FormRow>
-                        <FormRow label="Accreditation number">
+                        <FormRow label="Fumigator licence number">
                           <input
                             className={inputClass}
                             value={pack.fumigatorAccreditationNumber ?? ""}
@@ -4313,153 +4367,149 @@ function NewPackFormPageInner() {
                       </div>
                     </FormRow>
 
-                    <div className={cn("mt-2", fumigationGridClass)}>
-                      <FormRow label="Min forecast temperature (°C)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.5"
-                          value={fd.minForecastedTemperature ?? ""}
-                          onChange={(e) => updateFumigationDetail({ minForecastedTemperature: e.target.value })}
-                        />
-                      </FormRow>
-                      <FormRow label="Actual start temperature (°C)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.5"
-                          value={fd.actualTemperature ?? ""}
-                          onChange={(e) => updateFumigationDetail({ actualTemperature: e.target.value })}
-                        />
-                      </FormRow>
-                    </div>
-
-                    <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Prescribed treatment schedule
-                    </p>
-                    <div className={fumigationGridClass}>
-                      <FormRow label="Dose rate (g/m³)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.01"
-                          value={fd.prescribedDoseRate ?? ""}
-                          onChange={(e) => updateFumigationDetail({ prescribedDoseRate: e.target.value })}
-                        />
-                      </FormRow>
-                      <FormRow label="Exposure (hours)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="1"
-                          value={fd.prescribedExposure ?? ""}
-                          onChange={(e) => updateFumigationDetail({ prescribedExposure: e.target.value })}
-                        />
-                      </FormRow>
-                      <FormRow label="Min temperature (°C)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.5"
-                          value={fd.prescribedTemperature ?? ""}
-                          onChange={(e) => updateFumigationDetail({ prescribedTemperature: e.target.value })}
-                        />
-                      </FormRow>
-                    </div>
-
-                    <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Applied dose
-                    </p>
-                    <div className={fumigationGridClass}>
-                      <FormRow label="Applied dose rate">
-                        <div className="flex gap-2">
+                    <div className={cn("mt-2 grid gap-x-3 gap-y-2 lg:grid-cols-3")}>
+                      <div className="grid gap-y-1.5 content-start">
+                        <FormRow label="Min forecast temperature (°C)">
+                          <input
+                            className={inputClass}
+                            type="number"
+                            step="0.5"
+                            value={fd.minForecastedTemperature ?? ""}
+                            onChange={(e) => updateFumigationDetail({ minForecastedTemperature: e.target.value })}
+                          />
+                        </FormRow>
+                        <FormRow label="Dose rate (g/m³)">
                           <input
                             className={inputClass}
                             type="number"
                             step="0.01"
-                            value={fd.dosageValue ?? ""}
-                            onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
+                            value={fd.prescribedDoseRate ?? ""}
+                            onChange={(e) => updateFumigationDetail({ prescribedDoseRate: e.target.value })}
                           />
-                          <ClutchSelect
-                            isClearable={false}
-                            options={DOSAGE_UNIT_OPTIONS}
-                            value={DOSAGE_UNIT_OPTIONS.find((o) => o.value === (fd.dosageUnit || "g/m3")) ?? null}
-                            onChange={(option) => updateFumigationDetail({ dosageUnit: option ? option.value : "g/m3" })}
-                            className="w-[5.5rem]"
-                          />
-                        </div>
-                      </FormRow>
-                      <FormRow label="Applied exposure">
-                        <div className="flex gap-2">
+                        </FormRow>
+                        <FormRow label="Exposure (hours)">
                           <input
                             className={inputClass}
                             type="number"
                             step="1"
-                            value={fd.exposureTimeValue ?? ""}
-                            onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
+                            value={fd.prescribedExposure ?? ""}
+                            onChange={(e) => updateFumigationDetail({ prescribedExposure: e.target.value })}
                           />
-                          <ClutchSelect
-                            isClearable={false}
-                            options={EXPOSURE_UNIT_OPTIONS}
-                            value={EXPOSURE_UNIT_OPTIONS.find((o) => o.value === (fd.exposureTimeUnit || "hours")) ?? null}
-                            onChange={(option) => updateFumigationDetail({ exposureTimeUnit: option ? option.value : "hours" })}
-                            className="w-[5.5rem]"
-                          />
-                        </div>
-                      </FormRow>
-                      <FormRow label="Application method">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={APPLICATION_METHOD_OPTIONS}
-                          value={APPLICATION_METHOD_OPTIONS.find((o) => o.value === (fd.applicationMethod || "in-container")) ?? null}
-                          onChange={(option) => updateFumigationDetail({ applicationMethod: option ? option.value : "in-container" })}
-                        />
-                      </FormRow>
-                      <FormRow label="Calculated dose">
-                        <div className="flex gap-2">
+                        </FormRow>
+                        <FormRow label="Calculated dose">
+                          <div className="flex gap-2">
+                            <input
+                              className={inputClass}
+                              type="number"
+                              step="0.1"
+                              value={fd.calculatedDosageValue ?? ""}
+                              onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
+                            />
+                            <ClutchSelect
+                              isClearable={false}
+                              options={MASS_UNIT_OPTIONS}
+                              value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.calculatedDosageUnit || "g")) ?? null}
+                              onChange={(option) => updateFumigationDetail({ calculatedDosageUnit: option ? option.value : "g" })}
+                              className="w-[4.5rem]"
+                            />
+                          </div>
+                        </FormRow>
+                      </div>
+
+                      <div className="grid gap-y-1.5 content-start">
+                        <FormRow label="Actual start temperature (°C)">
                           <input
                             className={inputClass}
                             type="number"
-                            step="0.1"
-                            value={fd.calculatedDosageValue ?? ""}
-                            onChange={(e) => updateFumigationDetail({ calculatedDosageValue: e.target.value })}
+                            step="0.5"
+                            value={fd.actualTemperature ?? ""}
+                            onChange={(e) => updateFumigationDetail({ actualTemperature: e.target.value })}
                           />
-                          <ClutchSelect
-                            isClearable={false}
-                            options={MASS_UNIT_OPTIONS}
-                            value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.calculatedDosageUnit || "g")) ?? null}
-                            onChange={(option) => updateFumigationDetail({ calculatedDosageUnit: option ? option.value : "g" })}
-                            className="w-[4.5rem]"
-                          />
-                        </div>
-                      </FormRow>
-                      <FormRow label="Amount of fumigant applied">
-                        <div className="flex gap-2">
+                        </FormRow>
+                        <FormRow label="Applied dose rate">
+                          <div className="flex gap-2">
+                            <input
+                              className={inputClass}
+                              type="number"
+                              step="0.01"
+                              value={fd.dosageValue ?? ""}
+                              onChange={(e) => updateFumigationDetail({ dosageValue: e.target.value })}
+                            />
+                            <ClutchSelect
+                              isClearable={false}
+                              options={DOSAGE_UNIT_OPTIONS}
+                              value={DOSAGE_UNIT_OPTIONS.find((o) => o.value === (fd.dosageUnit || "g/m3")) ?? null}
+                              onChange={(option) => updateFumigationDetail({ dosageUnit: option ? option.value : "g/m3" })}
+                              className="w-[5.5rem]"
+                            />
+                          </div>
+                        </FormRow>
+                        <FormRow label="Applied exposure">
+                          <div className="flex gap-2">
+                            <input
+                              className={inputClass}
+                              type="number"
+                              step="1"
+                              value={fd.exposureTimeValue ?? ""}
+                              onChange={(e) => updateFumigationDetail({ exposureTimeValue: e.target.value })}
+                            />
+                            <ClutchSelect
+                              isClearable={false}
+                              options={EXPOSURE_UNIT_OPTIONS}
+                              value={EXPOSURE_UNIT_OPTIONS.find((o) => o.value === (fd.exposureTimeUnit || "hours")) ?? null}
+                              onChange={(option) => updateFumigationDetail({ exposureTimeUnit: option ? option.value : "hours" })}
+                              className="w-[5.5rem]"
+                            />
+                          </div>
+                        </FormRow>
+                        <FormRow label="Amount of fumigant applied">
+                          <div className="flex gap-2">
+                            <input
+                              className={inputClass}
+                              type="number"
+                              step="0.1"
+                              value={fd.actualDosageAppliedValue ?? ""}
+                              onChange={(e) => updateFumigationDetail({ actualDosageAppliedValue: e.target.value })}
+                            />
+                            <ClutchSelect
+                              isClearable={false}
+                              options={MASS_UNIT_OPTIONS}
+                              value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.actualDosageAppliedUnit || "g")) ?? null}
+                              onChange={(option) => updateFumigationDetail({ actualDosageAppliedUnit: option ? option.value : "g" })}
+                              className="w-[4.5rem]"
+                            />
+                          </div>
+                        </FormRow>
+                      </div>
+
+                      <div className="grid gap-y-1.5 content-start">
+                        <FormRow label="Min temperature (°C)">
                           <input
                             className={inputClass}
                             type="number"
-                            step="0.1"
-                            value={fd.actualDosageAppliedValue ?? ""}
-                            onChange={(e) => updateFumigationDetail({ actualDosageAppliedValue: e.target.value })}
+                            step="0.5"
+                            value={fd.prescribedTemperature ?? ""}
+                            onChange={(e) => updateFumigationDetail({ prescribedTemperature: e.target.value })}
                           />
+                        </FormRow>
+                        <FormRow label="Application method">
                           <ClutchSelect
                             isClearable={false}
-                            options={MASS_UNIT_OPTIONS}
-                            value={MASS_UNIT_OPTIONS.find((o) => o.value === (fd.actualDosageAppliedUnit || "g")) ?? null}
-                            onChange={(option) => updateFumigationDetail({ actualDosageAppliedUnit: option ? option.value : "g" })}
-                            className="w-[4.5rem]"
+                            options={APPLICATION_METHOD_OPTIONS}
+                            value={APPLICATION_METHOD_OPTIONS.find((o) => o.value === (fd.applicationMethod || "in-container")) ?? null}
+                            onChange={(option) => updateFumigationDetail({ applicationMethod: option ? option.value : "in-container" })}
                           />
-                        </div>
-                      </FormRow>
-                      <FormRow label="Actual tonnage (MT)">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="any"
-                          value={fd.actualTonnage ?? ""}
-                          onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
-                        />
-                      </FormRow>
+                        </FormRow>
+                        <FormRow label="Actual tonnage (MT)">
+                          <input
+                            className={inputClass}
+                            type="number"
+                            step="any"
+                            value={fd.actualTonnage ?? ""}
+                            onChange={(e) => updateFumigationDetail({ actualTonnage: e.target.value })}
+                          />
+                        </FormRow>
+                      </div>
                     </div>
 
                     <p className="mt-2 mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -4739,6 +4789,39 @@ function NewPackFormPageInner() {
                             onChange={(option) => updateFumigationDetail({ fumigationResult: option ? option.value : "" })}
                           />
                         </FormRow>
+                        <FormRow label="Fumigator in charge">
+                          {(() => {
+                            const fumigatorSelectOpts = fumigatorOptions.map((u) => ({
+                              value: u.name,
+                              label: u.name + (u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""),
+                            }));
+                            return (
+                              <ClutchSelect
+                                placeholder="- Select fumigator -"
+                                options={fumigatorSelectOpts}
+                                value={fumigatorSelectOpts.find((o) => o.value === (fd.fumigatorName ?? "")) ?? null}
+                                onChange={(option) => {
+                                  const name = option ? option.value : "";
+                                  const matched = fumigatorOptions.find((u) => u.name === name) || null;
+                                  const sig = signatureFieldsForUser(matched);
+                                  const licence = matched?.fumigatorLicence ?? "";
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    fumigatorAccreditationNumber: licence || prev.fumigatorAccreditationNumber || "",
+                                    fumigationDetail: {
+                                      ...(prev.fumigationDetail && typeof prev.fumigationDetail === "object"
+                                        ? prev.fumigationDetail
+                                        : blankFumigationDetail()),
+                                      fumigatorName: name,
+                                      fumigatorLicenceNumber: licence,
+                                      fumigatorSignature: sig.signatureText,
+                                    },
+                                  }));
+                                }}
+                              />
+                            );
+                          })()}
+                        </FormRow>
                         <FormRow label="Authorised officer (if supervised)">
                           {(() => {
                             const aoSelectOpts = aoOptions.map((u) => ({ value: u.name, label: u.name + (u.aoNumber ? ` (${u.aoNumber})` : "") }));
@@ -4747,7 +4830,17 @@ function NewPackFormPageInner() {
                                 placeholder="- Select AO -"
                                 options={aoSelectOpts}
                                 value={aoSelectOpts.find((o) => o.value === (fd.governmentOfficerName ?? "")) ?? null}
-                                onChange={(option) => updateFumigationDetail({ governmentOfficerName: option ? option.value : "" })}
+                                onChange={(option) => {
+                                  const name = option ? option.value : "";
+                                  const matched = aoOptions.find((u) => u.name === name) || null;
+                                  const sig = signatureFieldsForUser(matched);
+                                  updateFumigationDetail({
+                                    governmentOfficerName: name,
+                                    governmentOfficerNumber: matched?.aoNumber || "",
+                                    governmentOfficerLicenseNumber: matched?.aoLicenseNumber || "",
+                                    governmentOfficerSignature: sig.signatureText,
+                                  });
+                                }}
                               />
                             );
                           })()}

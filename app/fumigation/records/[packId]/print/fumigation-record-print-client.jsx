@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import FumigationRecordDocument from "@/components/fumigation/fumigation-record-document";
-import { resolveFumigationRecord } from "@/lib/fumigation-record-print";
+import { resolveFumigationRecordAsync } from "@/lib/fumigation-record-print";
+import { certSnapshotHasContent, mergeCertDraftFromPack } from "@/lib/fumigation-detail";
 import { getPack } from "@/lib/api/packing";
 import {
   loadFumigationRecordSnapshot,
@@ -16,38 +17,42 @@ export default function FumigationRecordPrintClient({ packId }) {
   const autoPrint = searchParams.get("print") === "1";
   const issuedAt = searchParams.get("issuedAt") || null;
   const [hydrated, setHydrated] = useState(false);
-  const [fetchedModel, setFetchedModel] = useState(null);
+  const [model, setModel] = useState(null);
 
   useEffect(() => {
     setHydrated(true);
   }, []);
 
-  // Stored copy: issued audit-trail entry first, else current session snapshot
-  const storedModel = useMemo(() => {
-    if (!hydrated) return null;
+  useEffect(() => {
+    if (!hydrated) return;
+
     if (issuedAt) {
       const issued = loadRecordIssue(packId, issuedAt);
-      if (issued) return issued;
+      if (issued) {
+        setModel(issued);
+        return;
+      }
     }
-    return loadFumigationRecordSnapshot(packId);
-  }, [hydrated, packId, issuedAt]);
 
-  // No stored copy — resolve fresh from the backend pack
-  useEffect(() => {
-    if (!hydrated || storedModel) return;
     let cancelled = false;
     getPack(packId)
-      .then((row) => {
+      .then(async (row) => {
         if (cancelled || !row) return;
-        setFetchedModel(resolveFumigationRecord(packId, row));
+        const fromPack = await resolveFumigationRecordAsync(packId, row);
+        const snapshot = loadFumigationRecordSnapshot(packId);
+        setModel(
+          mergeCertDraftFromPack(
+            fromPack,
+            certSnapshotHasContent(snapshot) ? snapshot : null
+          )
+        );
       })
       .catch(() => {});
+
     return () => {
       cancelled = true;
     };
-  }, [hydrated, storedModel, packId]);
-
-  const model = storedModel ?? fetchedModel;
+  }, [hydrated, packId, issuedAt]);
 
   useEffect(() => {
     if (!autoPrint || !model) return;

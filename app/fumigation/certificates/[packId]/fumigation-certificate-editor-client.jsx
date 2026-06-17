@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
 import {
@@ -16,9 +16,17 @@ import {
   loadFumigationCertSnapshot as loadCertSnapshot,
   saveCertificateIssue as issueCertificate,
 } from "@/lib/fumigation-cert-storage";
-import { resolveFumigationCertificate } from "@/lib/fumigation-cert-print";
+import { resolveFumigationCertificate, resolveFumigationCertificateAsync } from "@/lib/fumigation-cert-print";
+import { mergeCertDraftFromPack } from "@/lib/fumigation-detail";
 import { getPack } from "@/lib/api/packing";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
+import { loadContactUsers } from "@/lib/contact-users-store";
+import { filterAuthorisedOfficers } from "@/lib/user-classifications";
+import {
+  findContactUserByName,
+  resolveSignoffFields,
+} from "@/lib/fumigation-signatures";
+import { SignatureDisplay } from "@/components/fumigation/fumigation-signoff-display";
 
 // ─── cert-number helper ────────────────────────────────────────────────────────
 
@@ -82,13 +90,19 @@ function normalizeCert(m) {
     finalTlvPpm3: "",
     clearanceValue: "",
     fumigationResult: "",
+    fumigatorSignature: "",
+    fumigatorSignatureImage: "",
     governmentOfficerName: "",
+    governmentOfficerNumber: "",
+    governmentOfficerLicenseNumber: "",
     governmentOfficerSignature: "",
+    governmentOfficerSignatureImage: "",
     additionalDeclarations: "",
     fumigationNotes: "",
     // From pack (pre-filled, user may override)
     fumigatorName: "",
     fumigatorAccreditationNumber: "",
+    fumigatorLicenceNumber: "",
     treatmentProviderId: "",
     customerName: "",
     customerAddress: "",
@@ -111,6 +125,33 @@ function normalizeCert(m) {
   };
 }
 
+function applySignoffFromSelection(prev, field, name, users) {
+  if (field === "fumigator") {
+    const sig = resolveSignoffFields(name, "", users);
+    const fumigator = findContactUserByName(users, name);
+    const licence = String(fumigator?.fumigatorLicence || "").trim();
+    return {
+      ...prev,
+      fumigatorName: name,
+      fumigatorSignature: sig.signatureText,
+      fumigatorSignatureImage: sig.signatureImageUrl,
+      fumigatorAccreditationNumber: licence || prev.fumigatorAccreditationNumber,
+      fumigatorLicenceNumber: licence,
+    };
+  }
+  const sig = resolveSignoffFields(name, "", users);
+  const ao = findContactUserByName(users, name);
+  const aoLicence = String(ao?.aoLicenseNumber || "").trim();
+  return {
+    ...prev,
+    governmentOfficerName: name,
+    governmentOfficerNumber: String(ao?.aoNumber || "").trim(),
+    governmentOfficerLicenseNumber: aoLicence,
+    governmentOfficerSignature: sig.signatureText,
+    governmentOfficerSignatureImage: sig.signatureImageUrl,
+  };
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function FumigationCertificateEditorClient({ packId }) {
@@ -120,42 +161,58 @@ export default function FumigationCertificateEditorClient({ packId }) {
   const [packRow, setPackRow] = useState(null);
   const [packLoading, setPackLoading] = useState(true);
 
-  const [cert, setCert] = useState(() => normalizeCert(loadCertSnapshot(packId)));
+  const [cert, setCert] = useState(null);
+  const [hydratedFromPack, setHydratedFromPack] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setPackLoading(true);
+    setHydratedFromPack(false);
     getPack(packId)
-      .then((row) => {
+      .then(async (row) => {
         if (cancelled || !row) return;
         setPackRow(row);
-        setCert((prev) => prev ?? normalizeCert(resolveFumigationCertificate(packId, row)));
+        const resolved = await resolveFumigationCertificateAsync(packId, row);
+        const fromPack = normalizeCert(resolved);
+        const snapshot = loadCertSnapshot(packId);
+        setCert(normalizeCert(mergeCertDraftFromPack(fromPack, snapshot)));
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) setPackLoading(false);
+        if (!cancelled) {
+          setPackLoading(false);
+          setHydratedFromPack(true);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [packId]);
 
-  // Auto-save snapshot on change
+  // Auto-save snapshot after pack data has been merged in
   useEffect(() => {
-    if (cert) saveCertSnapshot(packId, cert);
-  }, [cert, packId]);
+    if (!hydratedFromPack || !cert) return;
+    saveCertSnapshot(packId, cert);
+  }, [cert, packId, hydratedFromPack]);
 
   const set = useCallback((field, value) => {
     setCert((prev) => ({ ...prev, [field]: value }));
   }, []);
 
-  const refreshFromPack = useCallback(() => {
+  const contactUsers = useMemo(() => loadContactUsers(), []);
+  const fumigatorOptions = useMemo(
+    () => contactUsers.filter((u) => u && u.isFumigator && u.active !== false),
+    [contactUsers],
+  );
+  const aoOptions = useMemo(() => filterAuthorisedOfficers(contactUsers), [contactUsers]);
+
+  const refreshFromPack = useCallback(async () => {
     if (!packRow) return;
-    const fresh = resolveFumigationCertificate(packId, packRow);
+    const fresh = await resolveFumigationCertificateAsync(packId, packRow);
     if (fresh) {
-      setCert(normalizeCert({ ...fresh, certificateNumber: cert?.certificateNumber ?? "" }));
+      setCert(normalizeCert(mergeCertDraftFromPack(fresh, cert)));
     }
-  }, [packId, packRow, cert?.certificateNumber]);
+  }, [packId, packRow, cert]);
 
   const handleSaveAndPrint = useCallback(() => {
     const number = cert?.certificateNumber || nextCertNumber(packId);
@@ -166,9 +223,9 @@ export default function FumigationCertificateEditorClient({ packId }) {
     router.push(`/fumigation/certificates/${packId}/print`);
   }, [cert, packId, router]);
 
-  const handleDiscard = useCallback(() => {
+  const handleDiscard = useCallback(async () => {
     if (!packRow) return;
-    const fresh = resolveFumigationCertificate(packId, packRow);
+    const fresh = await resolveFumigationCertificateAsync(packId, packRow);
     if (fresh) {
       setCert(normalizeCert(fresh));
     }
@@ -256,10 +313,37 @@ export default function FumigationCertificateEditorClient({ packId }) {
                 <input className={inputClass} value={cert.treatmentProviderId ?? ""} onChange={(e) => set("treatmentProviderId", e.target.value)} />
               </FormField>
               <FormField label="Fumigator name">
-                <input className={inputClass} value={cert.fumigatorName ?? ""} onChange={(e) => set("fumigatorName", e.target.value)} />
+                <select
+                  className={inputClass}
+                  value={cert.fumigatorName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setCert((prev) => applySignoffFromSelection(prev, "fumigator", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select fumigator —</option>
+                  {fumigatorOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                    </option>
+                  ))}
+                </select>
               </FormField>
-              <FormField label="Accreditation number">
-                <input className={inputClass} value={cert.fumigatorAccreditationNumber ?? ""} onChange={(e) => set("fumigatorAccreditationNumber", e.target.value)} />
+              <FormField label="Fumigator licence number">
+                <input
+                  className={inputClass}
+                  value={cert.fumigatorLicenceNumber ?? cert.fumigatorAccreditationNumber ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setCert((prev) => ({
+                      ...prev,
+                      fumigatorLicenceNumber: value,
+                      fumigatorAccreditationNumber: value,
+                    }));
+                  }}
+                  placeholder="Pre-filled from fumigator profile"
+                />
               </FormField>
             </div>
           </SectionCard>
@@ -479,8 +563,78 @@ export default function FumigationCertificateEditorClient({ packId }) {
                   <option value="fail">Fail</option>
                 </select>
               </FormField>
-              <FormField label="Authorised officer (if supervised)">
-                <input className={inputClass} value={cert.governmentOfficerName ?? ""} onChange={(e) => set("governmentOfficerName", e.target.value)} placeholder="Authorised officer name" />
+              <FormField label="Fumigator in charge">
+                <select
+                  className={inputClass}
+                  value={cert.fumigatorName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setCert((prev) => applySignoffFromSelection(prev, "fumigator", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select fumigator —</option>
+                  {fumigatorOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.fumigatorLicence ? ` (${u.fumigatorLicence})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Fumigator licence number">
+                <input
+                  className={inputClass}
+                  value={cert.fumigatorLicenceNumber ?? cert.fumigatorAccreditationNumber ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setCert((prev) => ({
+                      ...prev,
+                      fumigatorLicenceNumber: value,
+                      fumigatorAccreditationNumber: value,
+                    }));
+                  }}
+                  placeholder="Pre-filled from fumigator profile"
+                />
+              </FormField>
+              <FormField label="Authorised officer">
+                <select
+                  className={inputClass}
+                  value={cert.governmentOfficerName ?? ""}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setCert((prev) => applySignoffFromSelection(prev, "ao", name, contactUsers));
+                  }}
+                >
+                  <option value="">— select AO —</option>
+                  {aoOptions.map((u) => (
+                    <option key={u.id ?? u.name} value={u.name}>
+                      {u.name}
+                      {u.aoNumber ? ` (${u.aoNumber})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="AO licence number">
+                <input
+                  className={inputClass}
+                  value={cert.governmentOfficerLicenseNumber ?? ""}
+                  onChange={(e) => set("governmentOfficerLicenseNumber", e.target.value)}
+                  placeholder="Pre-filled from AO profile"
+                />
+              </FormField>
+              <FormField label="Fumigator signature">
+                <SignatureDisplay
+                  text={cert.fumigatorSignature}
+                  imageUrl={cert.fumigatorSignatureImage}
+                  className="min-h-[3rem] rounded border border-slate-200 bg-white px-2 py-1"
+                />
+              </FormField>
+              <FormField label="AO signature">
+                <SignatureDisplay
+                  text={cert.governmentOfficerSignature}
+                  imageUrl={cert.governmentOfficerSignatureImage}
+                  className="min-h-[3rem] rounded border border-slate-200 bg-white px-2 py-1"
+                />
               </FormField>
               <FormField label="Additional declarations" wide>
                 <textarea className={inputClass} rows={3} value={cert.additionalDeclarations ?? ""} onChange={(e) => set("additionalDeclarations", e.target.value)} />

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print";
 import { formatDateTime } from "@/lib/fumigation-cert-print";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS, RECORD_SECTIONS } from "@/lib/fumigation-fields";
+import { CertificateSignoffGrid } from "@/components/fumigation/fumigation-signoff-display";
 
 const ALL_RECORD_SECTION_KEYS = RECORD_SECTIONS.map((s) => s.key);
 
@@ -68,6 +69,10 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
   const template = model.template ?? {};
   const headerLogo = template.logoDataUrl || "/mahonys-logo.png";
   const footerLogo = template.footerLogoDataUrl || "";
+  const headerLines = String(template.headerText || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const show = (key) => sectionEnabled(template, key);
   void ALL_RECORD_SECTION_KEYS;
 
@@ -107,10 +112,20 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
             )}
           </div>
           <div className="text-right text-xs leading-snug text-slate-700">
-            {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
-            {addr.line2 && <p>{addr.line2}</p>}
-            {addr.phone && <p>Phone: {addr.phone}</p>}
-            {addr.email && <p>Email: {addr.email}</p>}
+            {headerLines.length > 0 ? (
+              headerLines.map((line) => (
+                <p key={line} className={line === headerLines[0] ? "font-semibold text-slate-900" : ""}>
+                  {line}
+                </p>
+              ))
+            ) : (
+              <>
+                {addr.line1 && <p className="font-semibold text-slate-900">{addr.line1}</p>}
+                {addr.line2 && <p>{addr.line2}</p>}
+                {addr.phone && <p>Phone: {addr.phone}</p>}
+                {addr.email && <p>Email: {addr.email}</p>}
+              </>
+            )}
           </div>
         </div>
 
@@ -129,7 +144,7 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
           <table className="w-full text-xs border-collapse">
             <tbody>
               <Row label="Full name" value={model.fumigatorName} />
-              <Row label="Accreditation number" value={model.fumigatorAccreditationNumber} />
+              <Row label="Fumigator licence number" value={model.fumigatorLicenceNumber ?? model.fumigatorAccreditationNumber} />
             </tbody>
           </table>
         </div>
@@ -346,43 +361,21 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
         {/* ── SECTION E ── */}
         {show("sectionE") && (
         <div className="mb-6">
-          <SectionTitle letter="E" title="Fumigator declaration" />
-          <p className="text-xs text-gray-700 mb-4 leading-relaxed">
+          <SectionTitle letter="E" title="Declaration &amp; result" />
+          <p className="text-xs text-gray-700 mb-2 leading-relaxed">
             I, the fumigator-in-charge declare that the fumigation was conducted in accordance with the treatment schedule
             and all the requirements in the {fumigantName} Fumigation Methodology, and the information I have provided is
             true and correct.
           </p>
-          <div className="grid grid-cols-2 gap-8 mb-4">
-            <div>
-              <p className="text-xs font-semibold mb-5">Signature (fumigator in charge):</p>
-              <div className="border-b border-gray-400" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold mb-5">Date (dd/mm/yyyy):</p>
-              <div className="border-b border-gray-400" />
-            </div>
-          </div>
-          <div className="mb-4">
-            <p className="text-xs font-semibold text-gray-600 mb-1">
-              Fumigation result:{" "}
-              <span className={cn("font-bold", model.fumigationResult === "pass" ? "text-green-700" : model.fumigationResult === "fail" ? "text-red-700" : "text-gray-500")}>
-                {model.fumigationResult ? model.fumigationResult.toUpperCase() : "—"}
-              </span>
-            </p>
-          </div>
-          {(model.governmentOfficerName || model.governmentOfficerSignature) && (
-            <div>
-              <p className="text-xs font-semibold text-gray-600 mb-2">Authorised officer (if supervised):</p>
-              <div className="grid grid-cols-2 gap-8">
-                <div>
-                  <p className="text-xs mb-5">Name: {model.governmentOfficerName || ""}</p>
-                  <div className="border-b border-gray-400" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold mb-5">Signature:</p>
-                  <div className="border-b border-gray-400" />
-                </div>
-              </div>
+          <p className="text-xs text-gray-700 mb-4 leading-relaxed">
+            I, the authorised officer declare: I have supervised this fumigation treatment and confirm the information
+            recorded is true and correct to the best of my knowledge.
+          </p>
+          <CertificateSignoffGrid model={model} />
+          {model.additionalDeclarations && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-gray-600 mb-1">Additional declarations:</p>
+              <p className="text-xs whitespace-pre-line text-gray-700">{model.additionalDeclarations}</p>
             </div>
           )}
         </div>

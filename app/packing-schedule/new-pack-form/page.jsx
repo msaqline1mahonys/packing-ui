@@ -49,6 +49,7 @@ import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import {
   countPackedContainers,
   totalNettWeight,
+  totalPackedNettWeight,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
 import { isUuid } from "@/lib/pack-schedule-api";
@@ -1869,30 +1870,25 @@ function NewPackFormPageInner() {
   }, [pack.containerCode, containerCodeOptions]);
 
   const derivedVolumeM3 = useMemo(() => {
-    const containers = Number(pack.containersRequired || 0);
+    const completed = countPackedContainers(buildPackContainers(pack, editingRow));
     const m3PerContainer = Number(matchedContainerCode?.cubicMeters || 0);
-    if (!containers || !m3PerContainer) return null;
-    return Number((containers * m3PerContainer).toFixed(2));
-  }, [pack.containersRequired, matchedContainerCode]);
+    if (!completed || !m3PerContainer) return null;
+    return Number((completed * m3PerContainer).toFixed(2));
+  }, [pack, editingRow, matchedContainerCode]);
 
   const derivedActualTonnageMT = useMemo(() => {
-    const containers = Array.isArray(pack.containers) ? pack.containers : [];
-    if (!containers.length) return null;
-    const totalNettKg = containers.reduce((acc, c) => {
-      const nett = Number(c?.nettWeight);
-      return acc + (Number.isFinite(nett) ? nett : 0);
-    }, 0);
-    if (!totalNettKg) return null;
-    return Number((totalNettKg / 1000).toFixed(3));
-  }, [pack.containers]);
+    const totalMt = totalPackedNettWeight(buildPackContainers(pack, editingRow));
+    if (!totalMt) return null;
+    return Number(totalMt.toFixed(3));
+  }, [pack, editingRow]);
 
-  // Auto-fill volume when blank
+  // Keep total volume in sync: completed containers × ISO m³
   useEffect(() => {
     if (derivedVolumeM3 == null) return;
     const current = pack.fumigationDetail ?? {};
-    const empty = (v) => v == null || String(v).trim() === "";
-    if (!empty(current.volumeM3)) return;
-    updateFumigationDetail({ volumeM3: String(derivedVolumeM3) });
+    const nextValue = String(derivedVolumeM3);
+    if (String(current.volumeM3 ?? "") === nextValue) return;
+    updateFumigationDetail({ volumeM3: nextValue });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedVolumeM3]);
 

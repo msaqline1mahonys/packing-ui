@@ -41,6 +41,7 @@ import {
   fetchMethodologiesNormalized,
   fetchRecordTemplatesNormalized,
 } from "@/lib/api/fumigation";
+import { findDosageBandForTemp } from "@/lib/fumigation-dosage-bands";
 import { defaultEnclosureTypeForTiming, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { filterAuthorisedOfficers } from "@/lib/user-classifications";
@@ -2168,68 +2169,50 @@ function NewPackFormPageInner() {
     return methodologies.find((item) => String(item.id) === String(methodologyId)) || null;
   }, [pack.methodologyId, methodologies]);
 
-  /** Match a temperature value against the methodology's dosage bands (half-open [min, max)). */
+  /** Match a temperature value against the methodology's dosage bands (inclusive min and max). */
   const findBandForTemp = useCallback(
-    (rawTemp) => {
-      const ranges = selectedFumigationMethodology?.dosageRanges;
-      if (!Array.isArray(ranges) || ranges.length === 0) return null;
-      const t = Number(rawTemp);
-      if (!Number.isFinite(t)) return null;
-      return ranges.find((r) => Number(r.minTempC) <= t && t < Number(r.maxTempC)) ?? null;
-    },
+    (rawTemp) => findDosageBandForTemp(selectedFumigationMethodology?.dosageRanges, rawTemp),
     [selectedFumigationMethodology],
   );
 
-  // Prescribed schedule lookup is keyed off the forecast minimum temperature
   const matchedPrescribedRange = useMemo(
     () => findBandForTemp(fd.minForecastedTemperature),
     [findBandForTemp, fd.minForecastedTemperature],
   );
-  // Applied schedule lookup is keyed off the actual measured start temperature
   const matchedAppliedRange = useMemo(
     () => findBandForTemp(fd.actualTemperature),
     [findBandForTemp, fd.actualTemperature],
   );
-  // Reference-panel highlight uses whichever temperature the user has entered most recently
-  // (actual takes priority, falls back to forecast)
-  const matchedDosageRange = matchedAppliedRange ?? matchedPrescribedRange;
 
-  // Auto-prefill prescribed dose rate / exposure from the band matched against min forecast temp.
-  // Only writes when the prescribed field is currently empty so we don't clobber user edits.
+  // Re-apply dosage bands when the methodology is selected or changed.
   useEffect(() => {
-    if (!matchedPrescribedRange) return;
-    const current = pack.fumigationDetail ?? {};
-    const empty = (v) => v == null || String(v).trim() === "";
-    if (!empty(current.prescribedDoseRate) && !empty(current.prescribedExposure)) return;
-    updateFumigationDetail({
-      prescribedDoseRate: empty(current.prescribedDoseRate)
-        ? String(matchedPrescribedRange.dosageValue)
-        : current.prescribedDoseRate,
-      prescribedDoseUnit: matchedPrescribedRange.dosageUnit || "g/m3",
-      prescribedExposure: empty(current.prescribedExposure)
-        ? String(matchedPrescribedRange.exposureValue)
-        : current.prescribedExposure,
-      prescribedExposureUnit: matchedPrescribedRange.exposureUnit || "hours",
+    const ranges = selectedFumigationMethodology?.dosageRanges;
+    if (!Array.isArray(ranges) || ranges.length === 0) return;
+    const forecastBand = findDosageBandForTemp(ranges, fd.minForecastedTemperature);
+    const actualBand = findDosageBandForTemp(ranges, fd.actualTemperature);
+    if (!forecastBand && !actualBand) return;
+    setPack((prev) => {
+      const current =
+        prev.fumigationDetail && typeof prev.fumigationDetail === "object"
+          ? prev.fumigationDetail
+          : blankFumigationDetail();
+      const nextDetail = { ...current };
+      if (forecastBand) {
+        nextDetail.prescribedDoseRate = String(forecastBand.dosageValue);
+        nextDetail.prescribedDoseUnit = forecastBand.dosageUnit || "g/m3";
+        nextDetail.prescribedExposure = String(forecastBand.exposureValue);
+        nextDetail.prescribedExposureUnit = forecastBand.exposureUnit || "hours";
+      }
+      if (actualBand) {
+        nextDetail.dosageValue = String(actualBand.dosageValue);
+        nextDetail.dosageUnit = actualBand.dosageUnit || "g/m3";
+        nextDetail.exposureTimeValue = String(actualBand.exposureValue);
+        nextDetail.exposureTimeUnit = actualBand.exposureUnit || "hours";
+      }
+      return { ...prev, fumigationDetail: nextDetail };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchedPrescribedRange?.id]);
-
-  // Auto-prefill applied dose rate / exposure from the band matched against actual start temp.
-  useEffect(() => {
-    if (!matchedAppliedRange) return;
-    const current = pack.fumigationDetail ?? {};
-    const empty = (v) => v == null || String(v).trim() === "";
-    if (!empty(current.dosageValue) && !empty(current.exposureTimeValue)) return;
-    updateFumigationDetail({
-      dosageValue: empty(current.dosageValue) ? String(matchedAppliedRange.dosageValue) : current.dosageValue,
-      dosageUnit: matchedAppliedRange.dosageUnit || "g/m3",
-      exposureTimeValue: empty(current.exposureTimeValue)
-        ? String(matchedAppliedRange.exposureValue)
-        : current.exposureTimeValue,
-      exposureTimeUnit: matchedAppliedRange.exposureUnit || "hours",
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchedAppliedRange?.id]);
+  }, [selectedFumigationMethodology?.id]);
 
   // ── Derived values: volume, tonnage, calculated dose, amount applied ──────
   const matchedContainerCode = useMemo(() => {
@@ -2335,6 +2318,40 @@ function NewPackFormPageInner() {
             ? String(nextDetail.fumigationNotes)
             : prev.fumigation,
       };
+    });
+  }
+
+  function dosagePatchFromBand(band, target) {
+    if (!band) return {};
+    if (target === "prescribed") {
+      return {
+        prescribedDoseRate: String(band.dosageValue),
+        prescribedDoseUnit: band.dosageUnit || "g/m3",
+        prescribedExposure: String(band.exposureValue),
+        prescribedExposureUnit: band.exposureUnit || "hours",
+      };
+    }
+    return {
+      dosageValue: String(band.dosageValue),
+      dosageUnit: band.dosageUnit || "g/m3",
+      exposureTimeValue: String(band.exposureValue),
+      exposureTimeUnit: band.exposureUnit || "hours",
+    };
+  }
+
+  function updateForecastTemperature(value) {
+    const band = findDosageBandForTemp(selectedFumigationMethodology?.dosageRanges, value);
+    updateFumigationDetail({
+      minForecastedTemperature: value,
+      ...dosagePatchFromBand(band, "prescribed"),
+    });
+  }
+
+  function updateActualStartTemperature(value) {
+    const band = findDosageBandForTemp(selectedFumigationMethodology?.dosageRanges, value);
+    updateFumigationDetail({
+      actualTemperature: value,
+      ...dosagePatchFromBand(band, "applied"),
     });
   }
 
@@ -4839,17 +4856,32 @@ function NewPackFormPageInner() {
                         {Array.isArray(selectedFumigationMethodology?.dosageRanges) &&
                           selectedFumigationMethodology.dosageRanges.length > 0 && (
                             <div className="mt-3">
-                              {matchedDosageRange && (
-                                <div className="mb-2 rounded bg-amber-50 px-3 py-1.5 text-xs text-amber-800 ring-1 ring-amber-200">
-                                  Suggested at{" "}
-                                  {fd.actualTemperature ?? fd.minAmbientTemperature ?? fd.minForecastedTemperature}°C:{" "}
-                                  <strong>
-                                    {matchedDosageRange.dosageValue} {matchedDosageRange.dosageUnit}
-                                  </strong>{" "}
-                                  for{" "}
-                                  <strong>
-                                    {matchedDosageRange.exposureValue} {matchedDosageRange.exposureUnit}
-                                  </strong>
+                              {(matchedPrescribedRange || matchedAppliedRange) && (
+                                <div className="mb-2 space-y-1">
+                                  {matchedPrescribedRange && (
+                                    <div className="rounded bg-amber-50 px-3 py-1.5 text-xs text-amber-800 ring-1 ring-amber-200">
+                                      Forecast at {fd.minForecastedTemperature}°C:{" "}
+                                      <strong>
+                                        {matchedPrescribedRange.dosageValue} {matchedPrescribedRange.dosageUnit}
+                                      </strong>{" "}
+                                      for{" "}
+                                      <strong>
+                                        {matchedPrescribedRange.exposureValue} {matchedPrescribedRange.exposureUnit}
+                                      </strong>
+                                    </div>
+                                  )}
+                                  {matchedAppliedRange && (
+                                    <div className="rounded bg-sky-50 px-3 py-1.5 text-xs text-sky-800 ring-1 ring-sky-200">
+                                      Actual start at {fd.actualTemperature}°C:{" "}
+                                      <strong>
+                                        {matchedAppliedRange.dosageValue} {matchedAppliedRange.dosageUnit}
+                                      </strong>{" "}
+                                      for{" "}
+                                      <strong>
+                                        {matchedAppliedRange.exposureValue} {matchedAppliedRange.exposureUnit}
+                                      </strong>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               <p className="mb-1 text-xs font-medium text-slate-600">Dosage guide by temperature</p>
@@ -4862,14 +4894,17 @@ function NewPackFormPageInner() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {selectedFumigationMethodology.dosageRanges.map((r) => (
+                                  {selectedFumigationMethodology.dosageRanges.map((r) => {
+                                    const isForecastBand = matchedPrescribedRange?.id === r.id;
+                                    const isActualBand = matchedAppliedRange?.id === r.id;
+                                    return (
                                     <tr
                                       key={r.id}
                                       className={cn(
                                         "border-b border-slate-100",
-                                        matchedDosageRange?.id === r.id
-                                          ? "bg-amber-100 ring-1 ring-inset ring-amber-300"
-                                          : ""
+                                        isForecastBand && isActualBand && "bg-amber-100 ring-1 ring-inset ring-amber-300",
+                                        isForecastBand && !isActualBand && "bg-amber-100 ring-1 ring-inset ring-amber-300",
+                                        isActualBand && !isForecastBand && "bg-sky-100 ring-1 ring-inset ring-sky-300",
                                       )}
                                     >
                                       <td className="py-0.5 pr-4">
@@ -4882,11 +4917,12 @@ function NewPackFormPageInner() {
                                         {r.exposureValue} {r.exposureUnit}
                                       </td>
                                     </tr>
-                                  ))}
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                               <p className="mt-1 text-xs italic text-slate-400">
-                                Upper bound is exclusive — e.g. 25°C is in the 25–35 band.
+                                Both min and max °C are inclusive — e.g. 20°C is in the 15–20 band.
                               </p>
                             </div>
                           )}
@@ -4920,7 +4956,7 @@ function NewPackFormPageInner() {
                             type="number"
                             step="0.5"
                             value={fd.minForecastedTemperature ?? ""}
-                            onChange={(e) => updateFumigationDetail({ minForecastedTemperature: e.target.value })}
+                            onChange={(e) => updateForecastTemperature(e.target.value)}
                           />
                         </FormRow>
                         <FormRow label="Dose rate (g/m³)">
@@ -4968,7 +5004,7 @@ function NewPackFormPageInner() {
                             type="number"
                             step="0.5"
                             value={fd.actualTemperature ?? ""}
-                            onChange={(e) => updateFumigationDetail({ actualTemperature: e.target.value })}
+                            onChange={(e) => updateActualStartTemperature(e.target.value)}
                           />
                         </FormRow>
                         <FormRow label="Applied dose rate">

@@ -16,6 +16,7 @@ import {
 import CustomerTransferForm from "./_components/customer-transfer-form";
 import CommodityTransferForm from "./_components/commodity-transfer-form";
 import LocationMoveForm from "./_components/location-move-form";
+import StockVisibilityPanel from "./_components/stock-visibility-panel";
 
 const TYPES = [
   { value: "customer", label: "Customer → Customer", description: "Move a commodity from one customer's account to another, at the same location." },
@@ -54,6 +55,7 @@ export default function StockTransferPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
   const [dateRange, setDateRange] = useState([null, null]);
+  const [formContext, setFormContext] = useState({});
 
   const loadFormData = useCallback(async () => {
     setFormLoading(true);
@@ -93,6 +95,7 @@ export default function StockTransferPage() {
       const created = await createStockTransfer(payload);
       setToast(`Transfer ${created?.reference ?? ""} saved`);
       setActiveType("");
+      setFormContext({});
       await loadTransfers();
       setTimeout(() => setToast(""), 2800);
     } catch (err) {
@@ -128,7 +131,20 @@ export default function StockTransferPage() {
     });
   }, [displayRows, dateRange]);
 
-  const sharedProps = { sites, locations, customers, commodities, defaultSiteId, submitting, onSubmit: handleSubmit };
+  const sharedProps = {
+    locations,
+    customers,
+    commodities,
+    defaultSiteId,
+    submitting,
+    onSubmit: handleSubmit,
+    onContextChange: setFormContext,
+  };
+
+  const handleTypeChange = useCallback((type) => {
+    setActiveType(type);
+    setFormContext({});
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -159,7 +175,7 @@ export default function StockTransferPage() {
                   <button
                     key={t.value}
                     type="button"
-                    onClick={() => setActiveType(t.value)}
+                    onClick={() => handleTypeChange(t.value)}
                     className={cn(
                       "w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand/20"
                     )}
@@ -175,7 +191,7 @@ export default function StockTransferPage() {
               <div className="mb-3 flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setActiveType("")}
+                  onClick={() => handleTypeChange("")}
                   className="text-xs text-slate-500 hover:text-slate-700"
                 >
                   ← Change type
@@ -192,7 +208,16 @@ export default function StockTransferPage() {
           )}
         </aside>
 
-        <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <div className="space-y-4">
+          <StockVisibilityPanel
+            transferType={activeType}
+            customers={customers}
+            commodities={commodities}
+            locations={locations}
+            context={formContext}
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5">
             <span className="text-sm font-semibold text-slate-700">
               Transfer History ({hasDateFilter ? `${filteredRows.length} of ${transfers.length}` : transfers.length})
@@ -214,6 +239,7 @@ export default function StockTransferPage() {
             visibleRows={14}
             emptyMessage={hasDateFilter ? "No transfers match the selected date range." : "No transfers recorded yet."}
           />
+          </div>
         </div>
       </div>
 

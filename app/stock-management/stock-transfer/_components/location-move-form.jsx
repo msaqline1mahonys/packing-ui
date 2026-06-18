@@ -1,29 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { fetchHoldingsAtLocation } from "@/lib/stock-transfers-api";
-import { Field, ErrorText, inputClass, commodityLabel, nowDatetimeLocalDate } from "./form-primitives";
+import {
+  fetchHoldingsAtLocation,
+  defaultMoveAmountForBalance,
+  exceedsTransferLimit,
+  transferLimitErrorMessage,
+  projectedDestinationBalance,
+} from "@/lib/stock-transfers-api";
+import { Field, ErrorText, WarningText, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
 
-function blankState(defaultSiteId) {
-  return {
-    siteId: defaultSiteId ?? "",
-    fromLocationId: "",
-    toLocationId: "",
-    commodityId: "",
-    transferDate: nowDatetimeLocalDate(),
-    notes: "",
-    rows: [],
-    loadingHoldings: false,
-    holdingsError: "",
-    loadedKey: "",
-    submittedError: "",
-  };
-}
-
-export default function LocationMoveForm({ sites, locations, commodities, defaultSiteId, submitting, onSubmit }) {
-  const [siteId, setSiteId] = useState(defaultSiteId ?? "");
+export default function LocationMoveForm({ locations, commodities, defaultSiteId, submitting, onSubmit, onContextChange }) {
   const [fromLocationId, setFromLocationId] = useState("");
   const [toLocationId, setToLocationId] = useState("");
   const [commodityId, setCommodityId] = useState("");
@@ -34,12 +23,14 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
   const [holdingsError, setHoldingsError] = useState("");
   const [loadedKey, setLoadedKey] = useState("");
   const [submittedError, setSubmittedError] = useState("");
+  const [destHoldings, setDestHoldings] = useState({});
+  const [destHoldingsLoading, setDestHoldingsLoading] = useState(false);
 
   // DERIVED
-  const siteLocations = useMemo(
-    () => locations.filter((l) => !siteId || String(l.siteId) === String(siteId)),
-    [locations, siteId]
-  );
+  const siteLocations = useMemo(() => {
+    if (!defaultSiteId) return locations;
+    return locations.filter((l) => String(l.siteId) === String(defaultSiteId));
+  }, [locations, defaultSiteId]);
 
   const toLocations = useMemo(
     () => siteLocations.filter((l) => String(l.id) !== String(fromLocationId)),
@@ -48,6 +39,94 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
 
   const canLoad = Boolean(fromLocationId && commodityId);
 
+  useEffect(() => {
+    onContextChange?.({
+      fromLocationId,
+      toLocationId,
+      commodityId,
+    });
+  }, [fromLocationId, toLocationId, commodityId, onContextChange]);
+
+  useEffect(() => {
+    if (!toLocationId || !commodityId) {
+      setDestHoldings({});
+      setDestHoldingsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDestHoldingsLoading(true);
+    fetchHoldingsAtLocation({ locationId: toLocationId, commodityId })
+      .then((rows) => {
+        if (cancelled) return;
+        const map = {};
+        for (const row of rows) {
+          map[String(row.accountId)] = row.available ?? 0;
+        }
+        setDestHoldings(map);
+      })
+      .catch(() => {
+        if (!cancelled) setDestHoldings({});
+      })
+      .finally(() => {
+        if (!cancelled) setDestHoldingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [toLocationId, commodityId]);
+
+  // Auto-load holdings when from-location and commodity are selected
+  useEffect(() => {
+    if (!fromLocationId || !commodityId) {
+      setRows([]);
+      setLoadedKey("");
+      setHoldingsError("");
+      setLoadingHoldings(false);
+      return undefined;
+    }
+
+    const key = `${fromLocationId}|${commodityId}`;
+    let cancelled = false;
+    setLoadingHoldings(true);
+    setHoldingsError("");
+    setRows([]);
+
+    fetchHoldingsAtLocation({ locationId: fromLocationId, commodityId })
+      .then((result) => {
+        if (cancelled) return;
+        if (!result || result.length === 0) {
+          setHoldingsError("No stock held at this location for the selected commodity.");
+          setRows([]);
+          setLoadedKey("");
+        } else {
+          setRows(
+            result.map((r) => ({
+              ...r,
+              selected: true,
+              moveAmount: defaultMoveAmountForBalance(r.available),
+            }))
+          );
+          setLoadedKey(key);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setHoldingsError(err instanceof Error ? err.message : "Failed to load holdings.");
+          setRows([]);
+          setLoadedKey("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHoldings(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fromLocationId, commodityId]);
+
   const selectedRows = rows.filter((r) => r.selected);
   const selectedCount = selectedRows.length;
 
@@ -55,16 +134,21 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
 
   const allSelected = rows.length > 0 && rows.every((r) => r.selected);
 
-  // HANDLERS
-  function handleSiteChange(value) {
-    setSiteId(value);
-    setFromLocationId("");
-    setToLocationId("");
-    setRows([]);
-    setLoadedKey("");
-    setHoldingsError("");
-  }
+  const negativeDestWarnings = useMemo(() => {
+    if (!toLocationId || destHoldingsLoading) return [];
+    return selectedRows
+      .map((row) => {
+        const amt = parseFloat(row.moveAmount) || 0;
+        if (amt <= 0) return null;
+        const destBal = destHoldings[String(row.accountId)] ?? 0;
+        const projected = projectedDestinationBalance(destBal, amt, row.available ?? 0);
+        if (projected >= -0.0001) return null;
+        return { name: row.accountName || "Account", projected };
+      })
+      .filter(Boolean);
+  }, [selectedRows, destHoldings, destHoldingsLoading, toLocationId]);
 
+  // HANDLERS
   function handleFromLocationChange(value) {
     setFromLocationId(value);
     setRows([]);
@@ -77,27 +161,6 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
     setRows([]);
     setLoadedKey("");
     setHoldingsError("");
-  }
-
-  async function handleLoadHoldings() {
-    if (!canLoad) return;
-    setLoadingHoldings(true);
-    setHoldingsError("");
-    setRows([]);
-    try {
-      const result = await fetchHoldingsAtLocation({ locationId: fromLocationId, commodityId });
-      if (!result || result.length === 0) {
-        setHoldingsError("No stock held at this location for the selected commodity.");
-        setRows([]);
-      } else {
-        setRows(result.map((r) => ({ ...r, selected: true, moveAmount: String(r.available) })));
-        setLoadedKey(`${fromLocationId}|${commodityId}`);
-      }
-    } catch (err) {
-      setHoldingsError(err instanceof Error ? err.message : "Failed to load holdings.");
-    } finally {
-      setLoadingHoldings(false);
-    }
   }
 
   function handleSelectAll(checked) {
@@ -120,13 +183,14 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
     if (String(fromLocationId) === String(toLocationId))
       return { valid: false, message: "From and To locations must be different." };
     if (loadedKey !== `${fromLocationId}|${commodityId}`)
-      return { valid: false, message: "Load holdings for the current selection before saving." };
+      return { valid: false, message: "Holdings are loading for the current selection." };
     if (selectedCount === 0) return { valid: false, message: "Select at least one owner row to move." };
     for (const r of selectedRows) {
       const amt = parseFloat(r.moveAmount) || 0;
       if (amt <= 0) return { valid: false, message: `Move amount must be greater than 0 for ${r.accountName}.` };
-      if (amt > (r.available ?? 0) + 0.0001)
-        return { valid: false, message: `Move amount exceeds available for ${r.accountName}.` };
+      if (exceedsTransferLimit(r.available ?? 0, amt)) {
+        return { valid: false, message: `${r.accountName}: ${transferLimitErrorMessage(r.available ?? 0)}` };
+      }
     }
     return { valid: true, message: "" };
   }
@@ -149,7 +213,6 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
   }
 
   function handleCancel() {
-    setSiteId(defaultSiteId ?? "");
     setFromLocationId("");
     setToLocationId("");
     setCommodityId("");
@@ -164,7 +227,7 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
 
   return (
     <div className="space-y-4">
-      {/* ── Section 1: date + site + locations + commodity ── */}
+      {/* ── Section 1: date + locations + commodity ── */}
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Transfer Date" required>
           <input
@@ -174,22 +237,6 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
             value={transferDate}
             onChange={(e) => setTransferDate(e.target.value)}
           />
-        </Field>
-
-        <Field label="Site">
-          <select
-            suppressHydrationWarning
-            className={inputClass}
-            value={siteId}
-            onChange={(e) => handleSiteChange(e.target.value)}
-          >
-            <option value="">All sites</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
         </Field>
 
         <Field label="From Location" required>
@@ -242,19 +289,19 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
         </Field>
       </div>
 
-      {/* ── Section 2: load holdings ── */}
+      {/* ── Section 2: holdings status ── */}
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!canLoad || loadingHoldings}
-          onClick={handleLoadHoldings}
-        >
-          {loadingHoldings ? "Loading…" : "Load holdings"}
-        </Button>
-        <span className="text-[11px] text-slate-400">
-          Select a from-location and commodity, then load to see per-owner stock.
-        </span>
+        {loadingHoldings ? (
+          <span className="text-[11px] text-slate-500">Loading holdings…</span>
+        ) : canLoad && rows.length > 0 ? (
+          <span className="text-[11px] text-slate-500">
+            {rows.length} owner(s) with stock at the from-location.
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-400">
+            Select a from-location and commodity to see per-owner stock.
+          </span>
+        )}
         {holdingsError ? (
           <p className="w-full text-xs font-medium text-red-600">{holdingsError}</p>
         ) : null}
@@ -278,7 +325,7 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
                   Customer
                 </th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                  Available (t)
+                  Balance (t)
                 </th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                   Move (t)
@@ -288,7 +335,7 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
             <tbody className="divide-y divide-slate-100">
               {rows.map((row, idx) => {
                 const amt = parseFloat(row.moveAmount) || 0;
-                const exceedsAvailable = amt > (row.available ?? 0) + 0.0001;
+                const exceedsLimit = exceedsTransferLimit(row.available ?? 0, amt);
                 return (
                   <tr
                     key={`${row.accountId}-${idx}`}
@@ -303,7 +350,7 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
                       />
                     </td>
                     <td className="px-3 py-2 text-slate-800">{row.accountName || "-"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                    <td className={cn("px-3 py-2 text-right tabular-nums font-medium", qtyColor(row.available ?? 0))}>
                       {(row.available ?? 0).toFixed(2)}
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -317,7 +364,7 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
                           disabled={!row.selected}
                           onChange={(e) => handleMoveAmountChange(idx, e.target.value)}
                         />
-                        {exceedsAvailable ? <ErrorText>&gt; available</ErrorText> : null}
+                        {exceedsLimit ? <ErrorText>&gt; limit</ErrorText> : null}
                       </div>
                     </td>
                   </tr>
@@ -334,6 +381,16 @@ export default function LocationMoveForm({ sites, locations, commodities, defaul
             <span className="font-semibold text-slate-900">{selectedCount * 2}</span> transactions
           </div>
         </div>
+      ) : null}
+
+      {negativeDestWarnings.length > 0 ? (
+        <WarningText>
+          {negativeDestWarnings.map((warning) => (
+            <p key={warning.name}>
+              {warning.name} destination balance will be {warning.projected.toFixed(2)} t.
+            </p>
+          ))}
+        </WarningText>
       ) : null}
 
       {/* ── Section 4: notes ── */}

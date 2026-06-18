@@ -3,13 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { fetchStockOnHand } from "@/lib/stock-transfers-api";
-import { Field, ErrorText, inputClass, commodityLabel, nowDatetimeLocalDate } from "./form-primitives";
+import {
+  fetchStockOnHand,
+  fetchStockByLocationForAccount,
+  exceedsTransferLimit,
+  transferLimitErrorMessage,
+  projectedDestinationBalance,
+} from "@/lib/stock-transfers-api";
+import { Field, ErrorText, WarningText, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
+import StockLocationChips from "./stock-location-chips";
 
-function blankState(defaultSiteId = "") {
+function blankState() {
   return {
     transferDate: nowDatetimeLocalDate(),
-    siteId: defaultSiteId,
     locationId: "",
     customerId: "",
     fromCommodityId: "",
@@ -20,26 +26,22 @@ function blankState(defaultSiteId = "") {
 }
 
 export default function CommodityTransferForm({
-  sites,
   locations,
   customers,
   commodities,
   defaultSiteId,
   submitting,
   onSubmit,
+  onContextChange,
 }) {
-  const [form, setForm] = useState(() => blankState(defaultSiteId ?? ""));
+  const [form, setForm] = useState(blankState);
   const [stockOnHand, setStockOnHand] = useState(0);
   const [sohLoading, setSohLoading] = useState(false);
+  const [locationStock, setLocationStock] = useState([]);
+  const [locationStockLoading, setLocationStockLoading] = useState(false);
+  const [destStockOnHand, setDestStockOnHand] = useState(0);
+  const [destSohLoading, setDestSohLoading] = useState(false);
   const [touched, setTouched] = useState({});
-
-  // Keep siteId in sync if defaultSiteId prop changes on first mount
-  useEffect(() => {
-    if (defaultSiteId && !form.siteId) {
-      setForm((prev) => ({ ...prev, siteId: defaultSiteId }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultSiteId]);
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const touch = (k) => setTouched((prev) => ({ ...prev, [k]: true }));
@@ -70,10 +72,70 @@ export default function CommodityTransferForm({
     };
   }, [form.customerId, form.fromCommodityId, form.locationId]);
 
+  useEffect(() => {
+    const { customerId, toCommodityId, locationId } = form;
+    if (!customerId || !toCommodityId || !locationId) {
+      setDestStockOnHand(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDestSohLoading(true);
+    fetchStockOnHand({ accountId: customerId, commodityId: toCommodityId, locationId })
+      .then((qty) => {
+        if (!cancelled) setDestStockOnHand(qty || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setDestStockOnHand(0);
+      })
+      .finally(() => {
+        if (!cancelled) setDestSohLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.customerId, form.toCommodityId, form.locationId]);
+
+  useEffect(() => {
+    const { customerId, fromCommodityId } = form;
+    if (!customerId || !fromCommodityId) {
+      setLocationStock([]);
+      setLocationStockLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLocationStockLoading(true);
+    fetchStockByLocationForAccount({ accountId: customerId, commodityId: fromCommodityId })
+      .then((rows) => {
+        if (!cancelled) setLocationStock(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLocationStock([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLocationStockLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.customerId, form.fromCommodityId]);
+
+  useEffect(() => {
+    onContextChange?.({
+      customerId: form.customerId,
+      fromCommodityId: form.fromCommodityId,
+      locationId: form.locationId,
+      toCommodityId: form.toCommodityId,
+    });
+  }, [form.customerId, form.fromCommodityId, form.locationId, form.toCommodityId, onContextChange]);
+
   const siteLocations = useMemo(() => {
-    if (!form.siteId) return locations ?? [];
-    return (locations ?? []).filter((l) => String(l.siteId) === String(form.siteId));
-  }, [locations, form.siteId]);
+    if (!defaultSiteId) return locations ?? [];
+    return (locations ?? []).filter((l) => String(l.siteId) === String(defaultSiteId));
+  }, [locations, defaultSiteId]);
 
   const toCommodities = useMemo(() => {
     return (commodities ?? []).filter((c) => String(c.id) !== String(form.fromCommodityId));
@@ -81,7 +143,13 @@ export default function CommodityTransferForm({
 
   const qty = parseFloat(form.amount) || 0;
   const fromCoordChosen = !!(form.customerId && form.fromCommodityId && form.locationId);
-  const exceedsStock = fromCoordChosen && qty > 0 && qty > stockOnHand + 0.0001;
+  const exceedsLimit = fromCoordChosen && exceedsTransferLimit(stockOnHand, qty);
+  const projectedDestBalance = projectedDestinationBalance(destStockOnHand, qty, stockOnHand);
+  const showDestWarning =
+    qty > 0 &&
+    form.toCommodityId &&
+    !destSohLoading &&
+    projectedDestBalance < -0.0001;
 
   // Validation
   const errors = useMemo(() => {
@@ -93,15 +161,15 @@ export default function CommodityTransferForm({
     if (form.fromCommodityId && form.toCommodityId && form.fromCommodityId === form.toCommodityId)
       e.toCommodityId = "To Commodity must differ from From Commodity.";
     if (!form.amount || qty <= 0) e.amount = "Amount must be greater than 0.";
-    if (exceedsStock) e.amount = `Exceeds stock on hand (${stockOnHand.toFixed(2)} t)`;
+    if (exceedsLimit) e.amount = transferLimitErrorMessage(stockOnHand);
     return e;
-  }, [form, qty, stockOnHand, exceedsStock]);
+  }, [form, qty, stockOnHand, exceedsLimit]);
 
   const isValid = Object.keys(errors).length === 0;
   const canSave = isValid && !submitting;
 
   function handleCancel() {
-    setForm(blankState(defaultSiteId ?? ""));
+    setForm(blankState());
     setTouched({});
     setStockOnHand(0);
   }
@@ -157,46 +225,23 @@ export default function CommodityTransferForm({
         />
       </Field>
 
-      {/* Site + Location */}
-      <div className="grid gap-2.5 sm:grid-cols-2">
-        <Field label="Site" required>
-          <select
-            suppressHydrationWarning
-            className={inputClass}
-            value={form.siteId}
-            onChange={(e) => {
-              set("siteId", e.target.value);
-              set("locationId", "");
-            }}
-          >
-            <option value="">Select site</option>
-            {(sites ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Location" required>
-          <select
-            suppressHydrationWarning
-            className={inputClass}
-            value={form.locationId}
-            disabled={!form.siteId}
-            onChange={(e) => { set("locationId", e.target.value); touch("locationId"); }}
-            onBlur={() => touch("locationId")}
-          >
-            <option value="">{form.siteId ? "Select location" : "Select a site first"}</option>
-            {siteLocations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          {fieldErr("locationId") ? <ErrorText>{fieldErr("locationId")}</ErrorText> : null}
-        </Field>
-      </div>
+      <Field label="Location" required>
+        <select
+          suppressHydrationWarning
+          className={inputClass}
+          value={form.locationId}
+          onChange={(e) => { set("locationId", e.target.value); touch("locationId"); }}
+          onBlur={() => touch("locationId")}
+        >
+          <option value="">Select location</option>
+          {siteLocations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+        {fieldErr("locationId") ? <ErrorText>{fieldErr("locationId")}</ErrorText> : null}
+      </Field>
 
       {/* Customer */}
       <Field label="Customer" required>
@@ -264,6 +309,18 @@ export default function CommodityTransferForm({
         </Field>
       </div>
 
+      {form.customerId && form.fromCommodityId ? (
+        <StockLocationChips
+          locationStock={locationStock}
+          loading={locationStockLoading}
+          selectedLocationId={form.locationId}
+          onSelectLocation={(loc) => {
+            set("locationId", String(loc.locationId));
+            touch("locationId");
+          }}
+        />
+      ) : null}
+
       {/* Amount + SOH badge */}
       <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <Field label="Amount (t)" required>
@@ -284,12 +341,18 @@ export default function CommodityTransferForm({
         {fromCoordChosen ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">SOH</p>
-            <p className="text-lg font-bold text-slate-900">
+            <p className={cn("text-lg font-bold tabular-nums", qtyColor(stockOnHand))}>
               {sohLoading ? "…" : stockOnHand.toFixed(2)}
             </p>
           </div>
         ) : null}
       </div>
+
+      {showDestWarning ? (
+        <WarningText>
+          Destination balance will be {projectedDestBalance.toFixed(2)} t after this transfer.
+        </WarningText>
+      ) : null}
 
       {/* Notes */}
       <Field label="Notes">

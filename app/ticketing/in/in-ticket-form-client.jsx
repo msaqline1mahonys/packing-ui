@@ -497,14 +497,17 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const commodityReady = requiresCommodityConfirmation ? ticket.commodityConfirmed : Boolean(ticket.commodityId);
 
-  const canComplete =
+  const completionBaseReady =
     ticket.cmoId &&
     ticket.truck &&
     grossTotal > 0 &&
     tareTotal > 0 &&
-    commodityReady &&
     ticket.signoffUserId &&
     (isIncoming ? ticket.unloadedLocation : ticket.loadingLocation);
+
+  const pendingCommodityForCompletion = completionBaseReady && !commodityReady;
+
+  const canComplete = completionBaseReady && commodityReady;
 
   const handleSave = async () => {
     try {
@@ -517,6 +520,20 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
     }
+  };
+
+  const handleCompleteClick = () => {
+    if (pendingCommodityForCompletion) {
+      if (requiresCommodityConfirmation) {
+        setError("Confirm the commodity before completing this ticket. Use Identify Commodity to review test results and confirm.");
+        confirmCommodity();
+      } else {
+        setError("Select an identified commodity before completing this ticket.");
+      }
+      return;
+    }
+    if (!canComplete) return;
+    void handleComplete();
   };
 
   const handleComplete = async () => {
@@ -1101,7 +1118,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             <div className="flex flex-col gap-2">
               {!isCompleted ? (
                 <>
-                  <Button type="button" className="w-full justify-center" disabled={!canComplete} onClick={handleComplete}>
+                  <Button
+                    type="button"
+                    className="w-full justify-center"
+                    disabled={!canComplete && !pendingCommodityForCompletion}
+                    onClick={handleCompleteClick}
+                  >
                     Complete Ticket
                   </Button>
                   <Button type="button" variant="outline" className="w-full justify-center" onClick={handleSave}>
@@ -1128,7 +1150,14 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   Remove Ticket
                 </Button>
               ) : null}
-              {!canComplete && !isCompleted ? (
+              {pendingCommodityForCompletion ? (
+                <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-900">
+                  <span className="font-semibold">Commodity confirmation required.</span>{" "}
+                  {requiresCommodityConfirmation
+                    ? "All other requirements are met. Use Identify Commodity to confirm the grade before completing this ticket."
+                    : "All other requirements are met. Select an identified commodity before completing this ticket."}
+                </p>
+              ) : !canComplete && !isCompleted ? (
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   <span className="font-semibold text-slate-600">Required:</span> CMO, truck, gross &amp; tare weights,
                   {requiresCommodityConfirmation ? " commodity confirmed," : " commodity,"} signoff, and{" "}

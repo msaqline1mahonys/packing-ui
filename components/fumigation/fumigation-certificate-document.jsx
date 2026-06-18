@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print";
 import { formatDateTime } from "@/lib/fumigation-cert-print";
+import { looksLikeUuid } from "@/lib/fumigation-detail";
 import { CERTIFICATE_SECTIONS, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { CertificateSignoffGrid } from "@/components/fumigation/fumigation-signoff-display";
 
@@ -56,7 +57,8 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
 
   const handlePrint = () => { if (typeof window !== "undefined") window.print(); };
   const addr = model.siteAddress ?? {};
-  const fumigantName = model.fumigant?.name || "Fumigation";
+  const rawFumigantName = model.fumigant?.name || "Fumigation";
+  const fumigantName = looksLikeUuid(rawFumigantName) ? "Fumigation" : rawFumigantName;
   const template = model.template ?? {};
   const headerLogo = template.logoDataUrl || "/mahonys-logo.png";
   const footerLogo = template.footerLogoDataUrl || "";

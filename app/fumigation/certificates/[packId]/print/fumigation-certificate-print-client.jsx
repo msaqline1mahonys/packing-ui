@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
-import { resolveFumigationCertificateAsync } from "@/lib/fumigation-cert-print";
-import { certSnapshotHasContent, mergeCertDraftFromPack } from "@/lib/fumigation-detail";
+import { resolveFumigationCertificateAsync, previewFumigationCertificateNumber } from "@/lib/fumigation-cert-print";
+import { certSnapshotHasContent, mergeCertDraftFromPack, looksLikeUuid } from "@/lib/fumigation-detail";
 import { getPack } from "@/lib/api/packing";
 import {
   loadFumigationCertSnapshot,
@@ -40,12 +40,19 @@ export default function FumigationCertificatePrintClient({ packId }) {
         if (cancelled || !row) return;
         const fromPack = await resolveFumigationCertificateAsync(packId, row);
         const snapshot = loadFumigationCertSnapshot(packId);
-        setModel(
-          mergeCertDraftFromPack(
-            fromPack,
-            certSnapshotHasContent(snapshot) ? snapshot : null
-          )
+        const merged = mergeCertDraftFromPack(
+          fromPack,
+          certSnapshotHasContent(snapshot) ? snapshot : null
         );
+        const savedNumber = String(merged?.certificateNumber ?? "").trim();
+        if (
+          !savedNumber ||
+          looksLikeUuid(savedNumber) ||
+          (String(packId).length > 10 && savedNumber.includes(String(packId)))
+        ) {
+          merged.certificateNumber = previewFumigationCertificateNumber(packId, row);
+        }
+        setModel(merged);
       })
       .catch(() => {});
 

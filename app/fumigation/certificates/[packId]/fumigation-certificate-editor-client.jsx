@@ -16,8 +16,13 @@ import {
   loadFumigationCertSnapshot as loadCertSnapshot,
   saveCertificateIssue as issueCertificate,
 } from "@/lib/fumigation-cert-storage";
-import { resolveFumigationCertificate, resolveFumigationCertificateAsync } from "@/lib/fumigation-cert-print";
-import { mergeCertDraftFromPack } from "@/lib/fumigation-detail";
+import {
+  resolveFumigationCertificate,
+  resolveFumigationCertificateAsync,
+  nextFumigationCertificateNumber,
+  previewFumigationCertificateNumber,
+} from "@/lib/fumigation-cert-print";
+import { certSnapshotHasContent, mergeCertDraftFromPack, looksLikeUuid } from "@/lib/fumigation-detail";
 import { getPack } from "@/lib/api/packing";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
@@ -27,16 +32,6 @@ import {
   resolveSignoffFields,
 } from "@/lib/fumigation-signatures";
 import { SignatureDisplay } from "@/components/fumigation/fumigation-signoff-display";
-
-// ─── cert-number helper ────────────────────────────────────────────────────────
-
-function nextCertNumber(packId) {
-  if (typeof window === "undefined") return "";
-  const key = `packing-ui-cert-seq-${packId}`;
-  const seq = Number(window.localStorage.getItem(key) || 0) + 1;
-  window.localStorage.setItem(key, String(seq));
-  return `CERT-${String(packId).padStart(6, "0")}-${String(seq).padStart(3, "0")}`;
-}
 
 // ─── Normalize snapshot to handle older fields ────────────────────────────────
 
@@ -175,7 +170,16 @@ export default function FumigationCertificateEditorClient({ packId }) {
         const resolved = await resolveFumigationCertificateAsync(packId, row);
         const fromPack = normalizeCert(resolved);
         const snapshot = loadCertSnapshot(packId);
-        setCert(normalizeCert(mergeCertDraftFromPack(fromPack, snapshot)));
+        const merged = normalizeCert(mergeCertDraftFromPack(fromPack, snapshot));
+        const savedNumber = String(merged.certificateNumber ?? "").trim();
+        const looksLikeUuidCert =
+          savedNumber &&
+          (looksLikeUuid(savedNumber) ||
+            (String(packId).length > 10 && savedNumber.includes(String(packId))));
+        if (!savedNumber || looksLikeUuidCert) {
+          merged.certificateNumber = previewFumigationCertificateNumber(packId, row);
+        }
+        setCert(merged);
       })
       .catch(() => {})
       .finally(() => {
@@ -215,13 +219,16 @@ export default function FumigationCertificateEditorClient({ packId }) {
   }, [packId, packRow, cert]);
 
   const handleSaveAndPrint = useCallback(() => {
-    const number = cert?.certificateNumber || nextCertNumber(packId);
+    const number = nextFumigationCertificateNumber(packId, packRow);
     const issued = cert?.issuedDate || new Date().toLocaleDateString("en-AU");
     const final = { ...cert, certificateNumber: number, issuedDate: issued };
     setCert(final);
-    issueCertificate(packId, final);
-    router.push(`/fumigation/certificates/${packId}/print`);
-  }, [cert, packId, router]);
+    saveCertSnapshot(packId, final);
+    const issuedAt = issueCertificate(packId, final);
+    router.push(
+      `/fumigation/certificates/${packId}/print?issuedAt=${encodeURIComponent(issuedAt)}`
+    );
+  }, [cert, packId, packRow, router]);
 
   const handleDiscard = useCallback(async () => {
     if (!packRow) return;

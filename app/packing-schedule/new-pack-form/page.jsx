@@ -1928,6 +1928,7 @@ function NewPackFormPageInner() {
   const prevSampleCountRef = useRef(0);
 
   const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const [containersRequiredWarning, setContainersRequiredWarning] = useState("");
   const [quickReleaseOpen, setQuickReleaseOpen] = useState(false);
   const [quickReleaseMode, setQuickReleaseMode] = useState("add");
@@ -2412,7 +2413,7 @@ function NewPackFormPageInner() {
             nextCount
           );
           if (!validation.ok) {
-            openRemoveContainersDialog(baselineCount - nextCount, normalized);
+            openRemoveContainersDialog(baselineCount - nextCount, { pack: normalized });
             return;
           }
           if (validation.slotsToRemove > 0) {
@@ -2428,10 +2429,12 @@ function NewPackFormPageInner() {
 
       const updated = packToScheduleRow(normalized, editingRow, { includeContainers });
       await savePack({ ...updated, id: editingRow.id });
-    } else {
-      const created = packToScheduleRow(normalized, null);
-      await savePack(created);
+      router.push("/packing-schedule");
+      return;
     }
+
+    const created = packToScheduleRow(normalized, null);
+    await savePack(created);
     router.push("/packing-schedule");
   }
 
@@ -2466,9 +2469,10 @@ function NewPackFormPageInner() {
 
       if (pending) {
         try {
+          const pendingPack = pending.pack ?? pending;
           await persistPackSave({
-            ...pending,
-            containersRequired: nextRequired ?? pending.containersRequired,
+            ...pendingPack,
+            containersRequired: nextRequired ?? pendingPack.containersRequired,
           });
         } catch (err) {
           setSaveError(err?.message || "Failed to save pack.");
@@ -3137,10 +3141,13 @@ function NewPackFormPageInner() {
       freeDays: pack.freeDays === "" || pack.freeDays == null ? null : Number(pack.freeDays),
     };
     setSaveError("");
+    setIsSaving(true);
     try {
       await persistPackSave(normalized);
     } catch (err) {
       setSaveError(err?.message || "Failed to save pack.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -5208,18 +5215,18 @@ function NewPackFormPageInner() {
                     </FormRow>
                   </div>
 
-                  <div className={sectionColumnsClass}>
+                  <div className={cn(sectionRowClass, "gap-3 xl:grid-cols-2 xl:gap-4")}>
                     {/* ─── Section D — Concentration readings & ventilation ─── */}
                     <div className={fumigationInnerClass} aria-label="Section D — Concentration readings and ventilation">
-                      <FormRow label="Monitoring device serial(s)">
-                        <input
-                          className={inputClass}
-                          value={fd.monitoringDeviceSerials ?? ""}
-                          onChange={(e) => updateFumigationDetail({ monitoringDeviceSerials: e.target.value })}
-                          placeholder="Comma-separated serial numbers"
-                        />
-                      </FormRow>
-                      <div className={cn("mt-2", fumigationGridClass)}>
+                      <div className={fumigationGridClass}>
+                        <FormRow className="sm:col-span-2 lg:col-span-2 xl:col-span-2" label="Monitoring device serial(s)">
+                          <input
+                            className={inputClass}
+                            value={fd.monitoringDeviceSerials ?? ""}
+                            onChange={(e) => updateFumigationDetail({ monitoringDeviceSerials: e.target.value })}
+                            placeholder="Comma-separated serial numbers"
+                          />
+                        </FormRow>
                         <FormRow label="Fumigation commenced">
                           <input
                             className={inputClass}
@@ -5645,11 +5652,17 @@ function NewPackFormPageInner() {
             <div className="flex shrink-0 flex-col items-end gap-1.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
               {saveError ? <p className="text-[11px] text-red-600">{saveError}</p> : null}
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" type="button" onClick={() => router.push("/packing-schedule")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => router.push("/packing-schedule")}
+                >
                   Cancel
                 </Button>
-                <Button size="sm" type="button" onClick={save}>
-                  {mode === "edit" ? "Save changes" : "Create pack"}
+                <Button size="sm" type="button" disabled={isSaving} onClick={save}>
+                  {isSaving ? "Saving…" : mode === "edit" ? "Save changes" : "Create pack"}
                 </Button>
               </div>
             </div>

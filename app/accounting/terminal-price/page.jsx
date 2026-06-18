@@ -1,43 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { AccountingPriceSaveToolbar } from "@/components/accounting/accounting-price-save-toolbar";
 import { getTerminalPrices, saveTerminalPrices } from "@/lib/api/accounting";
+import {
+  clonePriceRows,
+  countUnsavedPriceChanges,
+  preparePriceRowsForSave,
+} from "@/lib/accounting-price-rows";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-function BtnPrimary({ className, children, ...props }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex items-center rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
 export default function TerminalPricePage() {
   const [rows, setRows] = useState([]);
+  const [savedRows, setSavedRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [errorText, setErrorText] = useState("");
 
+  const unsavedCount = useMemo(() => countUnsavedPriceChanges(rows, savedRows), [rows, savedRows]);
+
   useEffect(() => {
     getTerminalPrices()
       .then((data) => {
-        setRows(Array.isArray(data?.rows) ? data.rows : []);
+        const nextRows = Array.isArray(data?.rows) ? data.rows : [];
+        setRows(nextRows);
+        setSavedRows(clonePriceRows(nextRows));
       })
       .catch((err) => {
         setRows([]);
+        setSavedRows([]);
         setErrorText(err?.message || "Failed to load terminal prices.");
       })
       .finally(() => setLoading(false));
@@ -56,14 +53,9 @@ export default function TerminalPricePage() {
     setErrorText("");
     setSavedIndicator(false);
     try {
-      const payload = {
-        rows: rows.map((row) => ({
-          ...row,
-          revenuePrice: row.revenuePrice === "" || row.revenuePrice == null ? 0 : Number(row.revenuePrice),
-          expensePrice: row.expensePrice === "" || row.expensePrice == null ? 0 : Number(row.expensePrice),
-        })),
-      };
+      const payload = { rows: preparePriceRowsForSave(rows) };
       await saveTerminalPrices(payload);
+      setSavedRows(clonePriceRows(rows));
       setSavedIndicator(true);
       setTimeout(() => setSavedIndicator(false), 2500);
     } catch (err) {
@@ -75,16 +67,26 @@ export default function TerminalPricePage() {
 
   return (
     <div className="space-y-4 md:space-y-5">
-      <div className="space-y-1">
-        <p className="text-xs text-slate-500">Accounting / Terminal Price</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">Terminal Price</h1>
-        <p className="text-xs leading-relaxed text-slate-500">
-          Set the revenue price (used for invoicing) and expense price for each terminal. Terminal records are shared from{" "}
-          <Link href="/reference-data/terminal" className="font-semibold text-brand hover:underline">
-            Reference Data → Terminal
-          </Link>
-          .
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-xs text-slate-500">Accounting / Terminal Price</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-[#0f1e3d] md:text-[1.65rem]">Terminal Price</h1>
+          <p className="text-xs leading-relaxed text-slate-500">
+            Set the revenue price (used for invoicing) and expense price for each terminal. Terminal records are shared from{" "}
+            <Link href="/reference-data/terminal" className="font-semibold text-brand hover:underline">
+              Reference Data → Terminal
+            </Link>
+            .
+          </p>
+        </div>
+        {!loading && rows.length > 0 ? (
+          <AccountingPriceSaveToolbar
+            unsavedCount={unsavedCount}
+            saving={saving}
+            savedIndicator={savedIndicator}
+            onSave={handleSave}
+          />
+        ) : null}
       </div>
 
       <div className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-[18px]">
@@ -108,70 +110,59 @@ export default function TerminalPricePage() {
             </p>
           </div>
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="pb-2 pr-4 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Terminal
-                    </th>
-                    <th className="pb-2 pr-4 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Revenue Price
-                    </th>
-                    <th className="pb-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Expense Price
-                    </th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="pb-2 pr-4 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Terminal
+                  </th>
+                  <th className="pb-2 pr-4 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Revenue Price
+                  </th>
+                  <th className="pb-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Expense Price
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} className="border-b border-slate-100 last:border-b-0">
+                    <td className="py-2.5 pr-4">
+                      <p className="font-medium text-slate-900">{row.name}</p>
+                      {row.code ? (
+                        <p className="text-[11px] text-slate-400">{row.code}</p>
+                      ) : null}
+                    </td>
+                    <td className="py-2.5 pr-4">
+                      <input
+                        className={cn(inputClass, "max-w-[160px]")}
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={row.revenuePrice ?? ""}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        onChange={(e) => handleChange(row.id, "revenuePrice", e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </td>
+                    <td className="py-2.5">
+                      <input
+                        className={cn(inputClass, "max-w-[160px]")}
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={row.expensePrice ?? ""}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        onChange={(e) => handleChange(row.id, "expensePrice", e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-100 last:border-b-0">
-                      <td className="py-2.5 pr-4">
-                        <p className="font-medium text-slate-900">{row.name}</p>
-                        {row.code ? (
-                          <p className="text-[11px] text-slate-400">{row.code}</p>
-                        ) : null}
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <input
-                          className={cn(inputClass, "max-w-[160px]")}
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={row.revenuePrice ?? ""}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          onChange={(e) => handleChange(row.id, "revenuePrice", e.target.value)}
-                          placeholder="0.00"
-                        />
-                      </td>
-                      <td className="py-2.5">
-                        <input
-                          className={cn(inputClass, "max-w-[160px]")}
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={row.expensePrice ?? ""}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          onChange={(e) => handleChange(row.id, "expensePrice", e.target.value)}
-                          placeholder="0.00"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-4">
-              <BtnPrimary onClick={handleSave} disabled={saving}>
-                {saving ? "Saving…" : "Save"}
-              </BtnPrimary>
-              {savedIndicator ? (
-                <span className="text-xs font-medium text-emerald-600">Saved successfully.</span>
-              ) : null}
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

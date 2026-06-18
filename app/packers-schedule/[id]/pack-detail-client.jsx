@@ -48,7 +48,8 @@ import {
 import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
-import { loadFumigants } from "@/lib/fumigation-store";
+import { fetchFumigantsNormalized } from "@/lib/api/fumigation";
+import { loadFumigants, resolvePackFumigantDisplay } from "@/lib/fumigation-store";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { usePemsInspectionRemarksQuery } from "@/lib/hooks/use-reference-data-queries";
 import { useTestsCatalog } from "@/lib/hooks/use-tests-catalog";
@@ -85,6 +86,20 @@ const sectionHeaderClass = "border-b border-slate-200 bg-slate-50 px-3 py-2 text
 function safeValue(value) {
   if (value == null || String(value).trim() === "") return "—";
   return String(value);
+}
+
+function UnsavedChangesBadge({ className }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-300",
+        className
+      )}
+    >
+      <AlertCircle className="size-3 shrink-0" aria-hidden />
+      Unsaved changes
+    </span>
+  );
 }
 
 function formatDateTimeValue(value) {
@@ -292,7 +307,29 @@ export default function PackDetailClient({ packId }) {
       containerValidationTimerRef.current = null;
     }, delayMs);
   }, [clearContainerValidationFeedback]);
-  const [isDirty, setIsDirty] = useState(false);
+  const [dirtyContainerIds, setDirtyContainerIds] = useState(() => new Set());
+
+  const markContainerDirty = useCallback((containerId) => {
+    if (!containerId) return;
+    setDirtyContainerIds((prev) => {
+      if (prev.has(containerId)) return prev;
+      return new Set(prev).add(containerId);
+    });
+  }, []);
+
+  const markContainerClean = useCallback((containerId) => {
+    if (!containerId) return;
+    setDirtyContainerIds((prev) => {
+      if (!prev.has(containerId)) return prev;
+      const next = new Set(prev);
+      next.delete(containerId);
+      return next;
+    });
+  }, []);
+
+  const clearDirtyContainers = useCallback(() => {
+    setDirtyContainerIds(new Set());
+  }, []);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportApplying, setBulkImportApplying] = useState(false);
   const [bulkImportProgress, setBulkImportProgress] = useState("");
@@ -306,17 +343,14 @@ export default function PackDetailClient({ packId }) {
     () => packAssignedPackerOptions(packRow, lookups.referencePackers ?? lookups.packers ?? []),
     [packRow, lookups.referencePackers, lookups.packers]
   );
+  const [fumigants, setFumigants] = useState(() => loadFumigants());
+  useEffect(() => {
+    fetchFumigantsNormalized().then(setFumigants).catch(() => {});
+  }, []);
   const fumigantDisplay = useMemo(() => {
-    if (!packRow) return "—";
-    const fumigants = loadFumigants();
-    const fumigantId = packRow.fumigantId ?? packRow.fumigationDetail?.fumigantId;
-    const match = fumigants.find((row) => String(row.id) === String(fumigantId));
-    if (match?.name) return match.name;
-    const detailName = packRow.fumigationDetail?.fumigantName ?? packRow.fumigationDetail?.fumigant_name;
-    if (detailName) return detailName;
-    if (packRow.fumigationRequired && !packRow.fumigationTiming) return "Required";
-    return packRow.fumigationTiming || packRow.fumigation || "—";
-  }, [packRow]);
+    const label = resolvePackFumigantDisplay(packRow, fumigants);
+    return label || "—";
+  }, [packRow, fumigants]);
   const packReleases = useMemo(() => {
     const details = packRow?.releaseDetails;
     const releases = packRow?.releases;
@@ -412,7 +446,6 @@ export default function PackDetailClient({ packId }) {
     }
     if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
       setSelectedContainerId(filteredContainerRows[0].id);
-      setIsDirty(false);
     }
   }, [filteredContainerRows, selectedContainerId]);
 
@@ -420,6 +453,7 @@ export default function PackDetailClient({ packId }) {
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
     [filteredContainerRows, selectedContainerId]
   );
+  const isDirty = selectedContainerId != null && dirtyContainerIds.has(selectedContainerId);
 
   const packCommodity = useMemo(() => {
     if (!packRow?.commodityId) return null;
@@ -517,7 +551,7 @@ export default function PackDetailClient({ packId }) {
     }
     clearContainerValidationFeedback();
     updateContainerById(selectedContainer.id, patch);
-    setIsDirty(true);
+    markContainerDirty(selectedContainer.id);
   }
 
   const selectedContainerActions = useMemo(() => {
@@ -819,7 +853,7 @@ export default function PackDetailClient({ packId }) {
         // Pass current lookups so refreshed containers resolve park/transporter
         // names from the latest TanStack Query cache.
         setWorkByPack((prev) => syncWorkDrafts([row], prev, lookups));
-        setIsDirty(false);
+        clearDirtyContainers();
       }
     }).catch(() => {});
   }
@@ -844,7 +878,7 @@ export default function PackDetailClient({ packId }) {
         updateContainerById(updated.id, updated);
       }
       setContainerSaveStatus("saved");
-      setIsDirty(false);
+      markContainerClean(selectedContainer.id);
       scheduleContainerFeedbackClear();
     } catch (err) {
       showContainerValidationError(err?.message || "Save failed — check connection.");
@@ -919,7 +953,7 @@ export default function PackDetailClient({ packId }) {
     }
 
     setBulkImportOpen(false);
-    setIsDirty(false);
+    clearDirtyContainers();
     refreshPack();
   }
 
@@ -941,11 +975,13 @@ export default function PackDetailClient({ packId }) {
   const permitMetaLine = [permitNumberLine, permitDateLine].filter(Boolean).join(" · ");
   const packingNoteText = String(packRow.jobNotes || packRow.packingNote || "").trim();
   const importPackNotesText = String(packRow.importPackNotes || "").trim();
+  const isImportJob = isImportPack(packRow);
+  const packingNoteDisplayText = isImportJob ? importPackNotesText || packingNoteText : packingNoteText;
+  const hasPackingNote = Boolean(packingNoteDisplayText);
   const packWarningText =
     packRow.packWarningRequired && String(packRow.packWarning || "").trim()
       ? String(packRow.packWarning).trim()
       : "";
-  const isImportJob = isImportPack(packRow);
   const packCheckFields = isImportJob ? IMPORT_PACK_CHECK_FIELDS : PACK_CHECK_FIELDS;
   const packDetailTabs = isImportJob ? ["Packing"] : PACK_DETAIL_TABS;
   const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer, { isImport: isImportJob }) : [];
@@ -1022,16 +1058,21 @@ export default function PackDetailClient({ packId }) {
           <PriorityField label="Weight per container" value={weightPerContainer == null ? "—" : `${weightPerContainer} MT`} />
           <PriorityField label="Job Ref" value={safeValue(packRow.jobReference)} />
         </div>
+        {hasPackingNote || packWarningText ? (
         <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/90 bg-gradient-to-r from-amber-50 via-amber-50 to-amber-100/60 shadow-sm shadow-amber-200/30">
-          <div className="border-b border-amber-200/70 bg-amber-100/50 px-3 py-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">{isImportJob ? "Import pack notes" : "Packing note"}</p>
-          </div>
-          <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-amber-950">
-            {safeValue(isImportJob ? importPackNotesText || packingNoteText : packingNoteText)}
-          </p>
+          {hasPackingNote ? (
+            <>
+              <div className="border-b border-amber-200/70 bg-amber-100/50 px-3 py-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">{isImportJob ? "Import pack notes" : "Packing note"}</p>
+              </div>
+              <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-amber-950">
+                {packingNoteDisplayText}
+              </p>
+            </>
+          ) : null}
           {packWarningText ? (
             <>
-              <div className="border-t border-rose-300/70 bg-rose-100/60 px-3 py-1.5">
+              <div className={cn("border-t border-rose-300/70 bg-rose-100/60 px-3 py-1.5", !hasPackingNote && "border-t-0")}>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-rose-900">Pack warning</p>
               </div>
               <p className="whitespace-pre-wrap px-3 py-2.5 text-sm font-medium leading-snug text-rose-950">
@@ -1040,6 +1081,7 @@ export default function PackDetailClient({ packId }) {
             </>
           ) : null}
         </div>
+        ) : null}
         <div
           id="pack-prepack-review"
           className="mt-3 overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/80 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
@@ -1233,7 +1275,7 @@ export default function PackDetailClient({ packId }) {
                   <button
                     key={container.id}
                     type="button"
-                    onClick={() => { setSelectedContainerId(container.id); setIsDirty(false); }}
+                    onClick={() => setSelectedContainerId(container.id)}
                     className={cn(
                       "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                       selectedContainerId === container.id
@@ -1244,7 +1286,13 @@ export default function PackDetailClient({ packId }) {
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-slate-700">#{container.order}</span>
                       <span className="text-[15px] font-semibold text-slate-900">{container.containerNo || "Draft container"}</span>
-                      <span className={cn("ms-auto rounded-full px-2.5 py-1 text-xs font-semibold", stageBadgeClass(stage))}>{stage}</span>
+                      {dirtyContainerIds.has(container.id) ? (
+                        <UnsavedChangesBadge className="ms-auto" />
+                      ) : (
+                        <span className={cn("ms-auto rounded-full px-2.5 py-1 text-xs font-semibold", stageBadgeClass(stage))}>
+                          {stage}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
                       Seal {safeValue(container.sealNo)} · Net {toInputNumber(container.nettWeight)} MT
@@ -1314,10 +1362,7 @@ export default function PackDetailClient({ packId }) {
                 </span>
                 <div className="ms-auto flex shrink-0 items-center gap-2">
                   {isDirty ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-300">
-                      <AlertCircle className="size-3 shrink-0" aria-hidden />
-                      Unsaved changes
-                    </span>
+                    <UnsavedChangesBadge />
                   ) : containerSaveStatus === "saved" ? (
                     <span className="text-[11px] font-medium text-emerald-700">Saved</span>
                   ) : null}
@@ -1363,15 +1408,18 @@ export default function PackDetailClient({ packId }) {
                 </div>
               ) : null}
 
+              {hasPackingNote || packWarningText ? (
               <div className="border-t border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/95 to-amber-100/70 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
-                <div className="flex flex-wrap items-start gap-2">
-                  <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/60">
-                    Packing note
-                  </span>
-                  <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-amber-950">{safeValue(packingNoteText)}</p>
-                </div>
+                {hasPackingNote ? (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/60">
+                      Packing note
+                    </span>
+                    <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-amber-950">{packingNoteDisplayText}</p>
+                  </div>
+                ) : null}
                 {packWarningText ? (
-                  <div className="mt-2 flex flex-wrap items-start gap-2 border-t border-rose-300/60 pt-2">
+                  <div className={cn("flex flex-wrap items-start gap-2", hasPackingNote && "mt-2 border-t border-rose-300/60 pt-2")}>
                     <span className="shrink-0 rounded-md bg-rose-200/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-950 ring-1 ring-rose-300/60">
                       Pack warning
                     </span>
@@ -1379,6 +1427,7 @@ export default function PackDetailClient({ packId }) {
                   </div>
                 ) : null}
               </div>
+              ) : null}
             </div>
 
             <ContainerFormSections

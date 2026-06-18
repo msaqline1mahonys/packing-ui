@@ -54,35 +54,17 @@ const defaultInputClass =
 /** Shared input styling for PEMs tab fields (packers + packing schedule). */
 export const PEMS_TAB_INPUT_CLASS = defaultInputClass;
 
-function getTodayDatetime() {
-  if (typeof window === "undefined") return "";
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-}
-
 function InspectionDateTimeField({ label, value, onChange, inputClass }) {
-  const stored = formatDateTimeInput(value);
-  const isDefault = !stored;
-  const displayValue = stored || getTodayDatetime();
-
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
-      <div className="relative">
-        <input
-          suppressHydrationWarning
-          className={cn(inputClass, "block w-full", isDefault ? "text-slate-400" : "")}
-          type="datetime-local"
-          value={displayValue}
-          onChange={(event) => onChange?.(event.target.value)}
-        />
-        {isDefault ? (
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400">
-            today
-          </span>
-        ) : null}
-      </div>
+      <input
+        suppressHydrationWarning
+        className={cn(inputClass, "block w-full")}
+        type="datetime-local"
+        value={formatDateTimeInput(value)}
+        onChange={(event) => onChange?.(event.target.value)}
+      />
     </div>
   );
 }
@@ -123,7 +105,7 @@ function LabeledInput({ label, value, onChange, type = "text", readOnly = false,
   );
 }
 
-function LabeledSelect({ label, value, options, onChange, placeholder = "Select option", inputClass }) {
+function LabeledSelect({ label, value, options, onChange, placeholder = "Select option" }) {
   const opts = options.map((option) => ({ value: option, label: option }));
   return (
     <div className="space-y-2">
@@ -133,7 +115,7 @@ function LabeledSelect({ label, value, options, onChange, placeholder = "Select 
         value={opts.find((o) => o.value === (value ?? "")) ?? null}
         onChange={(option) => onChange(option ? option.value : "")}
         placeholder={options.length ? placeholder : "—"}
-        className={cn("block w-full", inputClass)}
+        className="w-full"
       />
     </div>
   );
@@ -337,7 +319,6 @@ export default function PemsTab({
             label="Record type"
             value={pemsDraft.recordType}
             options={PEMS_RECORD_OPTIONS}
-            inputClass={inputClass}
             onChange={(value) =>
               onUpdatePemsDraft({
                 recordType: value,
@@ -367,7 +348,6 @@ export default function PemsTab({
             label="AO signoff"
             value={pemsDraft.aoSignoff}
             options={aoNameOptions.length ? aoNameOptions : packerNames}
-            inputClass={inputClass}
             onChange={(value) => onUpdatePemsDraft({ aoSignoff: value })}
           />
         </div>

@@ -23,6 +23,11 @@ import {
 import { useSealDuplicateCheck } from "@/lib/hooks/use-seal-duplicate-check";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { numberInputProps } from "@/lib/number-input";
+import {
+  MAX_CONTAINER_GROSS_WEIGHT_MT,
+  sanitizeGrossWeightInput,
+  validateGrossWeight,
+} from "@/lib/packers-container-validation";
 
 /** Combine stored date + hour + minute into a datetime-local value string. */
 function buildDatetimeValue(container, names) {
@@ -223,10 +228,12 @@ export default function ContainerFormSections({
   const setField = (key, value) => onChange?.({ [names[key] || key]: value });
   const containerNoValue = getValue(container, names, "containerNo");
   const sealNoValue = getValue(container, names, "sealNo");
+  const grossWeightValue = getValue(container, names, "grossWeight");
   const containerNoNormalized = normalizeContainerNumber(containerNoValue);
   const containerNoError =
     containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
   const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
+  const grossWeightError = validateGrossWeight(grossWeightValue);
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
   const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
   const resolvedContainerId = resolveEntityId(containerId, container?.id);
@@ -456,7 +463,16 @@ export default function ContainerFormSections({
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Weights</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
           <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} />
-          <PemsInput label="Gross Weight" value={getValue(container, names, "grossWeight")} onChange={(value) => setField("grossWeight", value)} type="number" step="0.01" inputClass={inputClass} />
+          <PemsInput
+            label="Gross Weight"
+            value={grossWeightValue}
+            onChange={(value) => setField("grossWeight", sanitizeGrossWeightInput(value))}
+            type="number"
+            step="0.01"
+            max={MAX_CONTAINER_GROSS_WEIGHT_MT}
+            inputClass={inputClass}
+            error={grossWeightError}
+          />
           <PemsInput label="Nett Weight" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
           <PemsInput
             label="Container tare weight"
@@ -675,7 +691,7 @@ export default function ContainerFormSections({
   );
 }
 
-function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, inputClass, error, placeholder }) {
+function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, min, max, inputClass, error, placeholder }) {
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
@@ -691,6 +707,8 @@ function PemsInput({ label, value, onChange, type = "text", readOnly = false, st
         onChange={(event) => onChange?.(event.target.value)}
         readOnly={readOnly}
         step={step}
+        min={min}
+        max={max}
         placeholder={placeholder}
         aria-invalid={error ? "true" : undefined}
         {...numberInputProps(type)}

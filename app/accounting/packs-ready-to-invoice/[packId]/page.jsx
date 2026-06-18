@@ -114,6 +114,8 @@ export default function PackInvoiceBreakdownPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={packScheduleEditPath(selectedPack.id)}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             Open in Packing Schedule

@@ -84,7 +84,7 @@ function LocationBreakdown({ rows, selectedLocationId, loading }) {
   }
 
   if (!rows.length) {
-    return <p className="text-xs text-slate-400">No stock found for this account and commodity.</p>;
+    return <p className="text-xs text-slate-400">No stock found for this account and commodity grade.</p>;
   }
 
   const total = rows.reduce((sum, r) => sum + r.quantity, 0);
@@ -290,7 +290,7 @@ export default function StockVisibilityPanel({
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Stock on Hand</h2>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          Select a customer, commodity, or location in the transfer form to see live stock balances here —
+          Select a customer, commodity grade, or location in the transfer form to see live stock balances here —
           no need to switch to Account Balances.
         </p>
       </div>
@@ -303,7 +303,7 @@ export default function StockVisibilityPanel({
         <h2 className="text-sm font-semibold text-slate-900">Stock on Hand</h2>
         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
           {customerName ? <span>Account: <strong className="text-slate-700">{customerName}</strong></span> : null}
-          {commodityName ? <span>Commodity: <strong className="text-slate-700">{commodityName}</strong></span> : null}
+          {commodityName ? <span>Commodity Grade: <strong className="text-slate-700">{commodityName}</strong></span> : null}
           {locationName ? <span>Location: <strong className="text-slate-700">{locationName}</strong></span> : null}
         </div>
       </div>
@@ -323,7 +323,7 @@ export default function StockVisibilityPanel({
             highlightAccountId={accountId}
             title={showAccountBreakdown ? `All accounts at ${locationName}` : `Accounts at ${locationName}`}
             loading={holdingsLoading}
-            emptyMessage="No stock held at this location for the selected commodity."
+            emptyMessage="No stock held at this location for the selected commodity grade."
           />
         ) : null}
 

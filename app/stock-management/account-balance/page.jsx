@@ -9,7 +9,7 @@ import ClutchSelect from "@/components/custom/ClutchSelect";
 
 const TABS = [
   { id: "byAccount", label: "By Account" },
-  { id: "byCommodity", label: "By Commodity" },
+  { id: "byCommodity", label: "By Commodity Grade" },
   { id: "byLocation", label: "By Location" },
 ];
 
@@ -231,15 +231,15 @@ export default function AccountBalancePage() {
         context: "Account view",
         stats: [
           { label: "Total Stock", value: `${total.toFixed(3)} MT`, color: qtyColor(total) },
-          { label: "Commodities", value: String(commodityCount) },
-          { label: "Top Commodity", value: topComm ? topComm[0] : "—" },
+          { label: "Commodity Grades", value: String(commodityCount) },
+          { label: "Top Commodity Grade", value: topComm ? topComm[0] : "—" },
           { label: "Top Location", value: topLoc ? topLoc[0] : "—" },
         ],
       };
     }
 
     if (filterCommodity) {
-      const name = commodities.find((c) => String(c.id) === filterCommodity)?.name ?? "Commodity";
+      const name = commodities.find((c) => String(c.id) === filterCommodity)?.name ?? "Commodity Grade";
       const accTotals = {};
       const locTotals = {};
       flattenedStock.forEach((r) => {
@@ -250,7 +250,7 @@ export default function AccountBalancePage() {
       const topLoc = topEntry(locTotals);
       return {
         title: name,
-        context: "Commodity view",
+        context: "Commodity Grade view",
         stats: [
           { label: "Total Stock", value: `${total.toFixed(3)} MT`, color: qtyColor(total) },
           { label: "Accounts", value: String(accountCount) },
@@ -275,8 +275,8 @@ export default function AccountBalancePage() {
         context: "Commodity Type view",
         stats: [
           { label: "Total Stock", value: `${total.toFixed(3)} MT`, color: qtyColor(total) },
-          { label: "Commodities", value: String(commodityCount) },
-          { label: "Top Commodity", value: topComm ? topComm[0] : "—" },
+          { label: "Commodity Grades", value: String(commodityCount) },
+          { label: "Top Commodity Grade", value: topComm ? topComm[0] : "—" },
           { label: "Top Account", value: topAcc ? topAcc[0] : "—" },
         ],
       };
@@ -296,8 +296,8 @@ export default function AccountBalancePage() {
       context: "Location view",
       stats: [
         { label: "Total Stock", value: `${total.toFixed(3)} MT`, color: qtyColor(total) },
-        { label: "Commodities", value: String(commodityCount) },
-        { label: "Top Commodity", value: topComm ? topComm[0] : "—" },
+        { label: "Commodity Grades", value: String(commodityCount) },
+        { label: "Top Commodity Grade", value: topComm ? topComm[0] : "—" },
         { label: "Top Account", value: topAcc ? topAcc[0] : "—" },
       ],
     };
@@ -402,7 +402,7 @@ export default function AccountBalancePage() {
       <table className="w-full min-w-[320px] border-collapse text-sm">
         <thead>
           <tr className="bg-slate-50/80 text-left text-[11px] font-semibold uppercase text-slate-500">
-            <th className="px-3 py-2">Commodity</th>
+            <th className="px-3 py-2">Commodity Grade</th>
             <th className="border-l border-slate-200 bg-slate-50 px-3 py-2 text-right">Total</th>
           </tr>
         </thead>
@@ -495,7 +495,7 @@ export default function AccountBalancePage() {
             </>
           ) : (
             <>
-              <p className="text-[11px] font-semibold text-slate-500">Top Commodity by Volume</p>
+              <p className="text-[11px] font-semibold text-slate-500">Top Commodity Grade by Volume</p>
               <p className="mt-1 text-sm font-bold text-slate-900">{summaryCards.topCommodity}</p>
             </>
           )}
@@ -534,12 +534,12 @@ export default function AccountBalancePage() {
             />
           </div>
           <div className="min-w-0">
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity</label>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity Grade</label>
             <ClutchSelect
               options={commodities.map((c) => ({ value: String(c.id), label: c.name }))}
               value={commodities.map((c) => ({ value: String(c.id), label: c.name })).find((o) => o.value === filterCommodity) ?? null}
               onChange={(option) => setFilterCommodity(option ? option.value : "")}
-              placeholder="All Commodities"
+              placeholder="All Commodity Grades"
               className="w-full"
             />
           </div>
@@ -603,7 +603,7 @@ export default function AccountBalancePage() {
                   badge={grp.type}
                   total={grp.pivot.total}
                 >
-                  <MatrixBreakdownTable pivot={grp.pivot} rowHeader="Commodity" colHeader="Location" />
+                  <MatrixBreakdownTable pivot={grp.pivot} rowHeader="Commodity Grade" colHeader="Location" />
                 </GroupCard>
               ))}
             </TabPanel>

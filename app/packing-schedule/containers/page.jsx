@@ -38,7 +38,7 @@ const TABLE_COLUMNS = [
   { key: "jobReference", label: "Job Ref" },
   { key: "packId", label: "Pack ID" },
   { key: "customerName", label: "Customer" },
-  { key: "commodityName", label: "Commodity" },
+  { key: "commodityName", label: "Commodity Grade" },
   { key: "importExport", label: "I/E" },
   { key: "order", label: "Order", numeric: true },
   { key: "releaseNumber", label: "Release" },
@@ -590,7 +590,7 @@ export default function PackingScheduleContainersPage() {
                 <Field label="Pack ID" value={String(selected.packId ?? "")} />
                 <Field label="Pack Status" value={selected.packStatus || ""} />
                 <Field label="Customer" value={selected.customerName || ""} />
-                <Field label="Commodity" value={selected.commodityName || ""} />
+                <Field label="Commodity Grade" value={selected.commodityName || ""} />
                 <Field label="Import/Export" value={selected.importExport || ""} />
                 <Field label="Vessel" value={selected.vessel || ""} />
                 <Field label="ETD" value={formatCutoffOrEtdDisplay(selected.etd)} />

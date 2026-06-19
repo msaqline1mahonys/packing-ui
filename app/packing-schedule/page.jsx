@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { PACK_STATUSES } from "@/lib/Data";
-import { fetchPackRows, removePack } from "@/lib/pack-schedule-store";
+import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
 import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
@@ -27,7 +27,7 @@ const config = {
 
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
-  { key: "commodity", label: "Commodity" },
+  { key: "commodity", label: "Commodity Grade" },
   { key: "blend", label: "Blend" },
   { key: "status", label: "Status" },
   { key: "vesselScheduleUpdate", label: "Sched." },
@@ -85,7 +85,7 @@ const TABLE_COLUMNS = [
   { key: "rfpAdditionalDeclarationRequired", label: "RFP Add. Decl.", hidden: true },
   { key: "rfpComment", label: "RFP Comment", hidden: true },
   { key: "rfpExpiry", label: "RFP Expiry", date: true, hidden: true },
-  { key: "rfpCommodityCode", label: "RFP Commodity Code", hidden: true },
+  { key: "rfpCommodityCode", label: "RFP Commodity Grade Code", hidden: true },
   { key: "rfpPackType", label: "RFP Pack Type", hidden: true },
   { key: "rfpTotalQuantity", label: "RFP Total Qty", numeric: true, hidden: true },
   { key: "rfpQuantityUnit", label: "RFP Qty Unit", hidden: true },
@@ -389,7 +389,7 @@ export default function PackingSchedulePage() {
               </span>
             ) : (
               <span
-                title="Blend completed — commodity transfer posted"
+                title="Blend completed — commodity grade transfer posted"
                 className="inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800"
               >
                 Blended
@@ -843,26 +843,6 @@ export default function PackingSchedulePage() {
                 <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => setHistoryOpen(true)}>
                   History
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={!selected}
-                  className="h-7 px-2.5 text-[11px]"
-                  onClick={async () => {
-                    if (!selected) return;
-                    if (!window.confirm(`Delete pack #${selected.id}? This cannot be undone.`)) return;
-                    try {
-                      await removePack(selected.id);
-                      setSelectedId(null);
-                      loadRows();
-                    } catch (err) {
-                      window.alert(err?.message || "Failed to delete pack.");
-                    }
-                  }}
-                >
-                  Delete
-                </Button>
                 <span className="ms-auto text-[11px] text-slate-500">
                   {loading ? "Loading…" : pendingVesselUpdateCount > 0 ? `${pendingVesselUpdateCount} vessel update${pendingVesselUpdateCount === 1 ? "" : "s"} pending` : "View: All Orders"}
                 </span>
@@ -894,7 +874,7 @@ export default function PackingSchedulePage() {
               <Field label="Pack ID" value={String(selected.id)} />
               <Field label="Status" value={selected.status} />
               <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? selected.customer ?? ""} />
-              <Field label="Commodity" value={selected.commodity?.description ?? selected.commodity_description ?? selected.commodity ?? ""} />
+              <Field label="Commodity Grade" value={selected.commodity?.description ?? selected.commodity_description ?? selected.commodity ?? ""} />
               <Field label="Import/Export" value={selected.import_export ?? selected.importExport ?? ""} />
               <Field label="Job Ref" value={selected.job_reference ?? selected.jobReference ?? ""} />
               <Field label="Vessel" value={selected.vessel_voyage?.vessel?.vessel_name ?? selected.vesselVoyage?.vessel?.vesselName ?? selected.vessel ?? ""} />

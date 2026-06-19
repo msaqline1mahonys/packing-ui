@@ -415,7 +415,7 @@ export default function ReleasesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-xs text-slate-500">Shipping Details / Releases</p>
+        <p className="text-xs text-slate-500">Packing Schedule / Releases</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Releases</h1>
         {!isMobile ? (
           <p className="mt-1 text-xs text-slate-500">

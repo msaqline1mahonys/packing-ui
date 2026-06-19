@@ -23,8 +23,8 @@ const inputClass =
 const UNIT_TYPE_OPTIONS = ["kg (Kilograms)", "t (Tonnes)", "lb (Pounds)", "g (Grams)"];
 
 const config = {
-  title: "Commodities",
-  subtitle: "Manage commodities, classifications, and thresholds.",
+  title: "Commodity Grades",
+  subtitle: "Manage commodity grades, classifications, and thresholds.",
   columns: [
     { key: "commodityCode", label: "CODE" },
     { key: "description", label: "DESCRIPTION" },
@@ -174,7 +174,7 @@ export default function CommodityPage() {
       const apiRows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
       setRows(apiRows.map(fromApi).filter(Boolean));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load commodities.");
+      setError(err instanceof Error ? err.message : "Unable to load commodity grades.");
     } finally {
       setIsLoading(false);
     }
@@ -346,13 +346,13 @@ export default function CommodityPage() {
 
   const saveModal = async () => {
     if (!String(draft.commodityTypeId ?? "").trim() || !String(draft.commodityCode ?? "").trim() || !String(draft.description ?? "").trim()) {
-      setError("Commodity Type, Commodity Code, and Description are required.");
+      setError("Commodity Type, Commodity Grade Code, and Description are required.");
       return;
     }
 
     const tenant = getTenantPayload();
     if (!tenant.organization_id || !tenant.site_id) {
-      setError("Organization and current site are required to save a commodity.");
+      setError("Organization and current site are required to save a commodity grade.");
       return;
     }
 
@@ -370,7 +370,7 @@ export default function CommodityPage() {
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
-        setNotice("Commodity created successfully.");
+        setNotice("Commodity Grade created successfully.");
         await invalidateReferenceData("commodities");
         setModalMode(null);
         return;
@@ -384,12 +384,12 @@ export default function CommodityPage() {
         const nextRow = fromApi(payload);
         if (!nextRow) throw new Error("Invalid response from server.");
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
-        setNotice("Commodity updated successfully.");
+        setNotice("Commodity Grade updated successfully.");
         await invalidateReferenceData("commodities");
         setModalMode(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save commodity.");
+      setError(err instanceof Error ? err.message : "Unable to save commodity grade.");
     } finally {
       setIsSaving(false);
     }
@@ -397,7 +397,7 @@ export default function CommodityPage() {
 
   const removeSelected = async () => {
     if (!selected || isDeleting) return;
-    const shouldDelete = window.confirm(`Delete commodity "${selected.commodityCode || selected.id}"?`);
+    const shouldDelete = window.confirm(`Delete commodity grade "${selected.commodityCode || selected.id}"?`);
     if (!shouldDelete) return;
 
     setIsDeleting(true);
@@ -408,10 +408,10 @@ export default function CommodityPage() {
       await apiRequest(`${ENDPOINT}/${selected.id}`, { method: "DELETE" });
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
-      setNotice("Commodity deleted successfully.");
+      setNotice("Commodity Grade deleted successfully.");
       await invalidateReferenceData("commodities");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete commodity.");
+      setError(err instanceof Error ? err.message : "Unable to delete commodity grade.");
     } finally {
       setIsDeleting(false);
     }
@@ -469,7 +469,7 @@ export default function CommodityPage() {
               fileName={config.title}
               visibleRows={10}
               loading={isLoading}
-              emptyMessage={isLoading ? "Loading commodities…" : "No commodities found."}
+              emptyMessage={isLoading ? "Loading commodity grades…" : "No commodity grades found."}
               onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
               onPersistedRowActivate={(row) => setSelectedId(row.id)}
               getRowClassName={({ row }) => row.id === selectedId ? "clutch-row-selected" : undefined}
@@ -493,11 +493,17 @@ export default function CommodityPage() {
             {!selected ? (
               <p className="mt-4 text-sm leading-relaxed text-slate-500">Select a row to view details.</p>
             ) : (
-              <dl className="mt-4 space-y-3 text-sm">
-                {config.columns.map((column) => (
-                  <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
-                ))}
-              </dl>
+              <>
+                <dl className="mt-4 space-y-3 text-sm">
+                  {config.columns.map((column) => (
+                    <DetailItem key={column.key} label={column.label} value={selected[column.key]} highlight={column === config.columns[0]} />
+                  ))}
+                </dl>
+                <DetailTestThresholds
+                  thresholds={selected.testThresholds}
+                  groupNameFor={groupNameFor}
+                />
+              </>
             )}
           </aside>
         ) : null}
@@ -529,9 +535,9 @@ export default function CommodityPage() {
               </select>
             )}
           />
-          {/* Commodity Code */}
+          {/* Commodity Grade Code */}
           <FormField
-            label="COMMODITY CODE"
+            label="COMMODITY GRADE CODE"
             required
             disabled={isSaving}
             renderInput={() => (
@@ -652,7 +658,7 @@ export default function CommodityPage() {
             renderInput={() => (
               <div className="space-y-3">
                 <div className="rounded-md border border-amber-200 bg-[#fff8e1] p-3 text-xs text-amber-900 shadow-sm">
-                  <span className="font-bold text-amber-950">Note:</span> Each commodity IS a specific grade. Tests help identify and confirm the commodity. Example: Create separate commodities for "Wheat Grade 1", "Wheat Grade 2", etc.
+                  <span className="font-bold text-amber-950">Note:</span> Each commodity grade is a specific grade. Tests help identify and confirm the commodity grade. Example: Create separate commodity grades for "Wheat Grade 1", "Wheat Grade 2", etc.
                 </div>
                 <div className="space-y-2">
                   {(() => {
@@ -900,10 +906,103 @@ function DetailItem({ label, value, highlight }) {
       <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
     </div>
   );
+}
+
+function formatThresholdRange(min, max) {
+  const hasMin = min !== "" && min != null;
+  const hasMax = max !== "" && max != null;
+  if (hasMin && hasMax) return `${min} – ${max}`;
+  if (hasMin) return `≥ ${min}`;
+  if (hasMax) return `≤ ${max}`;
+  return "—";
+}
+
+function DetailTestThresholds({ thresholds, groupNameFor }) {
+  const rows = Array.isArray(thresholds) ? thresholds.filter((t) => t?.test) : [];
+  if (rows.length === 0) {
+    return (
+      <div className="mt-5 border-t border-slate-100 pt-4">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tests</h3>
+        <p className="mt-2 text-sm text-slate-500">No tests configured.</p>
+      </div>
+    );
+  }
+
+  const units = [];
+  const seenGroups = new Set();
+  rows.forEach((row, index) => {
+    if (row.parentGroupId) {
+      if (seenGroups.has(row.parentGroupId)) return;
+      seenGroups.add(row.parentGroupId);
+      const members = rows
+        .map((r, i) => ({ row: r, index: i }))
+        .filter(({ row: r }) => r.parentGroupId === row.parentGroupId);
+      units.push({ kind: "group", groupId: row.parentGroupId, members });
+    } else {
+      units.push({ kind: "single", row, index });
+    }
+  });
+
   return (
-    <div>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>{value || "—"}</dd>
+    <div className="mt-5 border-t border-slate-100 pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tests</h3>
+      <ul className="mt-2 space-y-2">
+        {units.map((unit) => {
+          if (unit.kind === "single") {
+            return (
+              <li
+                key={`single-${unit.index}`}
+                className="rounded-md border border-slate-200 bg-slate-50/60 px-2.5 py-2 text-sm"
+              >
+                <div className="font-medium text-slate-800">{unit.row.test}</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {formatThresholdRange(unit.row.min, unit.row.max)}
+                </div>
+              </li>
+            );
+          }
+
+          const rootEntry = unit.members.find(({ row }) => row.isGroupRoot);
+          const memberEntries = unit.members.filter(({ row }) => !row.isGroupRoot);
+
+          return (
+            <li
+              key={`group-${unit.groupId}`}
+              className="rounded-md border-2 border-blue-200 bg-blue-50/40 px-2.5 py-2 text-sm"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                Group: {groupNameFor(unit.groupId)}
+              </div>
+              {rootEntry ? (
+                <div className="mt-2 rounded border border-blue-100 bg-white/70 px-2 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700/80">
+                    Sum threshold
+                  </div>
+                  <div className="font-medium text-slate-800">{rootEntry.row.test}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {formatThresholdRange(rootEntry.row.min, rootEntry.row.max)}
+                  </div>
+                </div>
+              ) : null}
+              {memberEntries.length > 0 ? (
+                <ul className="mt-2 space-y-1.5">
+                  {memberEntries.map(({ row, index }) => (
+                    <li
+                      key={`member-${index}`}
+                      className="rounded border border-blue-100 bg-white/70 px-2 py-1.5"
+                    >
+                      <div className="font-medium text-slate-800">{row.test}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {formatThresholdRange(row.min, row.max)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

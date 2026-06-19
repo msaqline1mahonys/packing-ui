@@ -152,7 +152,7 @@ function UsingBaseIndicator() {
       <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
       </svg>
-      Using Base Commodity Price
+      Using Base Commodity Grade Price
     </div>
   );
 }
@@ -166,8 +166,8 @@ function BasePriceBlock({ price, rateBasis, dirty, onPriceChange, onRateBasisCha
   return (
     <div className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-4 space-y-3">
       <div>
-        <h3 className="text-sm font-semibold text-[#0f1e3d]">Commodity Base Price Per Ton (Ex GST)</h3>
-        <p className="text-[11px] text-slate-500">Applies to every commodity under this commodity type.</p>
+        <h3 className="text-sm font-semibold text-[#0f1e3d]">Commodity Grade Base Price Per Ton (Ex GST)</h3>
+        <p className="text-[11px] text-slate-500">Applies to every commodity grade under this commodity type.</p>
       </div>
       <div className="flex items-end gap-3 flex-wrap">
         <div className="flex items-center gap-1 flex-1 min-w-[120px] max-w-[200px]">
@@ -553,7 +553,7 @@ export default function GeneralPackPricingPage() {
         </h1>
         <p className="text-xs leading-relaxed text-slate-500">
           Set the base packing price for each commodity type and container size, with optional
-          customer-specific contract overrides. The type price applies to every commodity under it.
+          customer-specific contract overrides. The type price applies to every commodity grade under it.
         </p>
       </div>
 

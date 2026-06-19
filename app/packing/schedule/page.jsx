@@ -170,7 +170,7 @@ export default function SchedulePage() {
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-5 border-b border-slate-100 bg-slate-50/60 px-5 py-2.5 md:px-8">
         <FilterSelect label="Packers" value={packerFilter} onChange={setPackerFilter} options={activePackers.map((p) => ({ value: String(p.id), label: p.name }))} allLabel="All packers" />
-        <FilterSelect label="Commodities" value={commodityFilter} onChange={setCommodityFilter} options={MOCK_COMMODITIES.map((c) => ({ value: String(c.id), label: c.name }))} allLabel="All commodities" />
+        <FilterSelect label="Commodity Grades" value={commodityFilter} onChange={setCommodityFilter} options={MOCK_COMMODITIES.map((c) => ({ value: String(c.id), label: c.name }))} allLabel="All commodity grades" />
         <FilterSelect label="Customers" value={customerFilter} onChange={setCustomerFilter} options={MOCK_CUSTOMERS.map((c) => ({ value: String(c.id), label: c.name }))} allLabel="All customers" />
         {hasFilters && (
           <button type="button" onClick={clearFilters} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Clear filters</button>

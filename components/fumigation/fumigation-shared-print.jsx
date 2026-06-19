@@ -75,10 +75,10 @@ export function CertificateFieldsBlock({ model }) {
     if (!isBlank(value)) rows.push({ label: "Customer", value });
   }
 
-  if (fields.includes("Commodity")) {
+  if (fields.includes("Commodity Grade") || fields.includes("Commodity")) {
     const code = !isBlank(model.commodityCode) ? `(${model.commodityCode})` : "";
     const value = joinParts([model.commodityDescription, code], " ");
-    if (!isBlank(value)) rows.push({ label: "Commodity", value });
+    if (!isBlank(value)) rows.push({ label: "Commodity Grade", value });
   }
 
   if (fields.includes("Fumigant")) {

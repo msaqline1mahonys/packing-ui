@@ -25,19 +25,15 @@ const config = {
     { key: "shippingLineCode", label: "Shipping Line Code" },
     { key: "shippingLineName", label: "Shipping Line Name" },
     { key: "website", label: "Website" },
-    { key: "shippingLineContactEmail", label: "Contact Email" },
-    { key: "shippingLineContactPhoneNumber", label: "Contact Phone Number" },
+    { key: "shippingLineContactsSummary", label: "Shipping Line Contact(s)" },
   ],
   formFields: [
     { key: "shippingLineCode", label: "Shipping Line Code", placeholder: "e.g., MSC, MAEU" },
     { key: "shippingLineName", label: "Shipping Line Name", placeholder: "e.g., MSC Mediterranean Shipping" },
     { key: "website", label: "Website", type: "url", placeholder: "https://www.example.com" },
-    { key: "shippingLineContactEmail", label: "Shipping Line Contact Email", type: "email", placeholder: "contact@example.com" },
-    { key: "shippingLineContactPhoneNumber", label: "Shipping Line Contact Phone Number", placeholder: "+1 234 567 8900" },
   ],
 };
 
-// Column definitions for clutch-table Grid
 const gridColumns = config.columns.map((col) => ({
   key: col.key,
   header: col.label,
@@ -47,17 +43,17 @@ const gridColumns = config.columns.map((col) => ({
   resizable: true,
 }));
 
-function buildDraft(row) {
-  const next = {};
-  for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
-  return next;
+function createEmptyContact() {
+  return { contactName: "", contactEmail: "", contactPhone: "" };
 }
 
-function parseFieldValue(field, value) {
-  if (field.type !== "number") return value;
-  if (value === "") return "";
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? value : String(parsed);
+function normalizeContacts(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => ({
+    contactName: String(item?.contactName ?? item?.name ?? ""),
+    contactEmail: String(item?.contactEmail ?? item?.email ?? ""),
+    contactPhone: String(item?.contactPhone ?? item?.phone ?? ""),
+  }));
 }
 
 function readAuthPayload() {
@@ -107,10 +103,26 @@ async function shippingLineRequest(path = "", options = {}) {
     throw new Error(extractApiError(result, "Shipping line request failed."));
   }
 
-  return result?.data ?? result;
+  return result;
 }
 
 function fromApiShippingLine(row) {
+  if (!row) return null;
+
+  let shippingLineContacts = normalizeContacts(row.contacts ?? row.shippingLineContacts ?? []).filter(
+    (contact) => contact.contactName || contact.contactEmail || contact.contactPhone
+  );
+
+  if (!shippingLineContacts.length && (row.contact_email || row.contact_phone)) {
+    shippingLineContacts = normalizeContacts([
+      {
+        contactName: "",
+        contactEmail: row.contact_email ?? "",
+        contactPhone: row.contact_phone ?? "",
+      },
+    ]).filter((contact) => contact.contactName || contact.contactEmail || contact.contactPhone);
+  }
+
   return {
     id: row.id,
     organizationId: row.organization_id ?? "",
@@ -118,22 +130,48 @@ function fromApiShippingLine(row) {
     shippingLineCode: row.shipping_line_code ?? "",
     shippingLineName: row.shipping_line_name ?? "",
     website: row.website ?? "",
-    shippingLineContactEmail: row.contact_email ?? "",
-    shippingLineContactPhoneNumber: row.contact_phone ?? "",
+    shippingLineContacts,
+    shippingLineContactsSummary: shippingLineContacts.length
+      ? `${shippingLineContacts.length} contact${shippingLineContacts.length === 1 ? "" : "s"}`
+      : "—",
     organizationName: row.organization?.name ?? "",
     siteName: row.site?.name ?? "",
   };
 }
 
 function toApiPayload(draft) {
+  const shippingLineContacts = normalizeContacts(draft.shippingLineContacts)
+    .map((item) => ({
+      contactName: item.contactName.trim(),
+      contactEmail: item.contactEmail.trim(),
+      contactPhone: item.contactPhone.trim(),
+    }))
+    .filter((item) => item.contactName || item.contactEmail || item.contactPhone);
+
   return {
     ...getTenantPayload(),
     shipping_line_code: draft.shippingLineCode?.trim() || null,
     shipping_line_name: draft.shippingLineName?.trim() || null,
     website: draft.website?.trim() || null,
-    contact_email: draft.shippingLineContactEmail?.trim() || null,
-    contact_phone: draft.shippingLineContactPhoneNumber?.trim() || null,
+    shippingLineContacts,
   };
+}
+
+function buildDraft(row) {
+  const next = { shippingLineContacts: [createEmptyContact()] };
+  for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
+  if (row) {
+    const contacts = normalizeContacts(row.shippingLineContacts);
+    next.shippingLineContacts = contacts.length ? contacts : [createEmptyContact()];
+  }
+  return next;
+}
+
+function parseFieldValue(field, value) {
+  if (field.type !== "number") return value;
+  if (value === "") return "";
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? value : String(parsed);
 }
 
 export default function ShippingLinePage() {
@@ -172,14 +210,11 @@ export default function ShippingLinePage() {
     setError("");
 
     try {
-      const payload = await shippingLineRequest("?per_page=100");
-      const apiRows = Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload)
-          ? payload
-          : [];
+      const result = await shippingLineRequest("?per_page=500");
+      const pager = result?.data;
+      const apiRows = Array.isArray(pager?.data) ? pager.data : Array.isArray(pager) ? pager : [];
 
-      setRows(apiRows.map(fromApiShippingLine));
+      setRows(apiRows.map(fromApiShippingLine).filter(Boolean));
     } catch (err) {
       setError(
         err instanceof Error
@@ -234,30 +269,34 @@ export default function ShippingLinePage() {
     setNotice("");
 
     try {
+      const body = toApiPayload({ ...draft, ...normalized });
+
       if (modalMode === "add") {
-        const payload = await shippingLineRequest("", {
+        const result = await shippingLineRequest("", {
           method: "POST",
-          body: JSON.stringify(toApiPayload(normalized)),
+          body: JSON.stringify(body),
         });
-        const nextRow = fromApiShippingLine(payload);
+        const nextRow = fromApiShippingLine(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
 
         setRows((prev) => [nextRow, ...prev]);
         setSelectedId(nextRow.id);
-        setNotice("Shipping line created successfully.");
+        setNotice(result.message || "Shipping line created successfully.");
         await invalidateReferenceData("shippingLines");
         setModalMode(null);
         return;
       }
 
       if (modalMode === "edit" && selected) {
-        const payload = await shippingLineRequest(`/${selected.id}`, {
+        const result = await shippingLineRequest(`/${selected.id}`, {
           method: "PUT",
-          body: JSON.stringify(toApiPayload(normalized)),
+          body: JSON.stringify(body),
         });
-        const nextRow = fromApiShippingLine(payload);
+        const nextRow = fromApiShippingLine(result.data);
+        if (!nextRow) throw new Error("Invalid response from server.");
 
         setRows((prev) => prev.map((row) => (row.id === selected.id ? nextRow : row)));
-        setNotice("Shipping line updated successfully.");
+        setNotice(result.message || "Shipping line updated successfully.");
         await invalidateReferenceData("shippingLines");
         setModalMode(null);
       }
@@ -270,6 +309,26 @@ export default function ShippingLinePage() {
     }
   };
 
+  function updateContact(index, key, value) {
+    setDraft((prev) => ({
+      ...prev,
+      shippingLineContacts: prev.shippingLineContacts.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item
+      ),
+    }));
+  }
+
+  function addContact() {
+    setDraft((prev) => ({ ...prev, shippingLineContacts: [...prev.shippingLineContacts, createEmptyContact()] }));
+  }
+
+  function removeContact(index) {
+    setDraft((prev) => {
+      const next = prev.shippingLineContacts.filter((_, itemIndex) => itemIndex !== index);
+      return { ...prev, shippingLineContacts: next.length ? next : [createEmptyContact()] };
+    });
+  }
+
   const removeSelected = async () => {
     if (!selected || isDeleting) return;
     const shouldDelete = window.confirm(`Delete ${selected.shippingLineName || selected.shippingLineCode || "this shipping line"}?`);
@@ -280,13 +339,13 @@ export default function ShippingLinePage() {
     setNotice("");
 
     try {
-      await shippingLineRequest(`/${selected.id}`, {
+      const result = await shippingLineRequest(`/${selected.id}`, {
         method: "DELETE",
       });
 
       setRows((prev) => prev.filter((row) => row.id !== selected.id));
       setSelectedId(null);
-      setNotice("Shipping line deleted successfully.");
+      setNotice(result.message || "Shipping line deleted successfully.");
       await invalidateReferenceData("shippingLines");
     } catch (err) {
       setError(
@@ -404,6 +463,58 @@ export default function ShippingLinePage() {
             />
           ))}
         </div>
+
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Shipping Line Contact(s)</p>
+            <Button type="button" size="sm" variant="outline" onClick={addContact} disabled={isSaving}>
+              + Add contact
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {(draft.shippingLineContacts ?? []).map((contact, index) => (
+              <div key={`contact-${index}`} className="rounded-lg border border-slate-200 bg-slate-50/40 p-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-600">Contact {index + 1}</p>
+                  {(draft.shippingLineContacts?.length ?? 0) > 1 ? (
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      className="rounded bg-rose-50 px-1.5 py-0.5 text-xs text-rose-600 hover:bg-rose-100 disabled:opacity-50"
+                      onClick={() => removeContact(index)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <input
+                    className={inputClass}
+                    value={contact.contactName}
+                    disabled={isSaving}
+                    onChange={(event) => updateContact(index, "contactName", event.target.value)}
+                    placeholder="Contact Name"
+                  />
+                  <input
+                    className={inputClass}
+                    value={contact.contactEmail}
+                    disabled={isSaving}
+                    onChange={(event) => updateContact(index, "contactEmail", event.target.value)}
+                    placeholder="Contact Email"
+                  />
+                  <input
+                    className={inputClass}
+                    value={contact.contactPhone}
+                    disabled={isSaving}
+                    onChange={(event) => updateContact(index, "contactPhone", event.target.value)}
+                    placeholder="Contact Phone"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>Cancel</Button>
           <Button type="button" size="sm" onClick={saveModal} disabled={isSaving}>
@@ -419,7 +530,7 @@ export default function ShippingLinePage() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="fixed bottom-5 right-5 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-brand to-blue-500 text-xl text-white shadow-lg shadow-blue-500/30"
         >
-          â†‘
+          ↑
         </button>
       ) : null}
     </div>

@@ -25,6 +25,7 @@ import { hasPermission } from "@/lib/use-user-permissions";
 import { numberInputProps } from "@/lib/number-input";
 import {
   MAX_CONTAINER_GROSS_WEIGHT_MT,
+  getContainerWeightLimitWarnings,
   sanitizeGrossWeightInput,
   validateGrossWeight,
 } from "@/lib/packers-container-validation";
@@ -191,6 +192,20 @@ function SamePackDuplicateWarning({ fieldLabel, matches }) {
   );
 }
 
+function IsoWeightLimitWarnings({ warnings }) {
+  if (!warnings?.length) return null;
+  return (
+    <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+      <p className="font-semibold">Weight exceeds ISO container limits</p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-4">
+        {warnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function ContainerFormSections({
   container,
   onChange,
@@ -222,6 +237,7 @@ export default function ContainerFormSections({
   containerParkOptions = [],
   transporterOptions = [],
   packContainers = [],
+  containerCodes = [],
   isImportPack = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
@@ -234,6 +250,10 @@ export default function ContainerFormSections({
     containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
   const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
   const grossWeightError = validateGrossWeight(grossWeightValue);
+  const isoWeightLimitWarnings = useMemo(
+    () => getContainerWeightLimitWarnings(container, containerCodes),
+    [container, containerCodes]
+  );
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
   const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
   const resolvedContainerId = resolveEntityId(containerId, container?.id);
@@ -482,6 +502,7 @@ export default function ContainerFormSections({
             step="0.01"
             inputClass={inputClass}
           />
+          <IsoWeightLimitWarnings warnings={isoWeightLimitWarnings} />
         </div>
       </div>
 

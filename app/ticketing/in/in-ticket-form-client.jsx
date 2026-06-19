@@ -24,6 +24,7 @@ import {
 } from "@/lib/ticketing-api";
 import { DEMO_TESTS } from "@/lib/demo-in-ticket-data";
 import { fetchLocationUtilization, fetchTransactions } from "@/lib/transactions-api";
+import SeasonSelect from "@/components/ticketing/season-select";
 import {
   displayFromStorageKg,
   formatWeightFromStorageKg,
@@ -61,6 +62,26 @@ function formatCmoCommoditySummary(cmo, commodities) {
       return commodityOptionLabel(comm) || "Unknown";
     })
     .join(", ");
+}
+
+function formatLocationStockSuffix(util, stockItemsFallback = []) {
+  const commodities = util?.commodities ?? [];
+  if (commodities.length > 0) {
+    const parts = commodities.slice(0, 3).map((item) => {
+      const name = item.commodityName ?? item.commodity_name ?? "Unknown";
+      const total = Number(item.total ?? 0);
+      return total > 0 ? `${name} ${total.toFixed(1)} MT` : name;
+    });
+    const more = commodities.length > 3 ? ` +${commodities.length - 3} more` : "";
+    return ` — ${parts.join(", ")}${more}`;
+  }
+  if (stockItemsFallback.length > 0) {
+    return ` — ${stockItemsFallback.map((item) => item.commodityTypeName).join(", ")}`;
+  }
+  if (util && Number(util.totalStock ?? 0) > 0) {
+    return " — in use";
+  }
+  return " (empty)";
 }
 
 function buildBlankTicket(direction) {
@@ -143,6 +164,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     commodityTypeId: "",
     commodityIds: [],
     status: "Open",
+    season: "",
     estimatedAmount: "",
     note: "",
     attachments: [],
@@ -525,7 +547,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const handleCompleteClick = () => {
     if (pendingCommodityForCompletion) {
       if (requiresCommodityConfirmation) {
-        setError("Confirm the commodity before completing this ticket. Use Identify Commodity to review test results and confirm.");
+        setError("Confirm the commodity grade before completing this ticket. Use Identify Commodity Grade to review test results and confirm.");
         confirmCommodity();
       } else {
         setError("Select an identified commodity before completing this ticket.");
@@ -651,6 +673,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         internalAccountId: null,
                         commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
                         commodityId: singleLine ? singleLine.commodityId ?? null : null,
+                        season: selectedCmo?.season ?? "",
                         commodityConfirmed: false,
                         commodityOverrideReason: "",
                       }));
@@ -741,7 +764,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 })()}
               </FormRow>
 
-              <FormRow label="Identified Commodity">
+              <FormRow label="Identified Commodity Grade">
                 {(() => {
                   const identifiedCommodityOptions = commodities
                     .filter(
@@ -756,7 +779,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       options={identifiedCommodityOptions}
                       value={identifiedCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
                       isDisabled={isCompleted || !ticket.commodityTypeId}
-                      placeholder="Select commodity"
+                      placeholder="Select commodity grade"
                       onChange={(option) => {
                         const v = option ? option.value : null;
                         set("commodityId", v || null);
@@ -789,6 +812,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     <div className="text-[10px] font-semibold text-slate-500">Status</div>
                     <div>{cmo.status || "-"}</div>
                   </div>
+                </div>
+                <div className="mt-2 border-t border-slate-200 pt-2">
+                  <div className="text-[10px] font-semibold text-slate-500">Note</div>
+                  <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800">{(cmo.note ?? "").trim() || "-"}</div>
                 </div>
                 {getRemainingTonnage(ticket.cmoId) ? (
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-[11px] text-slate-600">
@@ -947,7 +974,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               />
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" disabled={isCompleted || ticket.commodityConfirmed} onClick={confirmCommodity}>
-                  {ticket.commodityConfirmed ? "Commodity Confirmed" : "Identify Commodity"}
+                  {ticket.commodityConfirmed ? "Commodity Grade Confirmed" : "Identify Commodity Grade"}
                 </Button>
                 {ticket.commodityConfirmed && commodity ? (
                   <span className="text-[11px] font-semibold text-emerald-700">
@@ -1016,12 +1043,11 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               />
             </FormRow>
             <FormRow label="Season">
-              <input
-                className={inputClass}
+              <SeasonSelect
                 value={ticket.season || ""}
-                disabled={isCompleted}
-                onChange={(e) => set("season", e.target.value)}
-                placeholder="Optional"
+                isDisabled={isCompleted}
+                placeholder="Select season..."
+                onChange={(v) => set("season", v)}
               />
             </FormRow>
             <FormRow label="Additional Reference">
@@ -1062,15 +1088,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((loc) => {
                     const util = utilizationByLocation[loc.id];
-                    let suffix;
-                    if (util) {
-                      suffix = util.utilizationPct != null
-                        ? ` — ${Math.round(util.utilizationPct)}% used`
-                        : " (empty)";
-                    } else {
-                      const stockItems = getLocationStock(loc.id);
-                      suffix = stockItems.length > 0 ? " — in use" : " (empty)";
-                    }
+                    const stockItems = util ? [] : getLocationStock(loc.id);
+                    const suffix = formatLocationStockSuffix(util, stockItems);
                     return { value: loc.id, label: `${loc.name} (${loc.locationType})${suffix}` };
                   });
                 return (
@@ -1152,15 +1171,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               ) : null}
               {pendingCommodityForCompletion ? (
                 <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-900">
-                  <span className="font-semibold">Commodity confirmation required.</span>{" "}
+                  <span className="font-semibold">Commodity grade confirmation required.</span>{" "}
                   {requiresCommodityConfirmation
-                    ? "All other requirements are met. Use Identify Commodity to confirm the grade before completing this ticket."
+                    ? "All other requirements are met. Use Identify Commodity Grade to confirm the grade before completing this ticket."
                     : "All other requirements are met. Select an identified commodity before completing this ticket."}
                 </p>
               ) : !canComplete && !isCompleted ? (
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   <span className="font-semibold text-slate-600">Required:</span> CMO, truck, gross &amp; tare weights,
-                  {requiresCommodityConfirmation ? " commodity confirmed," : " commodity,"} signoff, and{" "}
+                  {requiresCommodityConfirmation ? " commodity grade confirmed," : " commodity grade,"} signoff, and{" "}
                   {isIncoming ? "unload" : "load"} location.
                 </p>
               ) : null}
@@ -1214,7 +1233,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             );
           })()}
         </FormRow>
-        <FormRow label="Commodities" required>
+        <FormRow label="Commodity Grades" required>
           {!newCmo.commodityTypeId ? (
             <p className="text-xs text-slate-500">Select a commodity type first.</p>
           ) : (
@@ -1245,6 +1264,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 ))}
             </div>
           )}
+        </FormRow>
+        <FormRow label="Season">
+          <SeasonSelect
+            value={newCmo.season}
+            placeholder="Select season..."
+            onChange={(v) => setNewCmo({ ...newCmo, season: v })}
+          />
         </FormRow>
         <FormRow
           label={`Estimated Amount${
@@ -1287,6 +1313,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   commodityTypeId: newCmo.commodityTypeId,
                   commodityIds: newCmo.commodityIds,
                   status: newCmo.status || "Open",
+                  season: newCmo.season || null,
                   estimatedAmount: Number(newCmo.estimatedAmount) || 0,
                   note: newCmo.note,
                 });
@@ -1299,6 +1326,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   customerId: created.customerId,
                   commodityTypeId: created.commodityTypeId,
                   commodityId: singleLine ? singleLine.commodityId : null,
+                  season: created.season ?? "",
                   commodityConfirmed: false,
                   commodityOverrideReason: "",
                 }));
@@ -1310,6 +1338,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   commodityTypeId: "",
                   commodityIds: [],
                   status: "Open",
+                  season: "",
                   estimatedAmount: "",
                   note: "",
                   attachments: [],
@@ -1380,7 +1409,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </div>
       </Modal>
 
-      <Modal open={showCommodityModal} title="Commodity Identification" wide onClose={() => setShowCommodityModal(false)}>
+      <Modal open={showCommodityModal} title="Commodity Grade Identification" wide onClose={() => setShowCommodityModal(false)}>
         <CommodityIdentificationBody
           suggestedCommodities={suggestedCommodities}
           testResultsSummary={testResultsSummary}
@@ -1438,7 +1467,7 @@ function CommodityIdentificationBody({
         {suggestedCommodities.length > 0 ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="text-sm font-semibold text-emerald-800">
-              {suggestedCommodities.length === 1 ? "Suggested Commodity:" : "Matching Commodities:"}
+              {suggestedCommodities.length === 1 ? "Suggested Commodity Grade:" : "Matching Commodity Grades:"}
             </p>
             <p className="mt-1 text-xs text-slate-600">
               {suggestedCommodities
@@ -1449,7 +1478,7 @@ function CommodityIdentificationBody({
           </div>
         ) : (
           <div className="rounded-lg border border-yellow-200 bg-amber-50 px-4 py-3">
-            <p className="text-sm font-semibold text-amber-900">No commodity matches all test results</p>
+            <p className="text-sm font-semibold text-amber-900">No commodity grade matches all test results</p>
             <p className="mt-1 text-xs text-amber-950/90">You can still select a commodity with an override reason</p>
           </div>
         )}
@@ -1500,7 +1529,7 @@ function CommodityIdentificationBody({
         </div>
       </div>
 
-      <FormRow label="Confirm Commodity" required>
+      <FormRow label="Confirm Commodity Grade" required>
         {(() => {
           const confirmCommodityOptions = commodities
             .filter(
@@ -1517,7 +1546,7 @@ function CommodityIdentificationBody({
             <ClutchSelect
               options={confirmCommodityOptions}
               value={confirmCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
-              placeholder="Select commodity"
+              placeholder="Select commodity grade"
               onChange={(option) => set("commodityId", option ? option.value : null)}
             />
           );
@@ -1530,7 +1559,7 @@ function CommodityIdentificationBody({
             className={cn(inputClass, "min-h-[72px] resize-y")}
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}
-            placeholder="Explain why you're selecting a different commodity..."
+            placeholder="Explain why you're selecting a different commodity grade..."
             rows={3}
           />
         </FormRow>

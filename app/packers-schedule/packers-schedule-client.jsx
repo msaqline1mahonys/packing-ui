@@ -25,7 +25,7 @@ const IMPORT_EXPORT_OPTIONS = [
 
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
-  { key: "commodity", label: "Commodity" },
+  { key: "commodity", label: "Commodity Grade" },
   { key: "status", label: "Status" },
   { key: "packNumber", label: "Pack No." },
   { key: "jobReference", label: "Job Ref" },
@@ -339,7 +339,7 @@ export default function PackersScheduleClient() {
               <Field label="I/E" value={selected.import_export ?? selected.importExport ?? ""} />
               <Field label="Status" value={selected.status} />
               <Field label="Customer" value={selected.customer?.name ?? selected.customer_name ?? (typeof selected.customer === "string" ? selected.customer : "")} />
-              <Field label="Commodity" value={selected.commodity?.description ?? selected.commodity_description ?? (typeof selected.commodity === "string" ? selected.commodity : "")} />
+              <Field label="Commodity Grade" value={selected.commodity?.description ?? selected.commodity_description ?? (typeof selected.commodity === "string" ? selected.commodity : "")} />
               <Field label="Pack No." value={selected.pack_number ?? selected.packNumber ?? ""} />
               <Field label="Job Ref" value={selected.job_reference ?? selected.jobReference ?? ""} />
               {isImportPack(selected) ? (

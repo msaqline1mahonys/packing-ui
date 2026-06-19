@@ -145,7 +145,7 @@ export default function TicketListPage({
         renderCell: ({ value }) => <span title={value}>{String(value).slice(0, 8)}</span>,
       },
       { key: "customerCmo", header: "Customer / CMO", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "commodityGrade", header: "Commodity", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "commodityGrade", header: "Commodity Grade", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "truckDisplay", header: "Truck", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "status",
@@ -299,7 +299,7 @@ export default function TicketListPage({
             <div className="space-y-3 p-3 text-xs">
               <Field label="ID" value={String(selected.id).slice(0, 8)} />
               <Field label="Customer / CMO" value={selected.customerCmo} />
-              <Field label="Commodity & grade" value={selected.commodityGrade} />
+              <Field label="Commodity Grade" value={selected.commodityGrade} />
               <Field label="Truck" value={<span className="font-mono">{selected.truckDisplay || "—"}</span>} />
               <Field label="Status" value={<span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize", statusBadgeClass(selected.status))}>{selected.status}</span>} />
               <Field label="Net (T)" value={formatNet(selected.netT)} />

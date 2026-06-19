@@ -83,7 +83,7 @@ export default function PacksReadyToInvoicePage() {
   );
 
   const commoditySelectOpts = useMemo(
-    () => [{ value: "all", label: "All commodities" }, ...commodityOptions.map((c) => ({ value: c, label: c }))],
+    () => [{ value: "all", label: "All commodity grades" }, ...commodityOptions.map((c) => ({ value: c, label: c }))],
     [commodityOptions]
   );
 
@@ -279,14 +279,14 @@ export default function PacksReadyToInvoicePage() {
             />
           </div>
           <div className="min-w-[170px]">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Commodity</label>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Commodity Grade</label>
             <ClutchSelect
               className="w-full"
               options={commoditySelectOpts}
               value={commoditySelectOpts.find((o) => o.value === commodityFilter) ?? null}
               onChange={(option) => setCommodityFilter(option ? option.value : "all")}
               isClearable={false}
-              placeholder="All commodities"
+              placeholder="All commodity grades"
             />
           </div>
           <div className="min-w-[170px]">
@@ -380,7 +380,7 @@ export default function PacksReadyToInvoicePage() {
               />
             </span>
             <span>Job Ref</span>
-            <span>Customer / Commodity</span>
+            <span>Customer / Commodity Grade</span>
             <span>Packing Start</span>
             <span>Containers</span>
             <span>Total Weight</span>

@@ -157,9 +157,9 @@ export default function FumigationCertificateDocument({ model, backHref, hideToo
               <Row label="Seal number(s)" value={model.sealNumbers?.join(", ") || "—"} />
               <Row label="Client name" value={model.customerName} />
               <Row label="Client address" value={model.customerAddress} />
-              <Row label="Commodity description" value={model.commodityDescription} />
+              <Row label="Commodity Grade description" value={model.commodityDescription} />
               <Row label="Country of origin" value={model.commodityCountryOfOrigin} />
-              <Row label="Commodity quantity" value={model.commodityQuantity} />
+              <Row label="Commodity Grade quantity" value={model.commodityQuantity} />
               <Row label="Port of loading" value={model.portOfLoading} />
               <Row label="Destination country" value={model.destinationCountry} />
             </tbody>

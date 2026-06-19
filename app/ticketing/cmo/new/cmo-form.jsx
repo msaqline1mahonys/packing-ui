@@ -14,6 +14,7 @@ import {
   saveCmo,
 } from "@/lib/ticketing-api";
 import { weightUnitLabel } from "@/lib/weight-units";
+import SeasonSelect from "@/components/ticketing/season-select";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
@@ -33,6 +34,7 @@ function emptyForm() {
     commodityTypeId: "",
     commodityIds: [],
     status: STATUS_OPTIONS[0],
+    season: "",
     estimatedAmount: "0",
     actualAmountDelivered: "0",
     additionalReferenceDraft: "",
@@ -83,6 +85,7 @@ export default function CmoForm() {
                 ? [row.commodityId]
                 : [],
             status: row.status,
+            season: row.season ?? "",
             estimatedAmount: String(row.estimatedAmount),
             actualAmountDelivered: String(row.actualAmountDelivered),
             additionalReferenceDraft: "",
@@ -168,6 +171,7 @@ export default function CmoForm() {
         commodityTypeId: form.commodityTypeId,
         commodityIds: form.commodityIds,
         status: form.status,
+        season: form.season || null,
         estimatedAmount: Number(form.estimatedAmount) || 0,
         actualAmountDelivered: Number(form.actualAmountDelivered) || 0,
         additionalReferences: form.additionalReferences,
@@ -259,6 +263,14 @@ export default function CmoForm() {
               })()}
             </Field>
 
+            <Field label="Season">
+              <SeasonSelect
+                value={form.season}
+                onChange={(v) => setField("season", v)}
+                placeholder="Select season..."
+              />
+            </Field>
+
             <Field label="Commodity Type" required>
               {(() => {
                 const commodityTypeOptions = commodityTypes.map((ct) => ({ value: ct.id, label: ct.name }));
@@ -286,11 +298,11 @@ export default function CmoForm() {
             </Field>
           </div>
 
-          <Field label="Commodities" required>
+          <Field label="Commodity Grades" required>
             {!form.commodityTypeId ? (
               <p className="text-xs text-slate-500">Select a commodity type first.</p>
             ) : commodityChoices.length === 0 ? (
-              <p className="text-xs text-slate-500">No active commodities for this type.</p>
+              <p className="text-xs text-slate-500">No active commodity grades for this type.</p>
             ) : (
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                 {commodityChoices.map((c) => {
@@ -317,7 +329,7 @@ export default function CmoForm() {
             )}
             {form.commodityIds.length > 0 ? (
               <p className="mt-1.5 text-xs text-slate-500">
-                {form.commodityIds.length} commodit{form.commodityIds.length === 1 ? "y" : "ies"} selected. Tickets will finalize one of these grades per load.
+                {form.commodityIds.length} commodity grade{form.commodityIds.length === 1 ? "" : "s"} selected. Tickets will finalize one of these grades per load.
               </p>
             ) : null}
           </Field>

@@ -56,6 +56,7 @@ export const PACKING_NAV_MODULES = [
     children: [
       { name: "Packs", href: "/packing-schedule" },
       { name: "Containers", href: "/packing-schedule/containers" },
+      { name: "Releases", href: "/packing-schedule/releases" },
     ],
   },
   {

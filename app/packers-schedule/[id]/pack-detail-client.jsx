@@ -1054,7 +1054,7 @@ export default function PackDetailClient({ packId }) {
           </div>
         ) : null}
         <div className="mt-3 grid gap-2 md:grid-cols-3">
-          <PriorityField label="Commodity" value={safeValue(packRow.commodity)} />
+          <PriorityField label="Commodity Grade" value={safeValue(packRow.commodity)} />
           <PriorityField label="Weight per container" value={weightPerContainer == null ? "—" : `${weightPerContainer} MT`} />
           <PriorityField label="Job Ref" value={safeValue(packRow.jobReference)} />
         </div>
@@ -1443,6 +1443,7 @@ export default function PackDetailClient({ packId }) {
               praTemplateOptions={PRA_TEMPLATE_OPTIONS}
               praStatusOptions={PRA_STATUS_OPTIONS}
               isoOptions={isoOptions}
+              containerCodes={lookups.containerCodes || []}
               stockBayOptions={stockLocationNames}
               inputClass={inputClass}
               sectionCardClass={sectionCardClass}

@@ -1159,7 +1159,7 @@ function BlendStockByLocationPanel({ locationStock, loading, selectedLocationId,
   if (!locationStock.length) {
     return (
       <p className="text-[10px] text-slate-400">
-        No stock on hand at any location for this commodity.
+        No stock on hand at any location for this commodity grade.
       </p>
     );
   }
@@ -1195,7 +1195,7 @@ function formatBlendComponentSummary(component, commoditySelectOpts, locationSel
   const commodityLabel =
     component.commodityName ||
     commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? ""))?.label ||
-    "No commodity";
+    "No commodity grade";
   const locationLabel =
     component.locationName ||
     locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? ""))?.label ||
@@ -1267,7 +1267,7 @@ function BlendComponentEditor({
           <div className="grid grid-cols-2 gap-1">
             <div className="min-w-0 space-y-0.5">
               <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-                Source commodity
+                Source commodity grade
               </label>
               <ClutchSelect
                 placeholder="- Select -"
@@ -1342,7 +1342,7 @@ function BlendComponentEditor({
       <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_5rem_auto]">
         <div className="min-w-0 space-y-0.5">
           <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
-            Source commodity
+            Source commodity grade
           </label>
           <ClutchSelect
             placeholder="- Select -"
@@ -1472,7 +1472,7 @@ function BlendPerformAction({ pack, packId, commodityOptions, stockLocations, mt
         quantity: Number(c.quantity),
       }));
     if (components.length === 0) {
-      setError("Add at least one component with a commodity, location and quantity.");
+      setError("Add at least one component with a commodity grade, location and quantity.");
       return;
     }
     setPerforming(true);
@@ -1555,7 +1555,7 @@ function BlendPerformModal({
   }));
 
   const finalCommodityLabel =
-    commoditySelectOpts.find((o) => String(o.value) === String(pack.commodityId ?? ""))?.label || "final commodity";
+    commoditySelectOpts.find((o) => String(o.value) === String(pack.commodityId ?? ""))?.label || "final commodity grade";
 
   const componentQtySum = components
     .map((c) => Number(c.quantity))
@@ -1573,7 +1573,7 @@ function BlendPerformModal({
           <div>
             <h2 className="text-sm font-semibold text-slate-800">Perform blend</h2>
             <p className="text-xs text-slate-500">
-              Posts a commodity-to-commodity transfer per component into {finalCommodityLabel}.
+              Posts a commodity-grade-to-commodity-grade transfer per component into {finalCommodityLabel}.
             </p>
           </div>
           <button
@@ -3154,7 +3154,7 @@ function NewPackFormPageInner() {
   const summaryFields = [
     ["Cust", stickySummary.customer],
     ["Job", stickySummary.jobRef],
-    ["Comm", stickySummary.commodity],
+    ["Grade", stickySummary.commodity],
     ["Fumi", stickySummary.fumigation],
     ["Warn", stickySummary.packWarning],
     ["Rel", stickySummary.releases],
@@ -3445,7 +3445,7 @@ function NewPackFormPageInner() {
                     );
                   })()}
                 </FormRow>
-                <FormRow label={pack.isBlend ? "Final commodity (blend target)" : "Commodity"}>
+                <FormRow label={pack.isBlend ? "Final commodity grade (blend target)" : "Commodity Grade"}>
                   {(() => {
                     const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: commodityOptionLabel(c) }));
                     return (
@@ -4368,7 +4368,7 @@ function NewPackFormPageInner() {
                     <FormRow label="RFP expiry">
                       <input className={inputClass} type="date" value={pack.rfpExpiry} onChange={(e) => set("rfpExpiry", e.target.value)} />
                     </FormRow>
-                    <FormRow label="RFP commodity code">
+                    <FormRow label="RFP commodity grade code">
                       <input className={inputClass} value={pack.rfpCommodityCode} onChange={(e) => set("rfpCommodityCode", e.target.value)} placeholder="Code" />
                     </FormRow>
                     <FormRow label="RFP pack type">
@@ -4719,7 +4719,7 @@ function NewPackFormPageInner() {
                             placeholder="e.g. Port of Melbourne"
                           />
                         </FormRow>
-                        <FormRow label="Commodity country of origin">
+                        <FormRow label="Commodity Grade country of origin">
                           <input
                             className={inputClass}
                             value={pack.commodityCountryOfOrigin ?? ""}

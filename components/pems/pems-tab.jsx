@@ -583,7 +583,7 @@ export default function PemsTab({
                         <th className={cn(gppirTableCompactCol, "font-semibold")}>RFP Line No</th>
                         <th className={cn(gppirTableCellCol, "font-semibold")}>Container Number</th>
                         <th className={cn(gppirTableCellCol, "font-semibold")}>Source</th>
-                        <th className={cn(gppirTableCellCol, "font-semibold")}>Commodity</th>
+                        <th className={cn(gppirTableCellCol, "font-semibold")}>Commodity Grade</th>
                         <th className={cn(gppirTableCompactCol, "font-semibold")}>Package Number</th>
                         <th className={cn(gppirTableTypeCol, "font-semibold")}>Type</th>
                         <th className={cn(gppirTableNumCol, "font-semibold")}>Weight</th>

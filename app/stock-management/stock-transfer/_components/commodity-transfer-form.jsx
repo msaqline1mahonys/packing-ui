@@ -156,10 +156,10 @@ export default function CommodityTransferForm({
     const e = {};
     if (!form.locationId) e.locationId = "Location is required.";
     if (!form.customerId) e.customerId = "Customer is required.";
-    if (!form.fromCommodityId) e.fromCommodityId = "From Commodity is required.";
-    if (!form.toCommodityId) e.toCommodityId = "To Commodity is required.";
+    if (!form.fromCommodityId) e.fromCommodityId = "From Commodity Grade is required.";
+    if (!form.toCommodityId) e.toCommodityId = "To Commodity Grade is required.";
     if (form.fromCommodityId && form.toCommodityId && form.fromCommodityId === form.toCommodityId)
-      e.toCommodityId = "To Commodity must differ from From Commodity.";
+      e.toCommodityId = "To Commodity Grade must differ from From Commodity Grade.";
     if (!form.amount || qty <= 0) e.amount = "Amount must be greater than 0.";
     if (exceedsLimit) e.amount = transferLimitErrorMessage(stockOnHand);
     return e;
@@ -265,7 +265,7 @@ export default function CommodityTransferForm({
 
       {/* From Commodity + To Commodity */}
       <div className="grid gap-2.5 sm:grid-cols-2">
-        <Field label="From Commodity" required>
+        <Field label="From Commodity Grade" required>
           <select
             suppressHydrationWarning
             className={inputClass}
@@ -280,7 +280,7 @@ export default function CommodityTransferForm({
             }}
             onBlur={() => touch("fromCommodityId")}
           >
-            <option value="">Select commodity</option>
+            <option value="">Select commodity grade</option>
             {(commodities ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {commodityLabel(c)}
@@ -290,7 +290,7 @@ export default function CommodityTransferForm({
           {fieldErr("fromCommodityId") ? <ErrorText>{fieldErr("fromCommodityId")}</ErrorText> : null}
         </Field>
 
-        <Field label="To Commodity" required>
+        <Field label="To Commodity Grade" required>
           <select
             suppressHydrationWarning
             className={inputClass}
@@ -298,7 +298,7 @@ export default function CommodityTransferForm({
             onChange={(e) => { set("toCommodityId", e.target.value); touch("toCommodityId"); }}
             onBlur={() => touch("toCommodityId")}
           >
-            <option value="">Select commodity</option>
+            <option value="">Select commodity grade</option>
             {toCommodities.map((c) => (
               <option key={c.id} value={c.id}>
                 {commodityLabel(c)}

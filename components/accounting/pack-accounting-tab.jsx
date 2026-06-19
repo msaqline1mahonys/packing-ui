@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import PackCostBreakdownPanel from "@/components/accounting/pack-cost-breakdown-panel";
+import PackInvoiceBreakdownEditor from "@/components/accounting/pack-invoice-breakdown-editor";
 import { loadPackCostBreakdown } from "@/lib/pack-cost-breakdown";
 
 export default function PackAccountingTab({ packId, packStatus, refreshKey = 0, isActive = true }) {
@@ -42,17 +42,24 @@ export default function PackAccountingTab({ packId, packStatus, refreshKey = 0, 
   const breakdown = shouldLoad && isCurrentFetch ? fetchResult.breakdown : null;
   const errorText = shouldLoad && isCurrentFetch ? fetchResult.error : "";
 
+  function handleSaved(nextBreakdown) {
+    if (!nextBreakdown) return;
+    setFetchResult((prev) => ({ ...prev, breakdown: nextBreakdown }));
+  }
+
   return (
     <section className="rounded-[10px] border border-slate-200 bg-white p-3 md:p-[18px]" aria-label="Accounting">
-      <PackCostBreakdownPanel
+      <PackInvoiceBreakdownEditor
         breakdown={breakdown}
         loading={loading}
         errorText={errorText}
         emptyText="Save the pack to view the cost breakdown."
+        showProgressCards
         showReadyToInvoiceLink={isApproved && Boolean(resolvedPackId)}
         readyToInvoiceHref={
           resolvedPackId ? `/accounting/packs-ready-to-invoice/${encodeURIComponent(resolvedPackId)}` : ""
         }
+        onSaved={handleSaved}
       />
     </section>
   );

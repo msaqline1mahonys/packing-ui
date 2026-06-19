@@ -82,7 +82,7 @@ export default function CmoPage() {
       { key: "cmoReference", header: "CMO Ref", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "customer", header: "Customer", type: "text", sortable: true, filterable: true, resizable: true },
       { key: "commodityType", header: "Commodity Type", type: "text", sortable: true, filterable: true, resizable: true },
-      { key: "commodity", header: "Commodity", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "commodity", header: "Commodity Grade", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "status",
         header: "Status",
@@ -197,8 +197,9 @@ export default function CmoPage() {
               <DetailRow label="Direction" value={selected.direction} />
               <DetailRow label="Customer" value={selected.customer} />
               <DetailRow label="Commodity Type" value={selected.commodityType} />
-              <DetailRow label="Commodities" value={selected.commodity} />
+              <DetailRow label="Commodity Grades" value={selected.commodity} />
               <DetailRow label="Status" value={selected.status} />
+              <DetailRow label="Season" value={selected.season} />
               <DetailRow label="Estimated (T)" value={selected.estimatedAmount} />
               <DetailRow label="Actual Delivered (T)" value={selected.actualAmountDelivered} />
               <DetailRow label="Additional References" value={selected.additionalReferences?.join(", ") || "—"} />

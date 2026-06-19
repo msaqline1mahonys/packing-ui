@@ -8,7 +8,7 @@ import { commodityOptionLabel } from "@/lib/commodity-display";
  * Empty selection means "all commodities" (the report includes every commodity
  * the customer has activity in).
  */
-export function CommodityMultiSelect({ commodities, value = [], onChange, allowEmpty = true, emptyLabel = "All commodities" }) {
+export function CommodityMultiSelect({ commodities, value = [], onChange, allowEmpty = true, emptyLabel = "All commodity grades" }) {
   return (
     <MultiSelectCombobox
       options={commodities}
@@ -17,8 +17,8 @@ export function CommodityMultiSelect({ commodities, value = [], onChange, allowE
       getId={(c) => c.id}
       getLabel={commodityOptionLabel}
       getMeta={(c) => c.description || ""}
-      placeholder="Select commodities..."
-      searchPlaceholder="Filter commodities..."
+      placeholder="Select commodity grades..."
+      searchPlaceholder="Filter commodity grades..."
       emptyMeansAll={allowEmpty}
       allLabel={emptyLabel}
     />

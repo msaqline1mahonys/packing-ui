@@ -294,13 +294,13 @@ export default function FumigationCertificateEditorClient({ packId }) {
               <FormField label="Client name">
                 <input className={inputClass} value={cert.customerName ?? ""} onChange={(e) => set("customerName", e.target.value)} />
               </FormField>
-              <FormField label="Commodity description">
+              <FormField label="Commodity Grade description">
                 <input className={inputClass} value={cert.commodityDescription ?? ""} onChange={(e) => set("commodityDescription", e.target.value)} />
               </FormField>
               <FormField label="Country of origin">
                 <input className={inputClass} value={cert.commodityCountryOfOrigin ?? ""} onChange={(e) => set("commodityCountryOfOrigin", e.target.value)} />
               </FormField>
-              <FormField label="Commodity quantity">
+              <FormField label="Commodity Grade quantity">
                 <input className={inputClass} value={cert.commodityQuantity ?? ""} onChange={(e) => set("commodityQuantity", e.target.value)} placeholder="e.g. 20 t" />
               </FormField>
               <FormField label="Port of loading">

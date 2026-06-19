@@ -90,8 +90,8 @@ export default function PreviewClient({ runId }) {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity filter</h2>
-        <p className="text-[11px] text-slate-500">Commodity filter for scheduled runs lives on each subscription. Ad-hoc runs use the filter selected at the moment of run; recompute by re-running.</p>
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity Grade filter</h2>
+        <p className="text-[11px] text-slate-500">Commodity grade filter for scheduled runs lives on each subscription. Ad-hoc runs use the filter selected at the moment of run; recompute by re-running.</p>
       </section>
     </div>
   );

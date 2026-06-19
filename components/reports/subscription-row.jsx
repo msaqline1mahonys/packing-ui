@@ -63,7 +63,7 @@ export function SubscriptionRow({ subscription, onEdit, onDelete, onToggle }) {
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {commodityNames.length === 0 ? (
-              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">All commodities</span>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">All commodity grades</span>
             ) : (
               commodityNames.map((name) => (
                 <span key={name} className="rounded-md bg-brand/10 px-2 py-0.5 text-[10px] text-brand-ink">{name}</span>

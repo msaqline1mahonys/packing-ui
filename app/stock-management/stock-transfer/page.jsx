@@ -19,9 +19,9 @@ import LocationMoveForm from "./_components/location-move-form";
 import StockVisibilityPanel from "./_components/stock-visibility-panel";
 
 const TYPES = [
-  { value: "customer", label: "Customer → Customer", description: "Move a commodity from one customer's account to another, at the same location." },
-  { value: "commodity", label: "Commodity → Commodity", description: "Re-grade: convert one commodity to another for the same customer, at one location." },
-  { value: "location", label: "Location → Location", description: "Relocate a commodity between locations — pick which owners' stock to move." },
+  { value: "customer", label: "Customer → Customer", description: "Move a commodity grade from one customer's account to another, at the same location." },
+  { value: "commodity", label: "Commodity Grade → Commodity Grade", description: "Re-grade: convert one commodity grade to another for the same customer, at one location." },
+  { value: "location", label: "Location → Location", description: "Relocate a commodity grade between locations — pick which owners' stock to move." },
 ];
 const TYPE_LABEL = Object.fromEntries(TYPES.map((t) => [t.value, t.label]));
 

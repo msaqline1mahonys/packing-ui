@@ -155,7 +155,7 @@ export default function CustomerTransferForm({
   const errors = useMemo(() => {
     const e = {};
     if (!form.locationId) e.locationId = "Location is required.";
-    if (!form.commodityId) e.commodityId = "Commodity is required.";
+    if (!form.commodityId) e.commodityId = "Commodity Grade is required.";
     if (!form.fromCustomerId) e.fromCustomerId = "From Customer is required.";
     if (!form.toCustomerId) e.toCustomerId = "To Customer is required.";
     if (form.fromCustomerId && form.toCustomerId && form.fromCustomerId === form.toCustomerId)
@@ -244,7 +244,7 @@ export default function CustomerTransferForm({
       </Field>
 
       {/* Commodity */}
-      <Field label="Commodity" required>
+      <Field label="Commodity Grade" required>
         <select
           suppressHydrationWarning
           className={inputClass}

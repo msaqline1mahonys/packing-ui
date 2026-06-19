@@ -198,7 +198,7 @@ export default function ShrinkSettingsPage() {
             resetModalFields();
             await loadSettings();
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Unable to save commodity shrink.");
+            setError(err instanceof Error ? err.message : "Unable to save commodity grade shrink.");
         } finally {
             setSavingRule(false);
         }
@@ -225,7 +225,7 @@ export default function ShrinkSettingsPage() {
             resetModalFields();
             await loadSettings();
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Unable to save customer-commodity shrink.");
+            setError(err instanceof Error ? err.message : "Unable to save customer-commodity grade shrink.");
         } finally {
             setSavingRule(false);
         }
@@ -244,7 +244,7 @@ export default function ShrinkSettingsPage() {
             <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Shrink Settings</h1>
                 <p className="mt-1 text-xs text-slate-500">
-                    Shrink is applied on incoming tickets. The effective percentage is resolved in order: <strong>Customer-commodity agreement &rarr; Commodity &rarr; Commodity type &rarr; Default</strong>. The first value set wins.
+                    Shrink is applied on incoming tickets. The effective percentage is resolved in order: <strong>Customer-commodity grade agreement &rarr; Commodity Grade &rarr; Commodity type &rarr; Default</strong>. The first value set wins.
                 </p>
                 {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
             </div>
@@ -253,7 +253,7 @@ export default function ShrinkSettingsPage() {
                 <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
                     <h2 className="text-sm font-bold text-slate-900">1. Default shrink</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                        Applied to all commodity types when no shrink is set at type, commodity, or customer-commodity level.
+                        Applied to all commodity types when no shrink is set at type, commodity grade, or customer-commodity grade level.
                     </p>
                     <div className="mt-4 flex items-center gap-3">
                         <input
@@ -279,7 +279,7 @@ export default function ShrinkSettingsPage() {
                 <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
                     <h2 className="text-sm font-bold text-slate-900">2. Commodity type shrink</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                        Overrides the default for all commodities under this type when no commodity-specific or customer-commodity shrink is set. Stored on the commodity type record.
+                        Overrides the default for all commodity grades under this type when no commodity-grade-specific or customer-commodity grade shrink is set. Stored on the commodity type record.
                     </p>
                     <div className="mt-4">
                         <Button
@@ -325,9 +325,9 @@ export default function ShrinkSettingsPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                    <h2 className="text-sm font-bold text-slate-900">3. Commodity shrink</h2>
+                    <h2 className="text-sm font-bold text-slate-900">3. Commodity Grade shrink</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                        Overrides commodity type and default for this commodity when no customer-commodity agreement exists. Stored on the commodity record.
+                        Overrides commodity type and default for this commodity grade when no customer-commodity grade agreement exists. Stored on the commodity grade record.
                     </p>
                     <div className="mt-4">
                         <Button
@@ -339,14 +339,14 @@ export default function ShrinkSettingsPage() {
                                 setCommodityModalOpen(true);
                             }}
                         >
-                            + Set commodity shrink
+                            + Set commodity grade shrink
                         </Button>
                     </div>
                     <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50/95 border-b border-slate-200">
                                 <tr>
-                                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">COMMODITY</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">COMMODITY GRADE</th>
                                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">TYPE</th>
                                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500 text-right">SHRINK %</th>
                                 </tr>
@@ -355,7 +355,7 @@ export default function ShrinkSettingsPage() {
                                 {commodityShrinkRules.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} className="px-4 py-3 text-xs text-slate-400">
-                                            No commodity shrink rules configured.
+                                            No commodity grade shrink rules configured.
                                         </td>
                                     </tr>
                                 ) : (
@@ -377,9 +377,9 @@ export default function ShrinkSettingsPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                    <h2 className="text-sm font-bold text-slate-900">4. Customer-commodity shrink (special agreements)</h2>
+                    <h2 className="text-sm font-bold text-slate-900">4. Customer-commodity grade shrink (special agreements)</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                        Overrides all other shrink for tickets for this customer and commodity combination.
+                        Overrides all other shrink for tickets for this customer and commodity grade combination.
                     </p>
                     <div className="mt-4">
                         <Button
@@ -391,11 +391,11 @@ export default function ShrinkSettingsPage() {
                                 setCcModalOpen(true);
                             }}
                         >
-                            + Add customer-commodity shrink
+                            + Add customer-commodity grade shrink
                         </Button>
                         {customerCommodityRules.length === 0 ? (
                             <p className="mt-4 text-[11px] text-slate-400">
-                                No customer-commodity agreements. Add one to apply a special shrink % for a specific customer and commodity.
+                                No customer-commodity grade agreements. Add one to apply a special shrink % for a specific customer and commodity grade.
                             </p>
                         ) : (
                             <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
@@ -403,7 +403,7 @@ export default function ShrinkSettingsPage() {
                                     <thead className="bg-slate-50/95 border-b border-slate-200">
                                         <tr>
                                             <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">CUSTOMER</th>
-                                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">COMMODITY</th>
+                                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">COMMODITY GRADE</th>
                                             <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wide text-slate-500 text-right">SHRINK %</th>
                                         </tr>
                                     </thead>
@@ -469,18 +469,18 @@ export default function ShrinkSettingsPage() {
                 </div>
             </Modal>
 
-            <Modal open={commodityModalOpen} title="Set commodity shrink" onClose={() => setCommodityModalOpen(false)}>
+            <Modal open={commodityModalOpen} title="Set commodity grade shrink" onClose={() => setCommodityModalOpen(false)}>
                 <div className="space-y-4">
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            COMMODITY <span className="text-red-400">*</span>
+                            COMMODITY GRADE <span className="text-red-400">*</span>
                         </label>
                         <select
                             className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                             value={commodity}
                             onChange={(e) => setCommodity(e.target.value)}
                         >
-                            <option value="">Select commodity</option>
+                            <option value="">Select commodity grade</option>
                             {formCommodities.map((item) => (
                                 <option key={item.id} value={item.id}>
                                     {commodityOptionLabel(item)}
@@ -515,7 +515,7 @@ export default function ShrinkSettingsPage() {
                 </div>
             </Modal>
 
-            <Modal open={ccModalOpen} title="Add customer-commodity shrink" onClose={() => setCcModalOpen(false)}>
+            <Modal open={ccModalOpen} title="Add customer-commodity grade shrink" onClose={() => setCcModalOpen(false)}>
                 <div className="space-y-4">
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
@@ -537,14 +537,14 @@ export default function ShrinkSettingsPage() {
 
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            COMMODITY <span className="text-red-400">*</span>
+                            COMMODITY GRADE <span className="text-red-400">*</span>
                         </label>
                         <select
                             className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                             value={commodity}
                             onChange={(e) => setCommodity(e.target.value)}
                         >
-                            <option value="">Select commodity</option>
+                            <option value="">Select commodity grade</option>
                             {formCommodities.map((item) => (
                                 <option key={item.id} value={item.id}>
                                     {commodityOptionLabel(item)}

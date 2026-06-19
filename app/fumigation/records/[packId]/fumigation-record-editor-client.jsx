@@ -378,7 +378,7 @@ export default function FumigationRecordEditorClient({ packId }) {
               <FormField label="Consignment / Container numbers">
                 <input className={inputClass} value={(rec.containerNumbers ?? []).join(", ")} onChange={(e) => set("containerNumbers", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} placeholder="Comma-separated" />
               </FormField>
-              <FormField label="Commodity description">
+              <FormField label="Commodity Grade description">
                 <input className={inputClass} value={rec.commodityDescription ?? ""} onChange={(e) => set("commodityDescription", e.target.value)} />
               </FormField>
               <FormField label="Target of fumigation" wide>

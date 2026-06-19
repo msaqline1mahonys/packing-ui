@@ -27,9 +27,9 @@ const config = {
     { key: "containerSize", label: "Size" },
     { key: "description", label: "Description" },
     { key: "cubicMeters", label: "M3", numeric: true },
-    { key: "averageWeight", label: "Avg (t)", numeric: true },
-    { key: "maxWeight", label: "Max (t)", numeric: true },
-    { key: "averageEmptyTare", label: "Tare (t)", numeric: true },
+    { key: "maxGross", label: "Max Gross (t)", numeric: true },
+    { key: "maxNett", label: "Max Nett (t)", numeric: true },
+    { key: "maxTare", label: "Max Tare (t)", numeric: true },
   ],
   formFields: [
     { key: "isoCode", label: "ISO Code", required: true, placeholder: "e.g. 22G1" },
@@ -42,9 +42,9 @@ const config = {
     },
     { key: "description", label: "Description", placeholder: "Container description" },
     { key: "cubicMeters", label: "Cubic Meters (M3)", type: "number", placeholder: "0.0" },
-    { key: "averageWeight", label: "Average Weight (t)", type: "number", placeholder: "0.0" },
-    { key: "maxWeight", label: "Max Weight (t)", type: "number", placeholder: "0.0" },
-    { key: "averageEmptyTare", label: "Average Empty Tare (t)", type: "number", placeholder: "0.0" },
+    { key: "maxGross", label: "Max Gross (t)", type: "number", placeholder: "0.0" },
+    { key: "maxNett", label: "Max Nett (t)", type: "number", placeholder: "0.0" },
+    { key: "maxTare", label: "Max Tare (t)", type: "number", placeholder: "0.0" },
   ],
 };
 
@@ -119,9 +119,9 @@ function fromApiContainerCode(row) {
     containerSize: row.container_size ?? row.containerSize ?? "",
     description: row.description ?? "",
     cubicMeters: formatDecimal(row.cubic_meters ?? row.cubicMeters),
-    averageWeight: formatDecimal(row.average_weight ?? row.averageWeight),
-    maxWeight: formatDecimal(row.max_weight ?? row.maxWeight),
-    averageEmptyTare: formatDecimal(row.average_empty_tare ?? row.averageEmptyTare),
+    maxGross: formatDecimal(row.max_gross ?? row.maxGross),
+    maxNett: formatDecimal(row.max_nett ?? row.maxNett),
+    maxTare: formatDecimal(row.max_tare ?? row.maxTare),
   };
 }
 
@@ -138,9 +138,9 @@ function toApiPayload(normalized) {
     container_size: String(normalized.containerSize ?? "").trim(),
     description: String(normalized.description ?? "").trim() || null,
     cubic_meters: toNumberOrNull(normalized.cubicMeters),
-    average_weight: toNumberOrNull(normalized.averageWeight),
-    max_weight: toNumberOrNull(normalized.maxWeight),
-    average_empty_tare: toNumberOrNull(normalized.averageEmptyTare),
+    max_gross: toNumberOrNull(normalized.maxGross),
+    max_nett: toNumberOrNull(normalized.maxNett),
+    max_tare: toNumberOrNull(normalized.maxTare),
   };
 }
 

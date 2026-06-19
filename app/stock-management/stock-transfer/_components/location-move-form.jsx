@@ -179,7 +179,7 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
   function buildValidation() {
     if (!fromLocationId) return { valid: false, message: "From Location is required." };
     if (!toLocationId) return { valid: false, message: "To Location is required." };
-    if (!commodityId) return { valid: false, message: "Commodity is required." };
+    if (!commodityId) return { valid: false, message: "Commodity Grade is required." };
     if (String(fromLocationId) === String(toLocationId))
       return { valid: false, message: "From and To locations must be different." };
     if (loadedKey !== `${fromLocationId}|${commodityId}`)
@@ -272,7 +272,7 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
           </select>
         </Field>
 
-        <Field label="Commodity" required>
+        <Field label="Commodity Grade" required>
           <select
             suppressHydrationWarning
             className={inputClass}
@@ -299,7 +299,7 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
           </span>
         ) : (
           <span className="text-[11px] text-slate-400">
-            Select a from-location and commodity to see per-owner stock.
+            Select a from-location and commodity grade to see per-owner stock.
           </span>
         )}
         {holdingsError ? (

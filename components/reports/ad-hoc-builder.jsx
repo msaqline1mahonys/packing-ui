@@ -154,7 +154,7 @@ export function AdHocBuilder({ onRanComplete }) {
           </div>
         </section>
         <section className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodities</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity Grades</p>
           <div className="mt-2">
             <CommodityMultiSelect commodities={commodities} value={commodityIds} onChange={setCommodityIds} />
           </div>
@@ -190,7 +190,7 @@ export function AdHocBuilder({ onRanComplete }) {
             >
               <span className="text-[11px] font-semibold text-slate-800">Combined report</span>
               <span className="mt-0.5 text-[10px] text-slate-500">
-                One cumulative report with all selected customers and commodities.
+                One cumulative report with all selected customers and commodity grades.
               </span>
             </button>
           </div>

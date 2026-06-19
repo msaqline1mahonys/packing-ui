@@ -96,9 +96,9 @@ export function SubscriptionForm({ open, cadence, initial, onCancel, onSave }) {
 
           {/* Commodities */}
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodities</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commodity Grades</label>
             <CommodityMultiSelect commodities={commodities} value={commodityIds} onChange={setCommodityIds} />
-            <p className="text-[10px] text-slate-500">Leave empty to include all commodities.</p>
+            <p className="text-[10px] text-slate-500">Leave empty to include all commodity grades.</p>
           </div>
 
           {/* Recipients + enabled */}

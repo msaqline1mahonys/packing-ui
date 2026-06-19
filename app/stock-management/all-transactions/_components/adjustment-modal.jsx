@@ -218,7 +218,7 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
                 {touched.customerId && errors.customerId ? <ErrorText>{errors.customerId}</ErrorText> : null}
               </Field>
 
-              <Field label="Commodity" required>
+              <Field label="Commodity Grade" required>
                 {(() => {
                   const commodityOptions = commodities.map((c) => ({ value: c.id, label: commodityLabel(c) }));
                   return (

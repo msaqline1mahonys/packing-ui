@@ -113,7 +113,7 @@ packing-ui/
 | Accounting | `/accounting` | Pack pricing, fees, invoicing |
 | Product Settings | `/product-settings` | Commodities, tests, shrink rules, grading standards |
 | Reference Data | `/reference-data` | Vessels, ports, terminals, trucks, container parks |
-| Contacts | `/contact` | Customers, transporters, internal accounts, users |
+| Contacts | `/contact` | Customers, transporters, users |
 | Settings | `/more-settings` | Integration settings, site config |
 
 ## Architecture Notes

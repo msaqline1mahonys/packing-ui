@@ -43,6 +43,15 @@ const DENSITIES = {
 };
 
 const RANGE_DRAG_THRESHOLD_PX = 4;
+/** Delay single-click row activate so double-click can cancel it and open instead. */
+const ROW_CLICK_DELAY_MS = 250;
+
+/** Solid background for sticky row cells (selection / pinned) so scrolled content does not show through. */
+function resolveStickyRowBackground(theme, { isSelected, rowBackgroundColor }) {
+  if (rowBackgroundColor) return rowBackgroundColor;
+  if (isSelected) return theme.palette.action.selected;
+  return theme.palette.background.paper;
+}
 
 function persistKeyFromPathname(pathname) {
   return String(pathname ?? '').replace(/^\/|\/$/g, '').replace(/\//g, '-') || 'home';
@@ -196,15 +205,26 @@ export function Grid(props) {
     if (typeof persisted.pageSize === 'number' && persisted.pageSize > 0) {
       setInternalPageSize(persisted.pageSize);
     }
-    if (persisted.lastInteractedRowId != null) {
-      setLastInteractedRowId(persisted.lastInteractedRowId);
-    }
-    if (Array.isArray(persisted.selectedRowIds) && persisted.selectedRowIds.length > 0) {
-      setPersistedInitialSelectedIds(persisted.selectedRowIds.map(String));
+    if (Array.isArray(persisted.selectedRowIds)) {
+      if (persisted.selectedRowIds.length > 0) {
+        setPersistedInitialSelectedIds(persisted.selectedRowIds.map(String));
+        if (persisted.lastInteractedRowId != null) {
+          setLastInteractedRowId(persisted.lastInteractedRowId);
+        }
+      } else {
+        // Explicit clear — do not re-select via lastInteractedRowId; reset scroll to top
+        setPersistedInitialSelectedIds([]);
+        setLastInteractedRowId(null);
+        scrollTopRef.current = 0;
+        pendingScrollRestoreRef.current = null;
+        didRestoreScrollRef.current = true;
+      }
     } else if (persisted.lastInteractedRowId != null) {
+      setLastInteractedRowId(persisted.lastInteractedRowId);
       setPersistedInitialSelectedIds([String(persisted.lastInteractedRowId)]);
     }
-    if (typeof persisted.scrollTop === 'number' && persisted.scrollTop > 0) {
+    const skipScrollRestore = Array.isArray(persisted.selectedRowIds) && persisted.selectedRowIds.length === 0;
+    if (!skipScrollRestore && typeof persisted.scrollTop === 'number' && persisted.scrollTop > 0) {
       scrollTopRef.current = persisted.scrollTop;
       pendingScrollRestoreRef.current = persisted.scrollTop;
     }
@@ -261,6 +281,7 @@ export function Grid(props) {
   // the latest displayed widths without a TDZ reference.
   const columnWidthByKeyRef = useRef(null);
   const pendingRangeDragRef = useRef(null);
+  const rowClickTimerRef = useRef(null);
   const cellKey = (r, c) => `${r}:${c}`;
   const [selectedCells, setSelectedCells] = useState(() => new Set());
   const [drag, setDrag] = useState(null);
@@ -390,10 +411,11 @@ export function Grid(props) {
         return rect;
       });
       pendingRangeDragRef.current = null;
+      event.stopPropagation();
       return;
     }
     if (ctrl) {
-      // Ctrl-click: toggle single cell — e.g. "every second cell in a row"
+      // Ctrl/Cmd-click: toggle single cell (Excel-style multi-select for sum)
       const k = cellKey(rowIdx, colIdx);
       setSelectedCells(prev => {
         const next = new Set(prev);
@@ -402,6 +424,7 @@ export function Grid(props) {
       });
       setAnchor(point);
       pendingRangeDragRef.current = null;
+      event.stopPropagation();
       return;
     }
 
@@ -509,6 +532,19 @@ export function Grid(props) {
     onChange: onSelectionChange,
     initialSelectedIds: persistedInitialSelectedIds
   });
+  const clearRowSelection = useCallback(() => {
+    selection.clear();
+    setLastInteractedRowId(null);
+    scrollTopRef.current = 0;
+    pendingScrollRestoreRef.current = null;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [selection]);
+  useEffect(() => {
+    if (selection.count === 0) {
+      setLastInteractedRowId(null);
+    }
+  }, [selection.count]);
   const handleRowActivate = useCallback((row, rowId, {
     fromCheckbox = false,
     forceSelect = false,
@@ -533,7 +569,7 @@ export function Grid(props) {
         selection.toggleRow(rowId);
       }
     }
-    if (!fromCheckbox) {
+    if (!fromCheckbox && !metaKey) {
       clearRange();
     }
     onRowClick?.(row);
@@ -542,13 +578,18 @@ export function Grid(props) {
   useLayoutEffect(() => {
     if (!effectivePersistKey || didRestoreSelectionRef.current) return;
     if (loading || safeRows.length === 0) return;
-    const targetId = lastInteractedRowId ?? persistedInitialSelectedIds[persistedInitialSelectedIds.length - 1] ?? null;
+    const targetId = persistedInitialSelectedIds.length > 0
+      ? persistedInitialSelectedIds[persistedInitialSelectedIds.length - 1]
+      : null;
     if (targetId == null) {
       didRestoreSelectionRef.current = true;
       return;
     }
     const row = safeRows.find(r => String(safeGetRowId(r)) === String(targetId));
-    if (!row) return;
+    if (!row) {
+      didRestoreSelectionRef.current = true;
+      return;
+    }
     const rowId = safeGetRowId(row);
     if (enableSelection && !selection.isSelected(rowId)) {
       selection.clear();
@@ -563,7 +604,6 @@ export function Grid(props) {
     effectivePersistKey,
     loading,
     safeRows,
-    lastInteractedRowId,
     persistedInitialSelectedIds,
     safeGetRowId,
     enableSelection,
@@ -581,6 +621,25 @@ export function Grid(props) {
     const href = getRowHref?.(row);
     if (href) window.location.assign(href);
   }, [handleRowActivate, onRowDoubleClick, getRowHref]);
+  const scheduleRowClick = useCallback((row, rowId, event) => {
+    if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current);
+    const metaKey = event.ctrlKey || event.metaKey;
+    rowClickTimerRef.current = setTimeout(() => {
+      rowClickTimerRef.current = null;
+      handleRowActivate(row, rowId, { metaKey });
+    }, ROW_CLICK_DELAY_MS);
+  }, [handleRowActivate]);
+  const handleRowDoubleClickEvent = useCallback((row, rowId, event) => {
+    event.preventDefault();
+    if (rowClickTimerRef.current) {
+      clearTimeout(rowClickTimerRef.current);
+      rowClickTimerRef.current = null;
+    }
+    handleRowDoubleClick(row, rowId);
+  }, [handleRowDoubleClick]);
+  useEffect(() => () => {
+    if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current);
+  }, []);
   const handleRowContextMenu = useCallback((row, rowId, event) => {
     handleRowActivate(row, rowId, { forceSelect: true });
     const href = getRowHref?.(row);
@@ -1131,18 +1190,20 @@ export function Grid(props) {
         if (attempts < maxAttempts) frameId = requestAnimationFrame(tryRestore);
         return;
       }
+      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+      const clampedTarget = Math.min(target, maxScroll);
       if (enableVirtualization) {
         try {
-          virtualizer.scrollToOffset(target, { align: 'start' });
+          virtualizer.scrollToOffset(clampedTarget, { align: 'start' });
         } catch {
-          el.scrollTop = target;
+          el.scrollTop = clampedTarget;
         }
       } else {
-        el.scrollTop = target;
+        el.scrollTop = clampedTarget;
       }
       const applied = el.scrollTop;
       scrollTopRef.current = applied;
-      if (Math.abs(applied - target) <= 2 || attempts >= maxAttempts) {
+      if (Math.abs(applied - clampedTarget) <= 2 || attempts >= maxAttempts) {
         didRestoreScrollRef.current = true;
         pendingScrollRestoreRef.current = null;
         savePersistedState(effectivePersistKey, {
@@ -1426,10 +1487,12 @@ export function Grid(props) {
               } catch (err) {
                 devWarn('getRowStyle threw', err);
               }
-              return <Box key={rowId} role="row" className={rowClass} onClick={event => handleRowActivate(row, rowId, { metaKey: event.ctrlKey || event.metaKey })} onDoubleClick={event => {
-                event.preventDefault();
-                handleRowDoubleClick(row, rowId);
-              }} onContextMenu={event => handleRowContextMenu(row, rowId, event)} style={rowExtraStyle} sx={{
+              const rowBackgroundColor = rowExtraStyle?.backgroundColor ?? rowExtraStyle?.background ?? null;
+              const rowStyleWithoutBg = rowExtraStyle
+                ? Object.fromEntries(Object.entries(rowExtraStyle).filter(([key]) => key !== 'backgroundColor' && key !== 'background'))
+                : undefined;
+              const stickyRowBg = theme => resolveStickyRowBackground(theme, { isSelected, rowBackgroundColor });
+              return <Box key={rowId} role="row" className={rowClass} onClick={event => scheduleRowClick(row, rowId, event)} onDoubleClick={event => handleRowDoubleClickEvent(row, rowId, event)} onContextMenu={event => handleRowContextMenu(row, rowId, event)} style={rowStyleWithoutBg} sx={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -1437,13 +1500,16 @@ export function Grid(props) {
                 display: 'flex',
                 height: effectiveRowHeight,
                 transform: `translateY(${vi.start}px)`,
-                bgcolor: isSelected ? 'action.selected' : 'transparent',
+                bgcolor: stickyRowBg,
                 borderBottom: '1px solid',
                 borderColor: 'divider',
                 cursor: enableSelection || onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
                 outline: 'none',
                 '&:hover': {
-                  bgcolor: isSelected ? 'action.selected' : 'action.hover'
+                  bgcolor: theme => rowBackgroundColor ?? (isSelected ? theme.palette.action.selected : theme.palette.action.hover),
+                  '& .dg-sticky-cell': {
+                    bgcolor: theme => rowBackgroundColor ?? (isSelected ? theme.palette.action.selected : theme.palette.action.hover),
+                  },
                 },
                 '&:focus-visible': {
                   outline: '2px solid',
@@ -1451,7 +1517,7 @@ export function Grid(props) {
                   outlineOffset: '-2px'
                 }
               }}>
-                      {enableSelection && <Box sx={{
+                      {enableSelection && <Box className={['dg-sticky-cell', 'dg-selection-cell', rowClass].filter(Boolean).join(' ') || undefined} sx={{
                   width: 42,
                   minWidth: 42,
                   display: 'flex',
@@ -1459,8 +1525,8 @@ export function Grid(props) {
                   justifyContent: 'center',
                   position: 'sticky',
                   left: 0,
-                  zIndex: 2,
-                  bgcolor: 'inherit',
+                  zIndex: 3,
+                  bgcolor: stickyRowBg,
                   borderRight: '1px solid',
                   borderColor: 'divider'
                 }} onClick={e => e.stopPropagation()}>
@@ -1499,13 +1565,11 @@ export function Grid(props) {
                     const offset = (leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection ? 42 : 0);
                     stickyStyles.position = 'sticky';
                     stickyStyles.left = offset;
-                    stickyStyles.zIndex = 2;
-                    stickyStyles.bgcolor = 'inherit';
+                    stickyStyles.zIndex = 3;
                   } else if (pin === 'right') {
                     stickyStyles.position = 'sticky';
                     stickyStyles.right = rightPinOffsets.get(col.def.key) ?? 0;
-                    stickyStyles.zIndex = 2;
-                    stickyStyles.bgcolor = 'inherit';
+                    stickyStyles.zIndex = 3;
                   }
                   const inRange = isCellInRange(vi.index, colIdx);
                   const styleParams = {
@@ -1538,13 +1602,17 @@ export function Grid(props) {
                   } catch (err) {
                     devWarn('column.cellStyle threw', err);
                   }
-                  const mergedCellClass = [gridCellClass, colCellClass].filter(Boolean).join(' ') || undefined;
+                  const mergedCellClass = [gridCellClass, colCellClass, pin ? 'dg-sticky-cell' : null, pin ? rowClass : null].filter(Boolean).join(' ') || undefined;
                   const mergedCellStyle = gridCellStyle || colCellStyle ? {
                     ...gridCellStyle,
                     ...colCellStyle
                   } : undefined;
                   const isFocused = focusedCell?.r === vi.index && focusedCell?.c === colIdx;
-                  return <Box key={col.def.key} role="gridcell" className={mergedCellClass} data-cell={`${vi.index}:${colIdx}`} tabIndex={isFocused ? 0 : -1} onMouseDown={e => handleCellMouseDown(vi.index, colIdx, e)} onMouseEnter={() => handleCellMouseEnter(vi.index, colIdx)} onDoubleClick={e => {
+                  return <Box key={col.def.key} role="gridcell" className={mergedCellClass} data-cell={`${vi.index}:${colIdx}`} tabIndex={isFocused ? 0 : -1} onMouseDown={e => handleCellMouseDown(vi.index, colIdx, e)} onClick={e => {
+                    if (enableRangeSelection && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+                      e.stopPropagation();
+                    }
+                  }} onMouseEnter={() => handleCellMouseEnter(vi.index, colIdx)} onDoubleClick={e => {
                     if (isCellEditable(col.def, row)) {
                       e.stopPropagation();
                       beginEdit(vi.index, colIdx);
@@ -1570,6 +1638,7 @@ export function Grid(props) {
                     whiteSpace: 'nowrap',
                     userSelect: isRangeDragging ? 'none' : 'auto',
                     outline: 'none',
+                    ...(pin && { bgcolor: stickyRowBg }),
                     ...stickyStyles,
                     ...(inRange && {
                       bgcolor: t => t.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.24)' : 'rgba(25, 118, 210, 0.12)',
@@ -1651,7 +1720,7 @@ export function Grid(props) {
         })}
           </Box>}
 
-        {rangeStats && rangeStats.cellCount > 1 && <Box sx={{
+        {rangeStats && rangeStats.cellCount >= 1 && <Box sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 2,
@@ -1720,7 +1789,7 @@ export function Grid(props) {
             </Typography>
             {enableSelection && selection.count > 0 && <>
                 <Chip size="small" label={`${selection.count} selected`} color="primary" variant="outlined" />
-                <Button size="small" onClick={selection.clear}>Clear</Button>
+                <Button size="small" onClick={clearRowSelection}>Clear</Button>
               </>}
           </Box>
 

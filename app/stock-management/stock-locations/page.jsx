@@ -126,6 +126,7 @@ async function fetchLocationUtilization() {
   const params = new URLSearchParams();
   if (tenant.organization_id) params.set("organization_id", tenant.organization_id);
   if (tenant.site_id) params.set("site_id", tenant.site_id);
+  params.set("exclude_system_accounts", "1");
   const qs = params.toString();
   const response = await fetch(`${LOCATION_UTILIZATION_ENDPOINT}${qs ? `?${qs}` : ""}`, {
     headers: getAuthHeaders(),

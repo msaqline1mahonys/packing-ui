@@ -3,13 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
-import { createAdjustment } from "@/lib/adjustments-api";
-import { fetchStockTransferFormData, getDefaultSiteId, isSystemCustomer } from "@/lib/stock-transfers-api";
+import { createWriteOff } from "@/lib/write-offs-api";
+import {
+  exceedsWriteOffLimit,
+  fetchCommodities,
+  fetchStockLocations,
+  fetchSites,
+  fetchWriteOffSourceCustomers,
+  fetchStockOnHand,
+  getDefaultSiteId,
+  writeOffLimitErrorMessage,
+} from "@/lib/stock-transfers-api";
 import { commodityLabel, nowDatetimeLocalDate } from "../../stock-transfer/_components/form-primitives";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+
+function customerLabel(c) {
+  const base = c.name + (c.code ? ` (${c.code})` : "");
+  if (c.isShrink ?? c.is_shrink) return `${base} — Shrink`;
+  return base;
+}
 
 function blankForm(defaultSiteId = "") {
   return {
@@ -23,12 +38,14 @@ function blankForm(defaultSiteId = "") {
   };
 }
 
-export default function AdjustmentModal({ open, onClose, onSaved }) {
+export default function WriteOffModal({ open, onClose, onSaved }) {
   const [form, setForm] = useState(blankForm());
   const [sites, setSites] = useState([]);
   const [locations, setLocations] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [commodities, setCommodities] = useState([]);
+  const [stockOnHand, setStockOnHand] = useState(0);
+  const [sohLoading, setSohLoading] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitError, setSubmitError] = useState("");
@@ -44,16 +61,14 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
     setSubmitError("");
     setTouched({});
 
-    fetchStockTransferFormData()
-      .then((data) => {
+    Promise.all([fetchSites(), fetchStockLocations(), fetchWriteOffSourceCustomers(), fetchCommodities()])
+      .then(([siteRows, locationRows, customerRows, commodityRows]) => {
         if (cancelled) return;
-        const defaultSiteId = getDefaultSiteId(data.sites);
-        setSites(data.sites);
-        setLocations((data.locations ?? []).filter((l) => l.status !== "inactive"));
-        setCustomers(
-          (data.customers ?? []).filter((c) => !isSystemCustomer(c))
-        );
-        setCommodities(data.commodities ?? []);
+        const defaultSiteId = getDefaultSiteId(siteRows);
+        setSites(siteRows);
+        setLocations(locationRows.filter((l) => l.status !== "inactive"));
+        setCustomers(customerRows);
+        setCommodities(commodityRows);
         setForm(blankForm(defaultSiteId));
       })
       .catch((err) => {
@@ -70,6 +85,31 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
     };
   }, [open]);
 
+  useEffect(() => {
+    const { customerId, commodityId, locationId } = form;
+    if (!customerId || !commodityId || !locationId) {
+      setStockOnHand(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setSohLoading(true);
+    fetchStockOnHand({ accountId: customerId, commodityId, locationId })
+      .then((qty) => {
+        if (!cancelled) setStockOnHand(qty || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setStockOnHand(0);
+      })
+      .finally(() => {
+        if (!cancelled) setSohLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.customerId, form.commodityId, form.locationId]);
+
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
   const touch = (key) => setTouched((prev) => ({ ...prev, [key]: true }));
 
@@ -77,6 +117,11 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
     if (!form.siteId) return locations;
     return locations.filter((l) => String(l.siteId) === String(form.siteId));
   }, [locations, form.siteId]);
+
+  const customerOptions = useMemo(
+    () => customers.map((c) => ({ value: c.id, label: customerLabel(c) })),
+    [customers]
+  );
 
   const qty = parseFloat(form.quantity);
   const errors = useMemo(() => {
@@ -86,11 +131,13 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
     if (!form.locationId) e.locationId = "Stock location is required.";
     if (!form.transactionDate) e.transactionDate = "Date is required.";
     if (form.quantity === "" || Number.isNaN(qty) || qty === 0) {
-      e.quantity = "Enter a signed amount (positive adds stock, negative removes).";
+      e.quantity = "Enter a signed amount (positive removes stock, negative settles a deficit).";
+    } else if (exceedsWriteOffLimit(stockOnHand, qty)) {
+      e.quantity = writeOffLimitErrorMessage(stockOnHand, qty);
     }
-    if (!form.notes.trim()) e.notes = "Notes are required.";
+    if (!form.notes.trim()) e.notes = "Reason is required.";
     return e;
-  }, [form, qty]);
+  }, [form, qty, stockOnHand]);
 
   const isValid = Object.keys(errors).length === 0;
 
@@ -113,8 +160,8 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
 
     setSubmitting(true);
     try {
-      const created = await createAdjustment({
-        customerId: form.customerId,
+      const created = await createWriteOff({
+        accountId: form.customerId,
         commodityId: form.commodityId,
         locationId: form.locationId,
         quantity: qty,
@@ -124,7 +171,7 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
       onSaved?.(created);
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to save adjustment.");
+      setSubmitError(err instanceof Error ? err.message : "Failed to save write-off.");
     } finally {
       setSubmitting(false);
     }
@@ -142,9 +189,9 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">Manual Adjustment</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Write Off Stock</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Add or remove stock for a customer account. Use a signed amount in MT.
+              Positive amounts remove stock; negative amounts settle a negative balance (e.g. payment agreement).
             </p>
           </div>
           <button
@@ -202,19 +249,17 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
               </Field>
 
               <Field label="Customer" required>
-                {(() => {
-                  const customerOptions = customers.map((c) => ({ value: c.id, label: c.name + (c.code ? ` (${c.code})` : "") }));
-                  return (
-                    <ClutchSelect
-                      options={customerOptions}
-                      value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
-                      onChange={(option) => { const v = option ? option.value : ""; set("customerId", v); }}
-                      onBlur={() => touch("customerId")}
-                      isDisabled={submitting}
-                      placeholder="Select customer..."
-                    />
-                  );
-                })()}
+                <ClutchSelect
+                  options={customerOptions}
+                  value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
+                  onChange={(option) => {
+                    const v = option ? option.value : "";
+                    set("customerId", v);
+                  }}
+                  onBlur={() => touch("customerId")}
+                  isDisabled={submitting}
+                  placeholder="Select customer..."
+                />
                 {touched.customerId && errors.customerId ? <ErrorText>{errors.customerId}</ErrorText> : null}
               </Field>
 
@@ -225,7 +270,10 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
                     <ClutchSelect
                       options={commodityOptions}
                       value={commodityOptions.find((o) => String(o.value) === String(form.commodityId)) ?? null}
-                      onChange={(option) => { const v = option ? option.value : ""; set("commodityId", v); }}
+                      onChange={(option) => {
+                        const v = option ? option.value : "";
+                        set("commodityId", v);
+                      }}
                       onBlur={() => touch("commodityId")}
                       isDisabled={submitting}
                       placeholder="Select commodity..."
@@ -242,7 +290,10 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
                     <ClutchSelect
                       options={locationOptions}
                       value={locationOptions.find((o) => String(o.value) === String(form.locationId)) ?? null}
-                      onChange={(option) => { const v = option ? option.value : ""; set("locationId", v); }}
+                      onChange={(option) => {
+                        const v = option ? option.value : "";
+                        set("locationId", v);
+                      }}
                       onBlur={() => touch("locationId")}
                       isDisabled={submitting}
                       placeholder="Select location..."
@@ -264,15 +315,20 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
                   onBlur={() => touch("quantity")}
                 />
                 {touched.quantity && errors.quantity ? <ErrorText>{errors.quantity}</ErrorText> : null}
+                {form.customerId && form.commodityId && form.locationId ? (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {sohLoading ? "Loading stock on hand..." : `Stock on hand: ${stockOnHand.toFixed(3)} MT`}
+                  </p>
+                ) : null}
               </Field>
 
               <div className="sm:col-span-2">
-                <Field label="Notes" required>
+                <Field label="Reason" required>
                   <textarea
                     className={cn(inputClass, "min-h-24 resize-y")}
                     value={form.notes}
                     disabled={submitting}
-                    placeholder="Reason for this adjustment..."
+                    placeholder="Why is this stock being written off?"
                     rows={3}
                     onChange={(e) => set("notes", e.target.value)}
                     onBlur={() => touch("notes")}
@@ -289,7 +345,7 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
               Cancel
             </Button>
             <Button type="button" size="sm" onClick={handleSubmit} disabled={submitting || formLoading || !!formError}>
-              {submitting ? "Saving..." : "Save Adjustment"}
+              {submitting ? "Saving..." : "Write Off Stock"}
             </Button>
           </div>
         </div>
@@ -298,13 +354,12 @@ export default function AdjustmentModal({ open, onClose, onSaved }) {
   );
 }
 
-function Field({ label, required, hint, children }) {
+function Field({ label, required, children }) {
   return (
     <div className="space-y-1">
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
-        {hint ? <span className="ml-1 font-normal normal-case text-slate-400">({hint})</span> : null}
       </label>
       {children}
     </div>

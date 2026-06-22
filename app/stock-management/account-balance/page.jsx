@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { fetchAccountBalances, fetchShrinkAccounts } from "@/lib/transactions-api";
+import { fetchAccountBalances, fetchShrinkAccounts, fetchWriteOffAccounts } from "@/lib/transactions-api";
 import { fetchCommodityTypesList } from "@/lib/api/reference-data";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 
@@ -98,6 +98,7 @@ const qtyColor = (q) => (q < 0 ? "text-red-600" : "text-emerald-600");
 export default function AccountBalancePage() {
   const [stockRows, setStockRows] = useState([]);
   const [shrinkAccounts, setShrinkAccounts] = useState([]);
+  const [writeOffAccounts, setWriteOffAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
@@ -105,7 +106,7 @@ export default function AccountBalancePage() {
   const [filterCommodity, setFilterCommodity] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
   const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
-  const [showInternal, setShowInternal] = useState(true);
+  const [showSystemAccounts, setShowSystemAccounts] = useState(false);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
   const [activeTab, setActiveTab] = useState("byAccount");
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -117,7 +118,10 @@ export default function AccountBalancePage() {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchAccountBalances();
+      const data = await fetchAccountBalances({
+        excludeSystemAccounts: !showSystemAccounts,
+        ...(filterAccount ? { accountId: filterAccount } : {}),
+      });
       setStockRows(data.map(mapBalanceRow));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load balances.");
@@ -125,7 +129,7 @@ export default function AccountBalancePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showSystemAccounts, filterAccount]);
 
   useEffect(() => {
     loadBalances();
@@ -135,6 +139,9 @@ export default function AccountBalancePage() {
     fetchShrinkAccounts()
       .then((accts) => setShrinkAccounts(accts))
       .catch(() => setShrinkAccounts([]));
+    fetchWriteOffAccounts()
+      .then((accts) => setWriteOffAccounts(accts))
+      .catch(() => setWriteOffAccounts([]));
   }, []);
 
   useEffect(() => {
@@ -157,8 +164,11 @@ export default function AccountBalancePage() {
     shrinkAccounts.forEach((a) => {
       if (!map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
     });
+    writeOffAccounts.forEach((a) => {
+      if (!map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
+    });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [stockRows, shrinkAccounts]);
+  }, [stockRows, shrinkAccounts, writeOffAccounts]);
   const commodities = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => {
@@ -175,7 +185,7 @@ export default function AccountBalancePage() {
 
   const flattenedStock = useMemo(() => {
     return stockRows.filter((r) => {
-      if (!showInternal && r.accountType === "internal") return false;
+      if (r.accountType === "internal") return false;
       if (!showZeroBalances && Math.abs(r.quantity) < 0.001) return false;
       if (filterAccount && r.accountKey !== filterAccount) return false;
       if (filterCommodityType && String(r.commodityTypeId) !== filterCommodityType) return false;
@@ -183,7 +193,7 @@ export default function AccountBalancePage() {
       if (filterLocation && String(r.locationId) !== filterLocation) return false;
       return true;
     });
-  }, [stockRows, showInternal, showZeroBalances, filterAccount, filterCommodityType, filterCommodity, filterLocation]);
+  }, [stockRows, showZeroBalances, filterAccount, filterCommodityType, filterCommodity, filterLocation]);
 
   const summaryCards = useMemo(() => {
     const totalStock = flattenedStock.reduce((s, r) => s + r.quantity, 0);
@@ -195,15 +205,15 @@ export default function AccountBalancePage() {
   }, [flattenedStock]);
 
   const hasActiveFilters =
-    Boolean(filterAccount || filterCommodityType || filterCommodity || filterLocation || !showInternal || showZeroBalances);
+    Boolean(filterAccount || filterCommodityType || filterCommodity || filterLocation || showZeroBalances || showSystemAccounts);
 
   const clearFilters = () => {
     setFilterAccount("");
     setFilterCommodityType("");
     setFilterCommodity("");
     setFilterLocation("");
-    setShowInternal(true);
     setShowZeroBalances(false);
+    setShowSystemAccounts(false);
   };
 
   const filterInsights = useMemo(() => {
@@ -557,8 +567,8 @@ export default function AccountBalancePage() {
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <input suppressHydrationWarning type="checkbox" checked={showInternal} onChange={(e) => setShowInternal(e.target.checked)} />
-            Show Internal
+            <input suppressHydrationWarning type="checkbox" checked={showSystemAccounts} onChange={(e) => setShowSystemAccounts(e.target.checked)} />
+            Include system accounts (Shrink / Write-Off)
           </label>
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input suppressHydrationWarning type="checkbox" checked={showZeroBalances} onChange={(e) => setShowZeroBalances(e.target.checked)} />

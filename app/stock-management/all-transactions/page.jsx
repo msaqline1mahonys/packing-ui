@@ -16,6 +16,7 @@ import { TRANSACTION_DETAIL_COLUMNS, TRANSACTION_GRID_COLUMNS } from "@/lib/tran
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 import AdjustmentModal from "./_components/adjustment-modal";
+import WriteOffModal from "./_components/write-off-modal";
 
 const FILTER_TYPE_OPTIONS = [
   { value: "all", label: "All Types" },
@@ -39,6 +40,7 @@ export default function AllTransactionsPage() {
   const [dateRange, setDateRange] = useState([null, null]);
   const [selectedId, setSelectedId] = useState(null);
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   const loadRows = useCallback(async () => {
@@ -107,10 +109,13 @@ export default function AllTransactionsPage() {
           <p className="text-xs text-slate-500">Stock Management / All Transactions</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Transaction Ledger</h1>
           <p className="mt-1 text-xs text-slate-500">
-            Complete ledger of all stock movements: deposits, withdrawals, shrinkage, and adjustments.
+            Complete ledger of all stock movements: deposits, withdrawals, shrinkage, write-offs, and adjustments.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => setWriteOffOpen(true)}>
+            Write Off Stock
+          </Button>
           <Button type="button" size="sm" onClick={() => setAdjustmentOpen(true)}>
             + Manual Adjustment
           </Button>
@@ -162,6 +167,10 @@ export default function AllTransactionsPage() {
             <span className="font-bold text-amber-500">{totals.shrinkage.toFixed(2)} MT</span>
           </span>
           <span>
+            <span className="font-semibold text-slate-500">Write-offs:</span>{" "}
+            <span className="font-bold text-violet-600">{totals.writeOffs.toFixed(2)} MT</span>
+          </span>
+          <span>
             <span className="font-semibold text-slate-500">Net:</span>{" "}
             <span className={cn("font-bold", totals.net >= 0 ? "text-emerald-600" : "text-red-600")}>
               {totals.net.toFixed(2)} MT
@@ -211,6 +220,16 @@ export default function AllTransactionsPage() {
         onClose={() => setAdjustmentOpen(false)}
         onSaved={(created) => {
           setToast(`Adjustment saved (${created?.reference ?? "ADJ"}).`);
+          loadRows();
+          if (created?.id) setSelectedId(created.id);
+        }}
+      />
+
+      <WriteOffModal
+        open={writeOffOpen}
+        onClose={() => setWriteOffOpen(false)}
+        onSaved={(created) => {
+          setToast(`Write-off saved (${created?.reference ?? "WO"}).`);
           loadRows();
           if (created?.id) setSelectedId(created.id);
         }}

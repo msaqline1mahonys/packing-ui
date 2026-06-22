@@ -67,9 +67,6 @@ This guide maps front-end data structures in `lib/Data.js` to backend schema exp
   - Keys: `id`, `code`, `name`, `email`, `contacts[]`
   - Relation: referenced by transport pricing (`transporterId`)
 
-- `INTERNAL_ACCOUNT_ROWS`
-  - Keys: `id`, `name`, `description`, `shrinkApplied`, `shrinkReceivalAccount`
-  - Special rule: only one row can be `shrinkReceivalAccount = true`
 
 ## Accounting And Pricing
 

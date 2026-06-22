@@ -140,7 +140,8 @@
   background-color: #eff6ff !important;
 }
 
-.clutch-row-import:hover {
+.clutch-row-import:hover,
+.clutch-row-import.dg-sticky-cell:hover {
   background-color: #dbeafe !important;
 }
 
@@ -152,7 +153,8 @@
   box-shadow: inset 3px 0 0 #f59e0b;
 }
 
-.clutch-row-vessel-updated:hover {
+.clutch-row-vessel-updated:hover,
+.clutch-row-vessel-updated.dg-sticky-cell:hover {
   background-color: #fffbeb !important;
 }
 

@@ -272,7 +272,7 @@ export default function PackingSchedulePage() {
     setLoading(true);
     try {
       const params = {
-        status: selectedStatuses,
+        status: selectedStatuses.length > 0 ? selectedStatuses : PACK_STATUSES,
         importExport: importExportFilter,
         ...(dateFilterMode === "specific" && specificDate ? { dateField: dateFilterField, on: specificDate } : {}),
         ...(dateFilterMode === "range" ? { dateField: dateFilterField, from: dateFrom, to: dateTo } : {}),
@@ -297,7 +297,7 @@ export default function PackingSchedulePage() {
   usePolling(loadRows, { intervalMs: 60000, isBusy: () => historyOpen });
 
   const filtered = useMemo(() => {
-    return rows.filter((p) => selectedStatuses.length > 0 && selectedStatuses.includes(p.status))
+    return rows.filter((p) => selectedStatuses.length === 0 || selectedStatuses.includes(p.status))
       .filter((p) => importExportFilter === "all" || (p.import_export ?? p.importExport) === importExportFilter)
       .filter((p) => {
         if (dateFilterMode === "all") return true;
@@ -664,28 +664,32 @@ export default function PackingSchedulePage() {
     router.push("/packing-schedule/new-pack-form");
   }
 
-  function openEditPage() {
-    if (!selected) return;
-    if (hasPendingVesselScheduleUpdate(selected)) {
-      acknowledgeVesselScheduleUpdate(selected.id)
+  const openEditForRow = useCallback((row) => {
+    if (!row) return;
+    if (hasPendingVesselScheduleUpdate(row)) {
+      acknowledgeVesselScheduleUpdate(row.id)
         .then((result) => {
           setRows((prev) =>
-            prev.map((row) =>
-              row.id === selected.id
+            prev.map((r) =>
+              r.id === row.id
                 ? {
-                    ...row,
+                    ...r,
                     vessel_schedule_updated_at: result.vesselScheduleUpdatedAt,
                     vesselScheduleUpdatedAt: result.vesselScheduleUpdatedAt,
                     vessel_schedule_acknowledged_at: result.vesselScheduleAcknowledgedAt,
                     vesselScheduleAcknowledgedAt: result.vesselScheduleAcknowledgedAt,
                   }
-                : row,
+                : r,
             ),
           );
         })
         .catch(() => {});
     }
-    router.push(`/packing-schedule/new-pack-form?mode=edit&id=${selected.id}`);
+    router.push(`/packing-schedule/new-pack-form?mode=edit&id=${row.id}`);
+  }, [router]);
+
+  function openEditPage() {
+    openEditForRow(selected);
   }
 
   return (
@@ -813,6 +817,7 @@ export default function PackingSchedulePage() {
             fileName="Packing Schedule"
             visibleRows={14}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+            onRowDoubleClick={openEditForRow}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}
             getRowClassName={({ row }) => {
               const ie = row.import_export ?? row.importExport;

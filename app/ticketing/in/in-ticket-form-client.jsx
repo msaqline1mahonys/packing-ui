@@ -134,7 +134,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
-  const [internalAccounts, setInternalAccounts] = useState([]);
   const [commodityTypes, setCommodityTypes] = useState([]);
   const [commodities, setCommodities] = useState([]);
   const [tests, setTests] = useState(DEMO_TESTS);
@@ -191,11 +190,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     ? commodities.find((c) => c.id === cmoCommodityLines[0].commodityId)
     : commodity;
   const weightUnit = commodity?.unitType ?? cmoCommodity?.unitType;
-  const customer = ticket.accountType === "internal" && ticket.internalAccountId
-    ? internalAccounts.find((acc) => acc.id === ticket.internalAccountId)
-    : ticket.customerId
-      ? customers.find((cust) => cust.id === ticket.customerId) || internalAccounts.find((acc) => acc.id === ticket.customerId)
-      : null;
+  const customer = ticket.customerId ? customers.find((cust) => cust.id === ticket.customerId) : null;
 
   const set = (key, val) => setTicket((prev) => ({ ...prev, [key]: val }));
   const setTest = (name, val) => setTicket((prev) => ({ ...prev, tests: { ...prev.tests, [name]: val } }));
@@ -268,12 +263,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     router.push(href);
   };
 
-  const accountSelectValue =
-    ticket.accountType === "internal" && ticket.internalAccountId
-      ? `internal:${ticket.internalAccountId}`
-      : ticket.customerId
-        ? `customer:${ticket.customerId}`
-        : "";
+  const customerSelectValue = ticket.customerId ? String(ticket.customerId) : "";
 
   const getLocationStock = (locationId) => {
     const stockItems = [];
@@ -364,7 +354,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         if (cancelled) return;
         setCmos(formData.cmos);
         setCustomers(formData.customers);
-        setInternalAccounts(formData.internalAccounts);
         setCommodityTypes(formData.commodityTypes);
         setCommodities(formData.commodities);
         if (Array.isArray(formData.tests) && formData.tests.length > 0) setTests(formData.tests);
@@ -669,8 +658,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         ...prev,
                         cmoId,
                         customerId: selectedCmo ? selectedCmo.customerId ?? prev.customerId : prev.customerId,
-                        accountType: "customer",
-                        internalAccountId: null,
                         commodityTypeId: selectedCmo ? selectedCmo.commodityTypeId ?? null : null,
                         commodityId: singleLine ? singleLine.commodityId ?? null : null,
                         season: selectedCmo?.season ?? "",
@@ -692,51 +679,20 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 </div>
               </FormRow>
 
-              <FormRow label="Customer / Account">
+              <FormRow label="Customer">
                 <ClutchSelect
-                  options={[
-                    ...customers.map((c) => ({ value: `customer:${c.id}`, label: `${c.name} (${c.code})` })),
-                    ...internalAccounts.map((a) => ({ value: `internal:${a.id}`, label: a.name })),
-                  ]}
-                  value={accountSelectValue ? { value: accountSelectValue, label: (() => {
-                    if (accountSelectValue.startsWith("internal:")) {
-                      const id = accountSelectValue.slice("internal:".length);
-                      const acc = internalAccounts.find((a) => String(a.id) === String(id));
-                      return acc ? acc.name : accountSelectValue;
-                    }
-                    const id = accountSelectValue.slice("customer:".length);
-                    const cust = customers.find((c) => String(c.id) === String(id));
-                    return cust ? `${cust.name} (${cust.code})` : accountSelectValue;
-                  })() } : null}
+                  options={customers.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` }))}
+                  value={(() => {
+                    const cust = customers.find((c) => String(c.id) === customerSelectValue);
+                    return cust ? { value: String(cust.id), label: `${cust.name} (${cust.code})` } : null;
+                  })()}
                   isDisabled={isCompleted}
-                  placeholder="Select customer or account"
+                  placeholder="Select customer"
                   onChange={(option) => {
-                    const v = option ? option.value : "";
-                    if (!v) {
-                      setTicket((prev) => ({
-                        ...prev,
-                        customerId: null,
-                        internalAccountId: null,
-                        accountType: "customer",
-                      }));
-                      return;
-                    }
-                    const [type, id] = v.split(":");
-                    if (type === "internal") {
-                      setTicket((prev) => ({
-                        ...prev,
-                        accountType: "internal",
-                        internalAccountId: id,
-                        customerId: null,
-                      }));
-                    } else {
-                      setTicket((prev) => ({
-                        ...prev,
-                        accountType: "customer",
-                        customerId: id,
-                        internalAccountId: null,
-                      }));
-                    }
+                    setTicket((prev) => ({
+                      ...prev,
+                      customerId: option ? option.value : null,
+                    }));
                   }}
                 />
               </FormRow>
@@ -1236,21 +1192,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             placeholder="e.g. CMO-0142"
           />
         </FormRow>
-        <FormRow label="Customer / Account" required>
-          {(() => {
-            const cmoCustomerOptions = [
-              ...customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
-              ...internalAccounts.map((a) => ({ value: a.id, label: a.name })),
-            ];
-            return (
-              <ClutchSelect
-                options={cmoCustomerOptions}
-                value={cmoCustomerOptions.find((o) => String(o.value) === String(newCmo.customerId)) ?? null}
-                placeholder="Select customer or account"
-                onChange={(option) => setNewCmo({ ...newCmo, customerId: option ? option.value : "" })}
-              />
-            );
-          })()}
+        <FormRow label="Customer" required>
+          <ClutchSelect
+            options={customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }))}
+            value={customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })).find((o) => String(o.value) === String(newCmo.customerId)) ?? null}
+            placeholder="Select customer"
+            onChange={(option) => setNewCmo({ ...newCmo, customerId: option ? option.value : "" })}
+          />
         </FormRow>
 
         <FormRow label="Commodity Type" required>

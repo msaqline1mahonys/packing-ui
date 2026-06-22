@@ -140,6 +140,7 @@ function fromApiCustomer(row) {
     notes: row.notes ?? "",
     invoicingContact: row.invoicing_contact ?? row.invoicingContact ?? "",
     isShrink: Boolean(row.is_shrink ?? row.isShrink ?? false),
+    isWriteOff: Boolean(row.is_write_off ?? row.isWriteOff ?? false),
     contacts,
     warnings,
     emailsCount: pluralize(emails.length, "email"),
@@ -254,9 +255,14 @@ export default function ContactCustomersPage() {
   }, [isMobile]);
 
   const selected = selectedId != null ? rows.find((row) => row.id === selectedId) ?? null : null;
-  const selectedLocked = Boolean(selected?.isShrink);
+  const selectedLocked = Boolean(selected?.isShrink || selected?.isWriteOff);
   const gridRows = useMemo(
-    () => rows.map((row) => (row.isShrink ? { ...row, name: `${row.name} — System (Shrink)` } : row)),
+    () =>
+      rows.map((row) => {
+        if (row.isShrink) return { ...row, name: `${row.name} — System (Shrink)` };
+        if (row.isWriteOff) return { ...row, name: `${row.name} — System (Write-Off)` };
+        return row;
+      }),
     [rows]
   );
   const modalError = modalOpen ? error : "";
@@ -270,7 +276,7 @@ export default function ContactCustomersPage() {
   }
 
   function openEditModal() {
-    if (!selected || selected.isShrink) return;
+    if (!selected || selected.isShrink || selected.isWriteOff) return;
     setError("");
     setNotice("");
     setEditMode(true);
@@ -339,7 +345,7 @@ export default function ContactCustomersPage() {
   }
 
   async function removeSelected() {
-    if (!selected || isDeleting || selected.isShrink) return;
+    if (!selected || isDeleting || selected.isShrink || selected.isWriteOff) return;
     if (!window.confirm(`Delete customer "${selected.name}" permanently?`)) return;
 
     setIsDeleting(true);

@@ -30,17 +30,19 @@ import { getSessionSearch, setSessionSearch } from './utils/sessionSearch';
 const DENSITIES = {
   compact: {
     rowHeight: 32,
-    headerHeight: 36
+    headerHeight: 40
   },
   standard: {
     rowHeight: 40,
-    headerHeight: 44
+    headerHeight: 48
   },
   comfortable: {
     rowHeight: 52,
-    headerHeight: 52
+    headerHeight: 56
   }
 };
+
+const RANGE_DRAG_THRESHOLD_PX = 4;
 
 function persistKeyFromPathname(pathname) {
   return String(pathname ?? '').replace(/^\/|\/$/g, '').replace(/\//g, '-') || 'home';
@@ -258,6 +260,7 @@ export function Grid(props) {
   // Mirrors `columnWidthByKey` so handleResizeStart (declared earlier) can read
   // the latest displayed widths without a TDZ reference.
   const columnWidthByKeyRef = useRef(null);
+  const pendingRangeDragRef = useRef(null);
   const cellKey = (r, c) => `${r}:${c}`;
   const [selectedCells, setSelectedCells] = useState(() => new Set());
   const [drag, setDrag] = useState(null);
@@ -318,6 +321,7 @@ export function Grid(props) {
     setSelectedCells(new Set());
     setDrag(null);
     setAnchor(null);
+    pendingRangeDragRef.current = null;
   }, [safePage, sortModel, filters, globalSearch]);
 
   // Commit drag on global mouseup
@@ -336,6 +340,34 @@ export function Grid(props) {
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
   }, [drag, rectKeys]);
+
+  // Defer plain cell mousedown into a range drag until the pointer moves past a threshold
+  useEffect(() => {
+    if (!enableRangeSelection) return;
+    const onMove = (e) => {
+      const pending = pendingRangeDragRef.current;
+      if (!pending) return;
+      const dx = e.clientX - pending.startX;
+      const dy = e.clientY - pending.startY;
+      if (Math.hypot(dx, dy) < RANGE_DRAG_THRESHOLD_PX) return;
+      setDrag({
+        start: pending.start,
+        end: pending.start,
+        mode: pending.mode,
+      });
+      pendingRangeDragRef.current = null;
+    };
+    const onUp = () => {
+      pendingRangeDragRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [enableRangeSelection]);
+
   const handleCellMouseDown = useCallback((rowIdx, colIdx, event) => {
     if (event.button !== 0) return;
     const point = {
@@ -357,6 +389,7 @@ export function Grid(props) {
         }
         return rect;
       });
+      pendingRangeDragRef.current = null;
       return;
     }
     if (ctrl) {
@@ -368,16 +401,18 @@ export function Grid(props) {
         return next;
       });
       setAnchor(point);
+      pendingRangeDragRef.current = null;
       return;
     }
 
-    // Plain click: start fresh rectangular selection
+    // Plain mousedown: defer drag until pointer movement (avoids 1-cell flash on row click)
     setAnchor(point);
-    setDrag({
+    pendingRangeDragRef.current = {
       start: point,
-      end: point,
-      mode: 'replace'
-    });
+      startX: event.clientX,
+      startY: event.clientY,
+      mode: 'replace',
+    };
   }, [enableRangeSelection, anchor, rectKeys]);
   const handleCellMouseEnter = useCallback((rowIdx, colIdx) => {
     if (!enableRangeSelection) return;
@@ -393,6 +428,7 @@ export function Grid(props) {
     setSelectedCells(new Set());
     setDrag(null);
     setAnchor(null);
+    pendingRangeDragRef.current = null;
   }, []);
   const isCellEditable = useCallback((col, row) => {
     if (!col.editable) return false;
@@ -473,29 +509,35 @@ export function Grid(props) {
     onChange: onSelectionChange,
     initialSelectedIds: persistedInitialSelectedIds
   });
-  const syncSelectionWithRowClick = Boolean(onRowClick);
   const handleRowActivate = useCallback((row, rowId, {
     fromCheckbox = false,
-    forceSelect = false
+    forceSelect = false,
+    metaKey = false,
   } = {}) => {
     setLastInteractedRowId(rowId);
-    if (syncSelectionWithRowClick && enableSelection) {
+    if (enableSelection) {
       const wasSelected = selection.isSelected(rowId);
       if (fromCheckbox) {
-        if (wasSelected) selection.toggleRow(rowId);
-        else {
+        selection.toggleRow(rowId);
+      } else if (forceSelect) {
+        if (!wasSelected) {
           selection.clear();
           selection.toggleRow(rowId);
         }
-        onRowClick?.(row);
-        return;
+      } else if (metaKey) {
+        selection.toggleRow(rowId);
+      } else if (wasSelected) {
+        selection.toggleRow(rowId);
+      } else {
+        selection.clear();
+        selection.toggleRow(rowId);
       }
-      if (wasSelected && !forceSelect) return;
-      selection.clear();
-      selection.toggleRow(rowId);
+    }
+    if (!fromCheckbox) {
+      clearRange();
     }
     onRowClick?.(row);
-  }, [syncSelectionWithRowClick, enableSelection, selection.isSelected, selection.toggleRow, selection.clear, onRowClick]);
+  }, [enableSelection, selection.isSelected, selection.toggleRow, selection.clear, clearRange, onRowClick]);
   const didRestoreSelectionRef = useRef(false);
   useLayoutEffect(() => {
     if (!effectivePersistKey || didRestoreSelectionRef.current) return;
@@ -1322,7 +1364,7 @@ export function Grid(props) {
                   const sortItem = sortModel.find(s => s.key === col.def.key);
                   const sortIdx = sortModel.findIndex(s => s.key === col.def.key);
                   const hasFilter = Boolean(filters[col.def.key]);
-                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={leftPinOffsets.get(col.def.key) ?? 0 + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
+                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={(leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
                     e.stopPropagation();
                     setActiveColumnKey(col.def.key);
                     setFilterAnchor(e.currentTarget);
@@ -1384,7 +1426,7 @@ export function Grid(props) {
               } catch (err) {
                 devWarn('getRowStyle threw', err);
               }
-              return <Box key={rowId} role="row" className={rowClass} onClick={() => handleRowActivate(row, rowId)} onDoubleClick={event => {
+              return <Box key={rowId} role="row" className={rowClass} onClick={event => handleRowActivate(row, rowId, { metaKey: event.ctrlKey || event.metaKey })} onDoubleClick={event => {
                 event.preventDefault();
                 handleRowDoubleClick(row, rowId);
               }} onContextMenu={event => handleRowContextMenu(row, rowId, event)} style={rowExtraStyle} sx={{
@@ -1398,7 +1440,7 @@ export function Grid(props) {
                 bgcolor: isSelected ? 'action.selected' : 'transparent',
                 borderBottom: '1px solid',
                 borderColor: 'divider',
-                cursor: onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
+                cursor: enableSelection || onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
                 outline: 'none',
                 '&:hover': {
                   bgcolor: isSelected ? 'action.selected' : 'action.hover'

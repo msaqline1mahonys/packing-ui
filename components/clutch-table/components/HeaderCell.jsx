@@ -7,6 +7,7 @@ import ArrowDownward from '@mui/icons-material/ArrowDownward'
 import FilterAlt from '@mui/icons-material/FilterAlt'
 import FilterAltOutlined from '@mui/icons-material/FilterAltOutlined'
 import MoreVert from '@mui/icons-material/MoreVert'
+import DragIndicator from '@mui/icons-material/DragIndicator'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
@@ -26,11 +27,16 @@ export function HeaderCell({
   const sortable = column.sortable !== false
   const filterable = enableColumnFilters && column.filterable !== false
   const align = column.align ?? (column.type === 'number' ? 'right' : 'left')
+  const showDragHandle = isDraggable && pin == null
 
   const handleClick = useCallback((e) => {
     if (!sortable) return
     const target = e.target
-    if (target.closest('.dg-resize-handle') || target.closest('.dg-header-action')) return
+    if (
+      target.closest('.dg-resize-handle')
+      || target.closest('.dg-header-action')
+      || target.closest('.dg-drag-handle')
+    ) return
     onSortClick(e)
   }, [sortable, onSortClick])
 
@@ -65,7 +71,7 @@ export function HeaderCell({
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
       sx={{
-        boxSizing: 'border-box', display: 'flex', alignItems: 'center',
+        boxSizing: 'border-box', display: 'flex', alignItems: 'flex-start',
         justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
         gap: 0.5, px: 1, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
         color: 'text.primary', bgcolor: pin ? 'background.paper' : 'transparent',
@@ -73,16 +79,45 @@ export function HeaderCell({
         position: stickyStyles.position ?? 'relative',
         '&:hover': { bgcolor: 'action.hover' },
       }}
-      {...(isDraggable && pin == null ? { ...dragAttributes, ...listeners } : {})}
+      {...dragAttributes}
     >
+      {showDragHandle && (
+        <Box
+          className="dg-drag-handle"
+          {...listeners}
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            mt: 0.125,
+            opacity: isHovered || isDragging ? 0.7 : 0.25,
+            cursor: isDragging ? 'grabbing' : 'grab',
+            color: 'text.secondary',
+            transition: 'opacity 120ms',
+            touchAction: 'none',
+          }}
+        >
+          <DragIndicator sx={{ fontSize: 16 }} />
+        </Box>
+      )}
+
       <Box component="span" sx={{
-        flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: align,
+        flex: 1,
+        minWidth: 0,
+        overflow: 'hidden',
+        textAlign: align,
+        lineHeight: 1.25,
+        wordBreak: 'break-word',
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        whiteSpace: 'normal',
       }}>
         {column.header}
       </Box>
 
       {sortDir && (
-        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, flexShrink: 0, mt: 0.125 }}>
           {sortDir === 'asc' ? (
             <ArrowUpward sx={{ fontSize: 14, color: 'primary.main' }} />
           ) : (
@@ -99,7 +134,7 @@ export function HeaderCell({
       {filterable && (
         <Tooltip title={hasFilter ? 'Filter active' : 'Filter column'}>
           <IconButton className="dg-header-action" size="small" onClick={onFilterClick}
-            sx={{ p: 0.25, opacity: hasFilter || isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
+            sx={{ p: 0.25, flexShrink: 0, opacity: hasFilter || isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
             {hasFilter ? (
               <FilterAlt sx={{ fontSize: 16, color: 'primary.main' }} />
             ) : (
@@ -111,7 +146,7 @@ export function HeaderCell({
 
       {showColumnMenu && (
         <IconButton className="dg-header-action" size="small" onClick={onMenuClick}
-          sx={{ p: 0.25, opacity: isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
+          sx={{ p: 0.25, flexShrink: 0, opacity: isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
           <MoreVert sx={{ fontSize: 16 }} />
         </IconButton>
       )}
@@ -120,9 +155,20 @@ export function HeaderCell({
         <Box className="dg-resize-handle" onMouseDown={onResizeStart}
           onClick={(e) => e.stopPropagation()}
           sx={{
-            position: 'absolute', top: 0, right: 0, width: 6, height: '100%',
-            cursor: 'col-resize', zIndex: 2,
-            '&:hover': { bgcolor: 'primary.main', opacity: 0.3 },
+            position: 'absolute', top: 0, right: 0, width: 10, height: '100%',
+            cursor: 'col-resize', zIndex: 2, touchAction: 'none', userSelect: 'none',
+            '&:hover': { bgcolor: 'primary.main', opacity: 0.35 },
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: '15%',
+              bottom: '15%',
+              right: 4,
+              width: 2,
+              borderRadius: 1,
+              bgcolor: 'divider',
+            },
+            '&:hover::after': { bgcolor: 'primary.main', opacity: 0.8 },
           }}
         />
       )}

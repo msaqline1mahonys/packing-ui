@@ -438,8 +438,22 @@ export default function OverviewClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [siteName, setSiteName] = useState("");
+  const [todayLabel, setTodayLabel] = useState("");
 
-  const siteName = readSiteName();
+  useEffect(() => {
+    const syncHeader = () => {
+      setSiteName(readSiteName());
+      setTodayLabel(formatToday());
+    };
+    syncHeader();
+    window.addEventListener(SITE_CHANGED_EVENT, syncHeader);
+    window.addEventListener("auth-session-changed", syncHeader);
+    return () => {
+      window.removeEventListener(SITE_CHANGED_EVENT, syncHeader);
+      window.removeEventListener("auth-session-changed", syncHeader);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -504,7 +518,7 @@ export default function OverviewClient() {
             ) : null}
             <span className="inline-flex items-center gap-1.5">
               <Calendar className="size-3.5 text-slate-400" />
-              {formatToday()}
+              {todayLabel || null}
             </span>
           </div>
           <p className="max-w-2xl text-pretty text-slate-600">

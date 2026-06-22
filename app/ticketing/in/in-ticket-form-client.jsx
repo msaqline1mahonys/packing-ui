@@ -901,32 +901,84 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               </FormRow>
             </div>
             <div className="grid gap-3 xl:grid-cols-2">
-              <WeightSection
-                label="Gross Weight"
-                weights={ticket.grossWeights}
-                dateTimes={ticket.grossWeightDateTimes}
-                total={grossTotal}
-                unitType={weightUnit}
-                splitLoad={ticket.splitLoad}
-                disabled={isCompleted}
-                onAdd={() => addWeight("grossWeights")}
-                onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
-                onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
-                onRemove={(i) => removeWeight("grossWeights", i)}
-              />
-              <WeightSection
-                label="Tare Weight"
-                weights={ticket.tareWeights}
-                dateTimes={ticket.tareWeightDateTimes}
-                total={tareTotal}
-                unitType={weightUnit}
-                splitLoad={ticket.splitLoad}
-                disabled={isCompleted}
-                onAdd={() => addWeight("tareWeights")}
-                onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
-                onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
-                onRemove={(i) => removeWeight("tareWeights", i)}
-              />
+              {isIncoming ? (
+                <>
+                  <WeightSection
+                    label="Gross Weight"
+                    weights={ticket.grossWeights}
+                    dateTimes={ticket.grossWeightDateTimes}
+                    total={grossTotal}
+                    unitType={weightUnit}
+                    splitLoad={ticket.splitLoad}
+                    disabled={isCompleted}
+                    hideTotal
+                    onAdd={() => addWeight("grossWeights")}
+                    onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
+                    onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
+                    onRemove={(i) => removeWeight("grossWeights", i)}
+                  />
+                  <WeightSection
+                    label="Tare Weight"
+                    weights={ticket.tareWeights}
+                    dateTimes={ticket.tareWeightDateTimes}
+                    total={tareTotal}
+                    unitType={weightUnit}
+                    splitLoad={ticket.splitLoad}
+                    disabled={isCompleted}
+                    hideTotal
+                    onAdd={() => addWeight("tareWeights")}
+                    onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
+                    onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
+                    onRemove={(i) => removeWeight("tareWeights", i)}
+                  />
+                </>
+              ) : (
+                <>
+                  <WeightSection
+                    label="Tare Weight"
+                    weights={ticket.tareWeights}
+                    dateTimes={ticket.tareWeightDateTimes}
+                    total={tareTotal}
+                    unitType={weightUnit}
+                    splitLoad={ticket.splitLoad}
+                    disabled={isCompleted}
+                    hideTotal
+                    onAdd={() => addWeight("tareWeights")}
+                    onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
+                    onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
+                    onRemove={(i) => removeWeight("tareWeights", i)}
+                  />
+                  <WeightSection
+                    label="Gross Weight"
+                    weights={ticket.grossWeights}
+                    dateTimes={ticket.grossWeightDateTimes}
+                    total={grossTotal}
+                    unitType={weightUnit}
+                    splitLoad={ticket.splitLoad}
+                    disabled={isCompleted}
+                    hideTotal
+                    onAdd={() => addWeight("grossWeights")}
+                    onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
+                    onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
+                    onRemove={(i) => removeWeight("grossWeights", i)}
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {isIncoming ? (
+                <>
+                  <WeightSummaryBadge label="Gross Weight" total={grossTotal} unitType={weightUnit} variant="gross" />
+                  <WeightSummaryBadge label="Tare Weight" total={tareTotal} unitType={weightUnit} variant="tare" />
+                </>
+              ) : (
+                <>
+                  <WeightSummaryBadge label="Tare Weight" total={tareTotal} unitType={weightUnit} variant="tare" />
+                  <WeightSummaryBadge label="Gross Weight" total={grossTotal} unitType={weightUnit} variant="gross" />
+                </>
+              )}
+              <WeightSummaryBadge label="Net Weight" total={netTotal} unitType={weightUnit} variant="net" />
             </div>
 
             {tareTotal > grossTotal && grossTotal > 0 ? (
@@ -935,25 +987,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 Tare weight exceeds gross weight. Please verify the weight entries.
               </div>
             ) : null}
-
-            <div
-              className={cn(
-                "mt-3 flex items-center justify-between rounded-md px-3 py-2",
-                netTotal > 0 ? "bg-emerald-50" : "bg-slate-100"
-              )}
-            >
-              <span className={cn("text-xs font-semibold", netTotal > 0 ? "text-emerald-800" : "text-slate-500")}>
-                Net Weight
-              </span>
-              <span className={cn("text-sm font-bold", netTotal > 0 ? "text-emerald-700" : "text-slate-500")}>
-                {netTotal > 0
-                  ? formatWeightFromStorageKg(netTotal, weightUnit).formatted
-                  : "-"}
-                {netTotal > 0 ? (
-                  <span className="text-[10px]"> {formatWeightFromStorageKg(netTotal, weightUnit).unit}</span>
-                ) : null}
-              </span>
-            </div>
           </Card>
 
           {ticket.commodityTypeId && requiresCommodityConfirmation ? (
@@ -1606,6 +1639,45 @@ function CommodityIdentificationBody({
   );
 }
 
+function WeightSummaryBadge({ label, total, unitType, variant }) {
+  const totalFormatted = formatWeightFromStorageKg(total, unitType);
+  const hasTotal = total > 0;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5">
+      <span className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</span>
+      <span
+        className={cn(
+          "inline-flex items-baseline gap-1 rounded-md px-2.5 py-1 text-base font-bold tabular-nums shadow-sm",
+          hasTotal
+            ? variant === "gross"
+              ? "bg-[#0f1e3d] text-white"
+              : variant === "tare"
+                ? "bg-amber-100 text-amber-950 ring-1 ring-amber-300/70"
+                : "bg-emerald-600 text-white"
+            : "bg-slate-100 text-slate-400 ring-1 ring-slate-200"
+        )}
+      >
+        {hasTotal ? (
+          <>
+            {totalFormatted.formatted}
+            <span
+              className={cn(
+                "text-xs font-semibold",
+                variant === "gross" || variant === "net" ? "text-white/80" : "text-amber-800/80"
+              )}
+            >
+              {totalFormatted.unit}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm font-medium">—</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function WeightSection({
   label,
   weights,
@@ -1614,6 +1686,7 @@ function WeightSection({
   unitType,
   splitLoad,
   disabled,
+  hideTotal,
   onAdd,
   onUpdate,
   onUpdateDateTime,
@@ -1623,18 +1696,46 @@ function WeightSection({
   const displayDateTimes = dateTimes || [];
   const unitLabel = weightUnitLabel(unitType);
   const totalFormatted = formatWeightFromStorageKg(total, unitType);
+  const isGross = label.toLowerCase().includes("gross");
+  const hasTotal = total > 0;
 
   return (
     <div className="mt-3">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">{label}</span>
-        <span className="text-[11px] text-slate-500">
-          Total:{" "}
-          <strong>
-            {totalFormatted.formatted} {totalFormatted.unit}
-          </strong>
-        </span>
-      </div>
+      {!hideTotal ? (
+        <div className="mb-2 flex flex-wrap items-center gap-2.5">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</span>
+          <span
+            className={cn(
+              "inline-flex items-baseline gap-1 rounded-md px-2.5 py-1 text-base font-bold tabular-nums shadow-sm",
+              hasTotal
+                ? isGross
+                  ? "bg-[#0f1e3d] text-white"
+                  : "bg-amber-100 text-amber-950 ring-1 ring-amber-300/70"
+                : "bg-slate-100 text-slate-400 ring-1 ring-slate-200"
+            )}
+          >
+            {hasTotal ? (
+              <>
+                {totalFormatted.formatted}
+                <span
+                  className={cn(
+                    "text-xs font-semibold",
+                    hasTotal && isGross ? "text-white/80" : hasTotal ? "text-amber-800/80" : ""
+                  )}
+                >
+                  {totalFormatted.unit}
+                </span>
+              </>
+            ) : (
+              <span className="text-sm font-medium">—</span>
+            )}
+          </span>
+        </div>
+      ) : (
+        <div className="mb-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-start gap-2.5">
         {displayWeights.map((w, i) => (
           <div key={i} className="rounded-lg border border-slate-200 bg-slate-50/90 p-2">

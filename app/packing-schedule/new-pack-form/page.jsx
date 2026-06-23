@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -16,15 +16,11 @@ import {
   REFERENCE_CONTAINER_CODE_ROWS,
   SAMPLE_STATUSES,
 } from "@/lib/Data";
-import BulkContainerImportPanel from "@/components/packing-schedule/bulk-container-import-dialog";
+import { BulkContainerImportDialog } from "@/components/packing-schedule/bulk-container-import-dialog";
 import RemovePackContainersDialog from "@/components/packing-schedule/remove-pack-containers-dialog";
 import {
+  countContainersForCombo,
   countContainersForReleaseLine,
-  dedupeReleaseLines,
-  ensureReleaseLineOnPack,
-  expandParksToPackLines,
-  mergeReleaseLines,
-  releaseLineKey,
 } from "@/lib/container-bulk-import";
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { commodityOptionLabel } from "@/lib/commodity-display";
@@ -77,7 +73,7 @@ import {
   blankRelease,
   computeReleaseExpiry,
 } from "@/lib/releases-store";
-import { saveRelease } from "@/lib/releases-api";
+import { enrichReleaseFromCatalog, normalizeReleaseParks, saveRelease } from "@/lib/releases-api";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { attachPemsSubmissionSnapshot } from "@/lib/pems-staging-snapshot";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
@@ -419,11 +415,42 @@ function defaultIsoForContainerCode(containerCode) {
   return ISO_BY_CONTAINER_CODE[String(containerCode || "").toUpperCase()] || "";
 }
 
+function getLinkedReleases(pack) {
+  return Array.isArray(pack?.releaseDetails) ? pack.releaseDetails : Array.isArray(pack?.linkedReleases) ? pack.linkedReleases : [];
+}
+
+function normalizePackLinkedRelease(raw) {
+  if (!raw) return null;
+  const nested = raw.release ?? null;
+  const releaseId = raw.release_id ?? raw.releaseId ?? nested?.id ?? null;
+  const releaseNumber =
+    nested?.release_number ??
+    nested?.releaseNumber ??
+    raw.release_number ??
+    raw.releaseNumber ??
+    raw.release_ref ??
+    raw.releaseRef ??
+    "";
+  const parks = Array.isArray(nested?.parks)
+    ? normalizeReleaseParks(nested.parks)
+    : normalizeReleaseParks(raw.parks);
+  if (!releaseId && !releaseNumber) return null;
+  return {
+    id: raw.id ?? releaseId,
+    packReleaseId: raw.id ?? null,
+    releaseId,
+    releaseNumber,
+    releaseRef: releaseNumber,
+    containerCount: nested?.container_count ?? nested?.containerCount ?? raw.containerCount ?? null,
+    status: nested?.status ?? raw.status ?? "",
+    parks,
+  };
+}
+
 function createDraftContainer(pack, index, existing = {}) {
   const order = index + 1;
-  // Pre-fill release details from the pack's first release when the container has none set
-  const firstRelease = Array.isArray(pack.releaseDetails) ? pack.releaseDetails[0] : null;
-  const hasExistingRelease = existing.releaseNumber || existing.emptyContainerParkId || existing.transporterId;
+  const firstRelease = getLinkedReleases(pack)[0] ?? null;
+  const hasExistingRelease = existing.releaseNumber || existing.releaseId || existing.emptyContainerParkId || existing.transporterId;
   return {
     id: existing.id || `container-${order}`,
     packId: existing.packId ?? pack.id ?? null,
@@ -437,7 +464,8 @@ function createDraftContainer(pack, index, existing = {}) {
       pack.containerCode ||
       "",
     sealNumber: existing.sealNumber ?? existing.sealNo ?? "",
-    releaseNumber: existing.releaseNumber ?? (hasExistingRelease ? "" : (firstRelease?.releaseRef ?? "")),
+    releaseId: existing.releaseId ?? existing.release_id ?? (hasExistingRelease ? null : (firstRelease?.releaseId ?? null)),
+    releaseNumber: existing.releaseNumber ?? (hasExistingRelease ? "" : (firstRelease?.releaseNumber ?? firstRelease?.releaseRef ?? "")),
     releasePark: existing.releasePark ?? "",
     transporter: existing.transporter ?? "",
     emptyContainerParkId: existing.emptyContainerParkId ?? (hasExistingRelease ? "" : (firstRelease?.emptyContainerParkId ?? "")),
@@ -780,11 +808,11 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
             status: a.packer?.status ?? a.status ?? "Active",
           })).filter((p) => p.id)
         : [],
-    releaseDetails: Array.isArray(row.releases) ? row.releases.map((r) => ({
-      releaseRef: r.release_ref ?? r.releaseRef ?? "",
-      emptyContainerParkId: r.empty_container_park_id ?? r.emptyContainerParkId ?? null,
-      transporterId: r.transporter_id ?? r.transporterId ?? null,
-    })) : Array.isArray(row.releaseDetails) ? row.releaseDetails : legacyReleaseDetails,
+    releaseDetails: Array.isArray(row.releases)
+      ? row.releases.map(normalizePackLinkedRelease).filter(Boolean)
+      : Array.isArray(row.releaseDetails)
+        ? row.releaseDetails.map(normalizePackLinkedRelease).filter(Boolean)
+        : legacyReleaseDetails.map(normalizePackLinkedRelease).filter(Boolean),
     destinationCountry: (row.destination_country ?? row.destinationCountry) || "",
     terminalId: resolvedTerminalId,
     portOfLoading: (row.port_of_loading ?? row.portOfLoading) || "",
@@ -889,7 +917,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
 
 function packToScheduleRow(pack, existingRow, { includeContainers = true } = {}) {
   const sampleEntries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
-  const releaseDetails = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const releaseDetails = getLinkedReleases(pack);
   const containers = includeContainers ? buildPackContainers(pack, existingRow) : null;
   const detail =
     pack.fumigationDetail && typeof pack.fumigationDetail === "object"
@@ -914,7 +942,9 @@ function packToScheduleRow(pack, existingRow, { includeContainers = true } = {})
     quantityPerContainer: pack.quantityPerContainer === "" || pack.quantityPerContainer == null ? null : Number(pack.quantityPerContainer),
     maxQtyPerContainer: pack.maxQtyPerContainer === "" || pack.maxQtyPerContainer == null ? null : Number(pack.maxQtyPerContainer),
     mtTotal: pack.mtTotal === "" || pack.mtTotal == null ? null : Number(pack.mtTotal),
-    releases: releaseDetails.filter((r) => r.releaseRef || r.emptyContainerParkId || r.transporterId),
+    releases: releaseDetails
+      .filter((r) => r.releaseId)
+      .map((r) => ({ release_id: r.releaseId, releaseId: r.releaseId })),
     ...(includeContainers ? { containers } : {}),
     destinationCountry: pack.destinationCountry || "",
     destinationPort: pack.destinationPort || "",
@@ -1866,11 +1896,23 @@ function NewPackFormPageInner() {
     [queryLookups.shippingLines]
   );
   const containerParkOptions = useMemo(
-    () => queryLookups.containerParks.map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" })),
+    () =>
+      queryLookups.containerParks
+        .map((p) => ({
+          id: p.id ?? p.container_park_id ?? p.containerParkId ?? "",
+          name: p.name ?? p.container_park_name ?? p.containerParkName ?? "",
+        }))
+        .filter((p) => p.id),
     [queryLookups.containerParks]
   );
   const transporterOptions = useMemo(
-    () => queryLookups.transporters.map((t) => ({ id: t.id, name: t.name ?? "" })),
+    () =>
+      queryLookups.transporters
+        .map((t) => ({
+          id: t.id ?? t.transporter_id ?? t.transporterId ?? "",
+          name: t.name ?? t.transporter_name ?? "",
+        }))
+        .filter((t) => t.id),
     [queryLookups.transporters]
   );
   const containerCodeOptions = queryLookups.containerCodes;
@@ -1937,6 +1979,7 @@ function NewPackFormPageInner() {
   const [quickReleaseSaving, setQuickReleaseSaving] = useState(false);
   const [quickReleaseTargetIndex, setQuickReleaseTargetIndex] = useState(null);
   const [quickReleaseActiveLine, setQuickReleaseActiveLine] = useState(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportSaving, setBulkImportSaving] = useState(false);
   const [bulkImportError, setBulkImportError] = useState("");
   const [removeContainersOpen, setRemoveContainersOpen] = useState(false);
@@ -1956,48 +1999,69 @@ function NewPackFormPageInner() {
     setQuickReleaseOpen(true);
   }
 
-  // Open the combined modal in edit mode for an existing pack release line. Loads the full
-  // release record (dates, free days, all parks) when it matches a Reference Data release so
-  // edits PUT back to that record; falls back to the line's own park/transporter otherwise.
+  function linkReleaseRecord(releaseRecord) {
+    if (!releaseRecord?.id) return;
+    const full =
+      queryLookups.releases.find((r) => String(r.id) === String(releaseRecord.id)) ?? releaseRecord;
+    const normalized = enrichReleaseFromCatalog(
+      normalizePackLinkedRelease({
+        release_id: full.id,
+        release: {
+          id: full.id,
+          release_number: full.releaseNumber ?? full.release_number,
+          container_count: full.containerCount ?? full.container_count,
+          status: full.status,
+          parks: full.parks ?? [],
+        },
+      }),
+      queryLookups.releases
+    );
+    if (!normalized) return;
+    setPack((prev) => {
+      const list = getLinkedReleases(prev).filter(
+        (row) => String(row.releaseId) !== String(normalized.releaseId)
+      );
+      return { ...prev, releaseDetails: [...list, normalized] };
+    });
+  }
+
+  function unlinkRelease(releaseId) {
+    setPack((prev) => ({
+      ...prev,
+      releaseDetails: getLinkedReleases(prev).filter((row) => String(row.releaseId) !== String(releaseId)),
+    }));
+    closeQuickAddRelease();
+  }
+
   function openEditRelease(lineIndex) {
     const line = releaseRows[lineIndex];
     if (!line) return;
-    const releaseRef = String(line.releaseRef ?? line.release_ref ?? "").trim();
-    const fullRecord = queryLookups.releases.find(
-      (r) => String(r.releaseNumber ?? r.release_number ?? "").trim() === releaseRef
-    );
+    const releaseId = line.releaseId ?? line.id;
+    const fullRecord = queryLookups.releases.find((r) => String(r.id) === String(releaseId))
+      || queryLookups.releases.find(
+        (r) => String(r.releaseNumber ?? "").trim() === String(line.releaseNumber ?? line.releaseRef ?? "").trim()
+      );
     const draft = fullRecord
-      ? { ...blankRelease(), ...fullRecord, releaseNumber: releaseRef }
+      ? { ...blankRelease(), ...fullRecord, releaseNumber: fullRecord.releaseNumber || line.releaseNumber }
       : {
           ...blankRelease(),
-          releaseNumber: releaseRef,
-          parks: [
-            {
-              containerParkId: line.emptyContainerParkId ?? "",
-              transporterIds: line.transporterId ? [line.transporterId] : [],
-            },
-          ],
+          id: releaseId,
+          releaseNumber: line.releaseNumber ?? line.releaseRef ?? "",
+          parks: Array.isArray(line.parks) && line.parks.length ? line.parks : [{ containerParkId: "", transporterIds: [] }],
         };
     setQuickReleaseError("");
     setQuickReleaseMode("edit");
     setQuickReleaseTargetIndex(lineIndex);
-    setQuickReleaseActiveLine({
-      releaseRef,
-      emptyContainerParkId: line.emptyContainerParkId ?? null,
-      transporterId: line.transporterId ?? null,
-    });
+    setQuickReleaseActiveLine(line);
     setQuickReleaseDraft(draft);
     setQuickReleaseOpen(true);
   }
 
-  // Detach (remove) a release line from this pack. The Reference Data release record is left
-  // untouched — this only unlinks it from the current pack.
+  // Detach (remove) a linked release from this pack. The Reference Data release record is left untouched.
   function detachReleaseLine(lineIndex) {
-    setPack((prev) => {
-      const list = Array.isArray(prev.releaseDetails) ? prev.releaseDetails : [];
-      return { ...prev, releaseDetails: list.filter((_, idx) => idx !== lineIndex) };
-    });
-    closeQuickAddRelease();
+    const line = releaseRows[lineIndex];
+    if (!line?.releaseId) return;
+    unlinkRelease(line.releaseId);
   }
 
   function closeQuickAddRelease() {
@@ -2077,8 +2141,9 @@ function NewPackFormPageInner() {
     // Persist the release to the database (Modules/ReferenceData ReleaseController).
     setQuickReleaseSaving(true);
     setQuickReleaseError("");
+    let savedRelease;
     try {
-      await saveRelease({
+      savedRelease = await saveRelease({
         ...quickReleaseDraft,
         releaseNumber: releaseRef,
         parks: cleanedParks,
@@ -2096,26 +2161,7 @@ function NewPackFormPageInner() {
 
     await invalidateReferenceData("releases");
 
-    const expandedLines = expandParksToPackLines(releaseRef, cleanedParks);
-
-    setPack((prev) => {
-      const currentReleases = Array.isArray(prev.releaseDetails) ? prev.releaseDetails : [];
-      const populated = currentReleases.filter(
-        (row) => row.releaseRef || row.emptyContainerParkId || row.transporterId
-      );
-
-      let nextReleases;
-      if (quickReleaseMode === "edit") {
-        const withoutRef = populated.filter(
-          (row) => String(row.releaseRef ?? "").trim() !== releaseRef
-        );
-        nextReleases = dedupeReleaseLines([...withoutRef, ...expandedLines]);
-      } else {
-        nextReleases = dedupeReleaseLines(mergeReleaseLines(populated, expandedLines));
-      }
-
-      return { ...prev, releaseDetails: nextReleases };
-    });
+    linkReleaseRecord(savedRelease);
 
     closeQuickAddRelease();
   }
@@ -2544,10 +2590,7 @@ function NewPackFormPageInner() {
   }
 
   async function applyBulkContainerImport(updatedContainers, appliedRows, logistics) {
-    // Add the release/park/transporter used for this import to the pack if it's a
-    // combo the pack doesn't already carry.
-    const nextReleaseDetails = ensureReleaseLineOnPack(pack.releaseDetails, logistics);
-    const nextPack = { ...pack, containers: updatedContainers, releaseDetails: nextReleaseDetails };
+    const nextPack = { ...pack, containers: updatedContainers };
 
     const packId = nextPack.id ?? editingRow?.id;
     if (!packId) {
@@ -2730,7 +2773,10 @@ function NewPackFormPageInner() {
   const isImportJob = pack.importExport === "Import";
   const showImportBulkSection = pack.packType === "bulk" || isImportJob;
   const vesselImportDates = useMemo(() => vesselImportScheduleFields(selectedVessel), [selectedVessel]);
-  const releaseRows = Array.isArray(pack.releaseDetails) ? pack.releaseDetails : [];
+  const releaseRows = useMemo(
+    () => getLinkedReleases(pack).map((row) => enrichReleaseFromCatalog(row, queryLookups.releases)),
+    [pack.releaseDetails, pack.linkedReleases, queryLookups.releases]
+  );
   const destinationCountryId = useMemo(() => {
     const raw = String(pack.destinationCountry || "").trim();
     if (!raw) return "";
@@ -2865,7 +2911,7 @@ function NewPackFormPageInner() {
   const allPemsEligibleStaged =
     pemsEligibleContainerIds.length > 0 && pemsEligibleContainerIds.every((id) => stagedPemsIds.includes(id));
   const stagingRfpSummary = useMemo(() => {
-    const refs = (Array.isArray(pack.releaseDetails) ? pack.releaseDetails : []).map((r) => r?.releaseRef).filter(Boolean);
+    const refs = getLinkedReleases(pack).map((r) => r?.releaseNumber ?? r?.releaseRef).filter(Boolean);
     return resolvePackRfpRef({
       packRfp: pack.rfp,
       stagedContainers: stagedPemsContainers,
@@ -3800,124 +3846,136 @@ function NewPackFormPageInner() {
 
                   <div className="space-y-2 border-t border-slate-200/80 pt-2">
                     <p className="text-[10px] text-slate-500">
-                      Releases are pickup references only. Container counts are controlled by the pack and its draft containers.
+                      Link reference releases to this pack. Park and transporter are set per container or via bulk import.
                     </p>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Release number <span className="font-normal normal-case text-slate-400">· Release lines: {releaseRows.length}</span>
+                      Linked releases ({releaseRows.length})
                     </p>
-                    {(releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }]).map((entry, index) => {
-                      const baseRows = releaseRows.length ? releaseRows : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }];
-                      const isKnownRelease = releaseOptions.some((r) => r.releaseNumber === entry.releaseRef);
-                      return (
+
+                    {releaseRows.map((entry, index) => (
                       <div
-                        key={
-                          entry.releaseRef || entry.emptyContainerParkId || entry.transporterId
-                            ? releaseLineKey(entry)
-                            : `release-row-blank-${index}`
-                        }
-                        className="grid gap-1.5 lg:grid-cols-[1fr_1fr_1fr_auto]"
+                        key={entry.releaseId || entry.releaseNumber || `release-${index}`}
+                        className="rounded-md border border-slate-200 bg-white p-2.5"
                       >
-                        {(() => {
-                          const releaseSelectOpts = [
-                            ...(!isKnownRelease && entry.releaseRef ? [{ value: entry.releaseRef, label: entry.releaseRef }] : []),
-                            ...releaseOptions.map((r) => ({ value: r.releaseNumber, label: r.releaseNumber + (r.status ? ` (${r.status})` : "") })),
-                          ];
-                          return (
-                            <ClutchSelect
-                              placeholder="- Select release -"
-                              options={releaseSelectOpts}
-                              value={releaseSelectOpts.find((o) => o.value === (entry.releaseRef || "")) ?? null}
-                              onChange={(option) => {
-                                const num = option ? option.value : "";
-                                const rel = releaseOptions.find((r) => r.releaseNumber === num);
-                                const expanded = num
-                                  ? expandParksToPackLines(num, rel?.parks)
-                                  : [{ releaseRef: "", emptyContainerParkId: "", transporterId: "" }];
-
-                                const before = baseRows.slice(0, index);
-                                const after = baseRows.slice(index + 1);
-                                let next = dedupeReleaseLines([
-                                  ...before,
-                                  ...(expanded.length
-                                    ? expanded
-                                    : [{ releaseRef: num, emptyContainerParkId: "", transporterId: "" }]),
-                                  ...after,
-                                ]);
-
-                                // Keep a trailing blank row so more releases can be added without a separate button.
-                                const hasBlank = next.some(
-                                  (row) => !row.releaseRef && !row.emptyContainerParkId && !row.transporterId
-                                );
-                                if (num && !hasBlank) {
-                                  next.push({ releaseRef: "", emptyContainerParkId: "", transporterId: "" });
-                                }
-                                set("releaseDetails", next);
-                              }}
-                            />
-                          );
-                        })()}
-                        {(() => {
-                          const parkSelectOpts = containerParkOptions.map((park) => ({ value: String(park.id), label: park.name }));
-                          return (
-                            <ClutchSelect
-                              placeholder="Empty Container Park"
-                              options={parkSelectOpts}
-                              value={parkSelectOpts.find((o) => String(o.value) === String(entry.emptyContainerParkId ?? "")) ?? null}
-                              onChange={(option) => {
-                                const next = baseRows.map((row, idx) => (idx === index ? { ...row, emptyContainerParkId: option ? option.value : "" } : row));
-                                set("releaseDetails", next);
-                              }}
-                            />
-                          );
-                        })()}
-                        {(() => {
-                          const transporterSelectOpts = transporterOptions.map((t) => ({ value: String(t.id), label: t.name }));
-                          return (
-                            <ClutchSelect
-                              placeholder="Select Transporter"
-                              options={transporterSelectOpts}
-                              value={transporterSelectOpts.find((o) => String(o.value) === String(entry.transporterId ?? "")) ?? null}
-                              onChange={(option) => {
-                                const next = baseRows.map((row, idx) => (idx === index ? { ...row, transporterId: option ? option.value : "" } : row));
-                                set("releaseDetails", next);
-                              }}
-                            />
-                          );
-                        })()}
-                        <div className="flex items-center justify-end gap-1.5">
-                          {entry.releaseRef ? (
-                            <span
-                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-600"
-                              title="Containers assigned to this release line on this pack"
-                            >
-                              {countForReleaseLine(entry)} ctr
-                            </span>
-                          ) : null}
-                          {entry.releaseRef ? (
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800">
+                              {entry.releaseNumber || entry.releaseRef}
+                              {entry.status ? (
+                                <span className="ms-2 text-[10px] font-medium text-slate-500">{entry.status}</span>
+                              ) : null}
+                            </p>
+                            <p className="text-[10px] text-slate-500">
+                              Global cap: {entry.containerCount ?? "—"} containers
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
                             <button
                               type="button"
                               className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-brand"
-                              title="Edit release, import containers, or remove from pack"
+                              title="Edit release record"
                               aria-label="Edit release"
                               onClick={() => openEditRelease(index)}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
-                          ) : null}
+                            <button
+                              type="button"
+                              className="rounded-md p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                              title="Unlink from pack"
+                              aria-label="Unlink release"
+                              onClick={() => unlinkRelease(entry.releaseId)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 space-y-1">
+                          {normalizeReleaseParks(entry.parks).flatMap((park) => {
+                            const parkId = park.containerParkId ?? "";
+                            const parkName =
+                              park.containerParkName ||
+                              containerParkOptions.find((p) => String(p.id) === String(parkId))?.name ||
+                              "Park";
+                            const transporterIds = Array.isArray(park.transporterIds)
+                              ? park.transporterIds
+                              : (park.transporters || []).map((t) => t.id);
+                            if (!transporterIds.length) {
+                              return [
+                                <p key={`${parkId}-none`} className="text-[11px] text-slate-600">
+                                  {parkName}: {countContainersForCombo(packContainers, {
+                                    releaseId: entry.releaseId,
+                                    releaseNumber: entry.releaseNumber,
+                                    emptyContainerParkId: parkId,
+                                    transporterId: null,
+                                  })} on this pack
+                                </p>,
+                              ];
+                            }
+                            return transporterIds.map((transporterId) => {
+                              const transName =
+                                park.transporters?.find((t) => String(t.id) === String(transporterId))?.name ??
+                                transporterOptions.find((t) => String(t.id) === String(transporterId))?.name ??
+                                "Transporter";
+                              const count = countContainersForCombo(packContainers, {
+                                releaseId: entry.releaseId,
+                                releaseNumber: entry.releaseNumber,
+                                emptyContainerParkId: parkId,
+                                transporterId,
+                              });
+                              return (
+                                <p key={`${parkId}-${transporterId}`} className="text-[11px] text-slate-600">
+                                  {parkName} · {transName}: <span className="font-medium tabular-nums">{count}</span> on this pack
+                                </p>
+                              );
+                            });
+                          })}
                         </div>
                       </div>
-                      );
-                    })}
+                    ))}
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-end gap-2">
+                      {(() => {
+                        const linkedIds = new Set(releaseRows.map((r) => String(r.releaseId)));
+                        const linkOpts = releaseOptions
+                          .filter((r) => !linkedIds.has(String(r.id)))
+                          .map((r) => ({
+                            value: String(r.id),
+                            label: r.releaseNumber + (r.status ? ` (${r.status})` : ""),
+                          }));
+                        return (
+                          <div className="min-w-[220px] flex-1">
+                            <ClutchSelect
+                              placeholder="Link existing release…"
+                              options={linkOpts}
+                              value={null}
+                              onChange={(option) => {
+                                if (!option) return;
+                                const rel = releaseOptions.find((r) => String(r.id) === String(option.value));
+                                if (rel) linkReleaseRecord(rel);
+                              }}
+                            />
+                          </div>
+                        );
+                      })()}
                       <Button
                         variant="outline"
                         size="sm"
                         type="button"
                         onClick={() => openQuickAddRelease()}
-                        title="Create a full Release record and attach it to this pack"
+                        title="Create a release in Reference Data and link it to this pack"
                       >
-                        + Quick add Release
+                        + New release
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        disabled={!releaseRows.length}
+                        onClick={() => setBulkImportOpen(true)}
+                        title="Bulk import container numbers for a release / park / transporter combo"
+                      >
+                        Bulk import containers
                       </Button>
                     </div>
                   </div>
@@ -5679,6 +5737,21 @@ function NewPackFormPageInner() {
           onConfirm={confirmRemoveContainers}
         />
 
+        <BulkContainerImportDialog
+          key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
+          open={bulkImportOpen}
+          onClose={() => setBulkImportOpen(false)}
+          linkedReleases={releaseRows}
+          referenceReleases={releaseOptions}
+          catalogReleases={queryLookups.releases}
+          containers={packContainers}
+          containerParkOptions={containerParkOptions}
+          transporterOptions={transporterOptions}
+          onApply={applyBulkContainerImport}
+          isApplying={bulkImportSaving}
+          applyProgress={bulkImportSaving ? "Saving imported containers…" : ""}
+        />
+
         <ReleaseModal
           open={quickReleaseOpen}
           mode={quickReleaseMode}
@@ -5686,10 +5759,6 @@ function NewPackFormPageInner() {
           error={quickReleaseError}
           saving={quickReleaseSaving}
           lookups={quickReleaseLookups}
-          activeLine={quickReleaseActiveLine}
-          assignedContainerCount={
-            quickReleaseActiveLine ? countForReleaseLine(quickReleaseActiveLine) : 0
-          }
           canDetach={quickReleaseMode === "edit" && quickReleaseTargetIndex != null}
           onDetach={() => detachReleaseLine(quickReleaseTargetIndex)}
           onClose={closeQuickAddRelease}
@@ -5699,12 +5768,6 @@ function NewPackFormPageInner() {
           onAddPark={addQuickReleasePark}
           onRemovePark={removeQuickReleasePark}
           onToggleTransporter={toggleQuickReleaseTransporter}
-          bulkContainers={packContainers}
-          containerParkOptions={containerParkOptions}
-          transporterOptions={transporterOptions}
-          onBulkApply={applyBulkContainerImport}
-          bulkApplying={bulkImportSaving}
-          bulkProgress={bulkImportSaving ? "Saving imported containers…" : ""}
         />
 
         <QuickAddVesselModal
@@ -5739,8 +5802,6 @@ function ReleaseModal({
   error,
   saving = false,
   lookups,
-  activeLine = null,
-  assignedContainerCount = 0,
   canDetach = false,
   onDetach,
   onClose,
@@ -5750,12 +5811,6 @@ function ReleaseModal({
   onAddPark,
   onRemovePark,
   onToggleTransporter,
-  bulkContainers = [],
-  containerParkOptions: bulkContainerParkOptions = [],
-  transporterOptions: bulkTransporterOptions = [],
-  onBulkApply,
-  bulkApplying = false,
-  bulkProgress = "",
 }) {
   if (!open) return null;
   const isEdit = mode === "edit";
@@ -5792,14 +5847,6 @@ function ReleaseModal({
         <div className="p-4">
           {error ? (
             <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</div>
-          ) : null}
-          {isEdit ? (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-              <span className="rounded-full bg-brand/10 px-2 py-0.5 font-semibold tabular-nums text-brand-ink">
-                {assignedContainerCount}
-              </span>
-              container{assignedContainerCount === 1 ? "" : "s"} on this release line for this pack.
-            </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
@@ -5969,35 +6016,9 @@ function ReleaseModal({
 
           <p className="mt-3 text-[10px] text-slate-500">
             {isEdit
-              ? "Saving updates this Release record in Reference Data and syncs all park/transporter lines onto this pack."
-              : "Saving creates a Release record in Reference Data and adds all park/transporter lines to this pack."}
+              ? "Saving updates this release in Reference Data. Use Bulk import containers on the pack form to assign container numbers."
+              : "Saving creates a release in Reference Data and links it to this pack."}
           </p>
-
-          <div className="mt-5 border-t border-slate-200 pt-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Bulk import containers
-            </p>
-            <BulkContainerImportPanel
-              release={{
-                releaseRef,
-                emptyContainerParkId: activeLine?.emptyContainerParkId ?? null,
-                transporterId: activeLine?.transporterId ?? null,
-              }}
-              containers={bulkContainers}
-              containerNumberField="containerNumber"
-              containerParkOptions={bulkContainerParkOptions}
-              transporterOptions={bulkTransporterOptions}
-              onApply={onBulkApply}
-              isApplying={bulkApplying}
-              applyProgress={bulkProgress}
-              disabled={!isEdit || !releaseRef}
-              disabledReason={
-                !releaseRef
-                  ? "Enter a release number first."
-                  : "Save the release first, then import containers for it."
-              }
-            />
-          </div>
 
           <div className="mt-5 flex items-center justify-between gap-2 border-t border-slate-200 pt-4">
             <div>

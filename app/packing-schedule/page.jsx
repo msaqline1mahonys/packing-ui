@@ -119,6 +119,21 @@ function emptyParkRaw(row) {
   const names = [];
   const seen = new Set();
   for (const r of releases) {
+    const parks = Array.isArray(r.parks) ? r.parks : [];
+    if (parks.length) {
+      for (const park of parks) {
+        const name =
+          park.containerParkName ??
+          park.container_park?.name ??
+          park.containerPark?.name ??
+          null;
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          names.push(name);
+        }
+      }
+      continue;
+    }
     const name = r.empty_container_park?.name ?? r.emptyContainerPark?.name ?? null;
     if (name && !seen.has(name)) {
       seen.add(name);

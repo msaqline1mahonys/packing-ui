@@ -56,7 +56,9 @@ const columns = [
   { key: "statusLabel", label: "Status" },
   { key: "parksSummary", label: "Empty Container Park(s)" },
   { key: "transportersSummary", label: "Transporter(s)" },
-  { key: "containerCount", label: "Containers", numeric: true },
+  { key: "containerCount", label: "Cap", numeric: true },
+  { key: "pickedUpTotal", label: "Picked up", numeric: true },
+  { key: "remainingTotal", label: "Remaining", numeric: true },
   { key: "containerCodeIsoCode", label: "Container Type" },
   { key: "releaseAvailableAtDisplay", label: "Available" },
   { key: "freeDays", label: "Free Days", numeric: true },
@@ -117,11 +119,15 @@ function decorate(row, containerParks, transporters) {
     .map((id) => lookupName(transporters, id))
     .filter(Boolean);
   const attachmentCount = Array.isArray(row.attachments) ? row.attachments.length : 0;
+  const pickedUp = row.usage?.pickedUpTotal ?? row.usage?.picked_up_total ?? "";
+  const remaining = row.usage?.remainingTotal ?? row.usage?.remaining_total ?? "";
   return {
     ...row,
     statusLabel: row.status || "",
     parksSummary: parkNames.length ? parkNames.join(", ") : "",
     transportersSummary: transporterNames.length ? transporterNames.join(", ") : "",
+    pickedUpTotal: pickedUp === "" ? "" : pickedUp,
+    remainingTotal: remaining === "" ? "" : remaining,
     releaseAvailableAtDisplay: formatDateTimeDisplay(row.releaseAvailableAt),
     releaseExpiryAtDisplay: formatDateTimeDisplay(row.releaseExpiryAt),
     pickupByDisplay: formatDateTimeDisplay(row.pickupBy),
@@ -838,7 +844,9 @@ function ReleaseDetails({ release, containerParks, transporters }) {
       <Detail label="Free Days" value={release.freeDays} />
       <Detail label="Expiry" value={release.releaseExpiryAtDisplay} />
       <Detail label="Pickup By" value={release.pickupByDisplay} />
-      <Detail label="Containers" value={release.containerCount} />
+      <Detail label="Cap (containers)" value={release.containerCount} />
+      <Detail label="Picked up (global)" value={release.pickedUpTotal ?? release.usage?.pickedUpTotal ?? "—"} />
+      <Detail label="Remaining (global)" value={release.remainingTotal ?? release.usage?.remainingTotal ?? "—"} />
       <Detail label="Container Type" value={release.containerCodeIsoCode} />
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -850,15 +858,28 @@ function ReleaseDetails({ release, containerParks, transporters }) {
           <ul className="mt-1 space-y-1">
             {parks.map((park, idx) => {
               const parkName = lookupName(containerParks, park.containerParkId) || "—";
+              const parkId = park.containerParkId;
               const tNames = (park.transporterIds || [])
                 .map((id) => lookupName(transporters, id))
                 .filter(Boolean);
+              const comboUsage = (release.usage?.byCombo || []).filter(
+                (c) => String(c.containerParkId) === String(parkId)
+              );
               return (
                 <li key={`detail-park-${idx}`} className="rounded border border-slate-200 bg-slate-50/60 px-2 py-1">
                   <p className="text-xs font-semibold text-slate-700">{parkName}</p>
                   <p className="text-[11px] text-slate-500">
                     {tNames.length ? tNames.join(", ") : "No transporters assigned"}
                   </p>
+                  {comboUsage.length ? (
+                    <ul className="mt-1 space-y-0.5 text-[10px] text-slate-500">
+                      {comboUsage.map((combo, comboIdx) => (
+                        <li key={`combo-${idx}-${comboIdx}`}>
+                          {lookupName(transporters, combo.transporterId) || "—"}: {combo.pickedUp ?? combo.picked_up ?? 0} picked up
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               );
             })}

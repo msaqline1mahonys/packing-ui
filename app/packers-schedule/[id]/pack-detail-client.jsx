@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, X } from "lucide-react";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 
-import BulkContainerImportDialog from "@/components/packing-schedule/bulk-container-import-dialog";
+import { BulkContainerImportDialog } from "@/components/packing-schedule/bulk-container-import-dialog";
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { loadContactUsers } from "@/lib/contact-users-store";
@@ -37,7 +37,8 @@ import PemsTab, { PEMS_TAB_INPUT_CLASS } from "@/components/pems/pems-tab";
 import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
-import { ensureReleaseLineOnPack, normalizeReferenceReleaseOption } from "@/lib/container-bulk-import";
+import { normalizeReferenceReleaseOption } from "@/lib/container-bulk-import";
+import { enrichReleaseFromCatalog } from "@/lib/releases-api";
 import {
   applyContainerPatch,
   getCompletionMissingChecks,
@@ -259,7 +260,7 @@ function attachmentGroupStyles(group) {
   return ATTACHMENT_GROUP_STYLES[group] || ATTACHMENT_GROUP_STYLES.Instruction;
 }
 
-export default function PackDetailClient({ packId }) {
+export default function PackDetailClient({ packId, initialContainerId = null }) {
   const router = useRouter();
 
   // All reference/lookup data via TanStack Query — globally cached, auto-refetches
@@ -308,6 +309,7 @@ export default function PackDetailClient({ packId }) {
     }, delayMs);
   }, [clearContainerValidationFeedback]);
   const [dirtyContainerIds, setDirtyContainerIds] = useState(() => new Set());
+  const initialContainerAppliedRef = useRef(false);
 
   const markContainerDirty = useCallback((containerId) => {
     if (!containerId) return;
@@ -354,24 +356,41 @@ export default function PackDetailClient({ packId }) {
   const packReleases = useMemo(() => {
     const details = packRow?.releaseDetails;
     const releases = packRow?.releases;
-    if (Array.isArray(details) && details.length) return details;
-    if (Array.isArray(releases) && releases.length) return releases;
-    return [];
-  }, [packRow?.releaseDetails, packRow?.releases]);
+    const rows = Array.isArray(details) && details.length
+      ? details
+      : Array.isArray(releases) && releases.length
+        ? releases
+        : [];
+    return rows.map((row) => enrichReleaseFromCatalog(row, lookups.releases || []));
+  }, [packRow?.releaseDetails, packRow?.releases, lookups.releases]);
   const referenceReleaseOptions = useMemo(
     () => (lookups.releases || []).map(normalizeReferenceReleaseOption).filter((r) => r.releaseRef),
     [lookups.releases]
   );
   const containerParkOptions = useMemo(() => {
-    const allParks = (lookups.containerParks || []).map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" }));
-    // Limit to parks actually set on this pack's releases
-    const releaseParks = new Set(
-      packReleases.map((r) => String(r.emptyContainerParkId ?? "")).filter(Boolean)
-    );
+    const allParks = (lookups.containerParks || [])
+      .map((p) => ({
+        id: p.id ?? p.container_park_id ?? p.containerParkId ?? "",
+        name: p.name ?? p.container_park_name ?? p.containerParkName ?? "",
+      }))
+      .filter((p) => p.id);
+    const releaseParks = new Set();
+    packReleases.forEach((release) => {
+      (release.parks || []).forEach((park) => {
+        const id = park.containerParkId ?? park.container_park_id ?? "";
+        if (id) releaseParks.add(String(id));
+      });
+    });
     return releaseParks.size > 0 ? allParks.filter((p) => releaseParks.has(String(p.id))) : allParks;
   }, [lookups.containerParks, packReleases]);
   const transporterLookupOptions = useMemo(
-    () => (lookups.transporters || []).map((t) => ({ id: t.id, name: t.name ?? "" })),
+    () =>
+      (lookups.transporters || [])
+        .map((t) => ({
+          id: t.id ?? t.transporter_id ?? t.transporterId ?? "",
+          name: t.name ?? t.transporter_name ?? "",
+        }))
+        .filter((t) => t.id),
     [lookups.transporters]
   );
   const stockLocationNames = useMemo(
@@ -938,18 +957,6 @@ export default function PackDetailClient({ packId }) {
       );
       refreshPack();
       return;
-    }
-
-    // Add the release/park/transporter combo used for this import to the pack if it's
-    // not already one of the pack's release lines. updatePackRow persists the pack.
-    const currentReleases = Array.isArray(packRow.releases)
-      ? packRow.releases
-      : Array.isArray(packRow.releaseDetails)
-        ? packRow.releaseDetails
-        : [];
-    const nextReleases = ensureReleaseLineOnPack(currentReleases, logistics);
-    if (nextReleases !== currentReleases) {
-      updatePackRow({ releases: nextReleases });
     }
 
     setBulkImportOpen(false);
@@ -1582,8 +1589,9 @@ export default function PackDetailClient({ packId }) {
         key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
         open={bulkImportOpen}
         onClose={() => !bulkImportApplying && setBulkImportOpen(false)}
-        packReleases={packReleases}
+        linkedReleases={packReleases}
         referenceReleases={referenceReleaseOptions}
+        catalogReleases={lookups.releases || []}
         containers={containerRows}
         containerNumberField="containerNo"
         containerParkOptions={containerParkOptions}
@@ -1591,7 +1599,6 @@ export default function PackDetailClient({ packId }) {
         onApply={handleBulkImportApply}
         isApplying={bulkImportApplying}
         applyProgress={bulkImportProgress}
-        isLoadingReleases={lookups.isLoading}
       />
       {bulkImportError ? (
         <div className="fixed bottom-4 right-4 z-[70] max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">

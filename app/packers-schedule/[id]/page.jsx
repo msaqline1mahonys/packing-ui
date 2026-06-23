@@ -1,8 +1,15 @@
 import PackDetailClient from "./pack-detail-client";
 
-export default async function PackersPackDetailPage({ params }) {
+export default async function PackersPackDetailPage({ params, searchParams }) {
   const resolvedParams = await params;
+  const resolvedSearch = await searchParams;
   const packId = resolvedParams?.id;
-  return <PackDetailClient packId={packId} />;
+  const initialContainerId =
+    typeof resolvedSearch?.container === "string"
+      ? resolvedSearch.container
+      : typeof resolvedSearch?.containerId === "string"
+        ? resolvedSearch.containerId
+        : null;
+  return <PackDetailClient packId={packId} initialContainerId={initialContainerId} />;
 }
 

@@ -20,7 +20,7 @@ import {
 import { normalizePemsContainers } from "@/lib/pems-container-fields";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
-import { toRoundedNumber } from "@/lib/packers-work-store";
+import { toRoundedNumber, isEligibleForPemsGppir } from "@/lib/packers-work-store";
 import {
   PEMS_RECORD_OPTIONS,
   GPPIR_WEIGHT_UNIT,
@@ -154,6 +154,11 @@ export default function PemsTab({
   const [previewSubmission, setPreviewSubmission] = useState(null);
   const [downloadingBatchId, setDownloadingBatchId] = useState("");
   const packDisplayRef = String(packRow?.jobReference || packRow?.packNumber || "").trim() || String(packRow?.id ?? "");
+  const isGppirRecord = pemsDraft.recordType === GPPIR_RECORD_TYPE;
+  const pemsListContainers = useMemo(() => {
+    if (!isGppirRecord) return normalizedContainers;
+    return normalizedContainers.filter(isEligibleForPemsGppir);
+  }, [normalizedContainers, isGppirRecord]);
 
   async function handleDownloadSubmission(submission) {
     const batchId = submission?.batchId;
@@ -167,8 +172,7 @@ export default function PemsTab({
   }
 
   const stagedIds = pemsDraft.stagedContainerIds || [];
-  const isGppirRecord = pemsDraft.recordType === GPPIR_RECORD_TYPE;
-  const stagedContainers = normalizedContainers.filter((container) => stagedIds.includes(container.id));
+  const stagedContainers = pemsListContainers.filter((container) => stagedIds.includes(container.id));
   const pemsCheckerSections = [
     {
       title: "Establishment",
@@ -230,19 +234,19 @@ export default function PemsTab({
 
   const filteredPemsContainers = useMemo(() => {
     const q = pemsContainerSearch.trim().toLowerCase();
-    if (!q) return normalizedContainers;
-    return normalizedContainers.filter((c) =>
+    if (!q) return pemsListContainers;
+    return pemsListContainers.filter((c) =>
       [c.order, c.containerNo, c.sealNo, c.releaseNumber, c.id, c.stockBayId, c.grainLocation].some((v) =>
         String(v ?? "")
           .toLowerCase()
           .includes(q)
       )
     );
-  }, [normalizedContainers, pemsContainerSearch]);
+  }, [pemsListContainers, pemsContainerSearch]);
 
   const eligibleContainerIds = useMemo(
-    () => normalizedContainers.filter((container) => !isGppirRecord || container.ecrSubmitted).map((container) => container.id),
-    [normalizedContainers, isGppirRecord]
+    () => pemsListContainers.map((container) => container.id),
+    [pemsListContainers]
   );
   const allEligibleStaged = eligibleContainerIds.length > 0 && eligibleContainerIds.every((id) => stagedIds.includes(id));
 
@@ -326,7 +330,7 @@ export default function PemsTab({
                   value === GPPIR_RECORD_TYPE
                     ? stagedIds.filter((id) => {
                         const container = normalizedContainers.find((row) => row.id === id);
-                        return Boolean(container?.ecrSubmitted);
+                        return isEligibleForPemsGppir(container);
                       })
                     : stagedIds,
               })
@@ -395,7 +399,7 @@ export default function PemsTab({
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-2 py-2">
               <h3 className="text-xs font-semibold tracking-wide text-slate-600">Containers</h3>
               <span className="tabular-nums text-[10px] text-slate-400" aria-live="polite">
-                {stagedContainers.length}/{normalizedContainers.length}
+                {stagedContainers.length}/{pemsListContainers.length}
               </span>
             </div>
             <div className="border-b border-slate-100 px-2 py-1.5">
@@ -408,7 +412,7 @@ export default function PemsTab({
                 aria-label="Search containers"
               />
               <p className="mt-0.5 text-[10px] text-slate-500">
-                Showing {filteredPemsContainers.length} of {normalizedContainers.length}
+                Showing {filteredPemsContainers.length} of {pemsListContainers.length}
               </p>
             </div>
             <div className="border-b border-slate-100 px-2 py-1.5">
@@ -431,7 +435,7 @@ export default function PemsTab({
               ) : null}
               {filteredPemsContainers.map((container) => {
                 const checked = stagedIds.includes(container.id);
-                const stageEligible = !isGppirRecord || container.ecrSubmitted;
+                const stageEligible = isGppirRecord ? isEligibleForPemsGppir(container) : true;
                 const stageStatus = container.gppirSubmitted ? "GPPIR" : container.ecrSubmitted ? "ECR" : "No ECR";
                 const stageStatusTitle = container.gppirSubmitted
                   ? "GPPIR submitted"
@@ -490,7 +494,7 @@ export default function PemsTab({
                         {openContainerLabel}
                       </button>
                     </div>
-                    {isGppirRecord && !container.ecrSubmitted ? (
+                    {isGppirRecord && !isEligibleForPemsGppir(container) ? (
                       <p className="mt-1 text-[10px] leading-snug text-amber-700">ECR required for GPPIR.</p>
                     ) : null}
                   </div>

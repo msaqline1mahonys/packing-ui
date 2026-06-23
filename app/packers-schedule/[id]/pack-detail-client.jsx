@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, X } from "lucide-react";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 
-import BulkContainerImportDialog from "@/components/packing-schedule/bulk-container-import-dialog";
+import { BulkContainerImportDialog } from "@/components/packing-schedule/bulk-container-import-dialog";
 import { Button } from "@/components/ui/button";
 import { CUSTOMER_CONTACT_ROWS, REFERENCE_COUNTRIES_ROWS } from "@/lib/Data";
 import { loadContactUsers } from "@/lib/contact-users-store";
@@ -20,6 +20,8 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import {
   containerStage,
+  isEcFailedContainer,
+  isEligibleForPemsGppir,
   loadWorkDrafts,
   saveWorkDrafts,
   syncWorkDrafts,
@@ -37,7 +39,8 @@ import PemsTab, { PEMS_TAB_INPUT_CLASS } from "@/components/pems/pems-tab";
 import {
   getContainerInspectionRemark,
 } from "@/lib/pems-container-fields";
-import { ensureReleaseLineOnPack, normalizeReferenceReleaseOption } from "@/lib/container-bulk-import";
+import { normalizeReferenceReleaseOption } from "@/lib/container-bulk-import";
+import { enrichReleaseFromCatalog } from "@/lib/releases-api";
 import {
   applyContainerPatch,
   getCompletionMissingChecks,
@@ -45,7 +48,7 @@ import {
   isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
-import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { updateContainer, updatePrepackChecks, packAssignedPackerOptions, createContainerReplacement } from "@/lib/api/packing";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
 import { fetchFumigantsNormalized } from "@/lib/api/fumigation";
@@ -259,7 +262,7 @@ function attachmentGroupStyles(group) {
   return ATTACHMENT_GROUP_STYLES[group] || ATTACHMENT_GROUP_STYLES.Instruction;
 }
 
-export default function PackDetailClient({ packId }) {
+export default function PackDetailClient({ packId, initialContainerId = null }) {
   const router = useRouter();
 
   // All reference/lookup data via TanStack Query — globally cached, auto-refetches
@@ -278,6 +281,7 @@ export default function PackDetailClient({ packId }) {
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSavingContainer, setIsSavingContainer] = useState(false);
+  const [isAddingReplacement, setIsAddingReplacement] = useState(false);
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
   const [containerSaveError, setContainerSaveError] = useState("");
   const containerValidationTimerRef = useRef(null);
@@ -308,6 +312,7 @@ export default function PackDetailClient({ packId }) {
     }, delayMs);
   }, [clearContainerValidationFeedback]);
   const [dirtyContainerIds, setDirtyContainerIds] = useState(() => new Set());
+  const initialContainerAppliedRef = useRef(false);
 
   const markContainerDirty = useCallback((containerId) => {
     if (!containerId) return;
@@ -362,24 +367,41 @@ export default function PackDetailClient({ packId }) {
   const packReleases = useMemo(() => {
     const details = packRow?.releaseDetails;
     const releases = packRow?.releases;
-    if (Array.isArray(details) && details.length) return details;
-    if (Array.isArray(releases) && releases.length) return releases;
-    return [];
-  }, [packRow?.releaseDetails, packRow?.releases]);
+    const rows = Array.isArray(details) && details.length
+      ? details
+      : Array.isArray(releases) && releases.length
+        ? releases
+        : [];
+    return rows.map((row) => enrichReleaseFromCatalog(row, lookups.releases || []));
+  }, [packRow?.releaseDetails, packRow?.releases, lookups.releases]);
   const referenceReleaseOptions = useMemo(
     () => (lookups.releases || []).map(normalizeReferenceReleaseOption).filter((r) => r.releaseRef),
     [lookups.releases]
   );
   const containerParkOptions = useMemo(() => {
-    const allParks = (lookups.containerParks || []).map((p) => ({ id: p.id, name: p.name ?? p.containerParkName ?? "" }));
-    // Limit to parks actually set on this pack's releases
-    const releaseParks = new Set(
-      packReleases.map((r) => String(r.emptyContainerParkId ?? "")).filter(Boolean)
-    );
+    const allParks = (lookups.containerParks || [])
+      .map((p) => ({
+        id: p.id ?? p.container_park_id ?? p.containerParkId ?? "",
+        name: p.name ?? p.container_park_name ?? p.containerParkName ?? "",
+      }))
+      .filter((p) => p.id);
+    const releaseParks = new Set();
+    packReleases.forEach((release) => {
+      (release.parks || []).forEach((park) => {
+        const id = park.containerParkId ?? park.container_park_id ?? "";
+        if (id) releaseParks.add(String(id));
+      });
+    });
     return releaseParks.size > 0 ? allParks.filter((p) => releaseParks.has(String(p.id))) : allParks;
   }, [lookups.containerParks, packReleases]);
   const transporterLookupOptions = useMemo(
-    () => (lookups.transporters || []).map((t) => ({ id: t.id, name: t.name ?? "" })),
+    () =>
+      (lookups.transporters || [])
+        .map((t) => ({
+          id: t.id ?? t.transporter_id ?? t.transporterId ?? "",
+          name: t.name ?? t.transporter_name ?? "",
+        }))
+        .filter((t) => t.id),
     [lookups.transporters]
   );
   const stockLocationNames = useMemo(
@@ -452,10 +474,21 @@ export default function PackDetailClient({ packId }) {
       setSelectedContainerId(null);
       return;
     }
+    if (initialContainerId && !initialContainerAppliedRef.current) {
+      const match = filteredContainerRows.find(
+        (container) => String(container.id) === String(initialContainerId)
+      );
+      if (match) {
+        setSelectedContainerId(match.id);
+        setActiveTab("Packing");
+        initialContainerAppliedRef.current = true;
+        return;
+      }
+    }
     if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
       setSelectedContainerId(filteredContainerRows[0].id);
     }
-  }, [filteredContainerRows, selectedContainerId]);
+  }, [filteredContainerRows, selectedContainerId, initialContainerId]);
 
   const selectedContainer = useMemo(
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
@@ -733,10 +766,15 @@ export default function PackDetailClient({ packId }) {
       return;
     }
     if (isGppir) {
-      const missingEcr = containersForBatch.filter((container) => !container.ecrSubmitted);
-      if (missingEcr.length) {
+      const ineligible = containersForBatch.filter((container) => !isEligibleForPemsGppir(container));
+      if (ineligible.length) {
+        const ecFailed = ineligible.filter(isEcFailedContainer);
+        if (ecFailed.length) {
+          setPemsSubmitError("EC failed containers cannot be included in grain and plant product inspections.");
+          return;
+        }
         setPemsSubmitError(
-          `Submit ECR first for: ${missingEcr.map((container) => container.containerNo || `#${container.order}`).join(", ")}.`
+          `Submit ECR first for: ${ineligible.map((container) => container.containerNo || `#${container.order}`).join(", ")}.`
         );
         return;
       }
@@ -890,6 +928,25 @@ export default function PackDetailClient({ packId }) {
     }
   }
 
+  async function addReplacementContainer() {
+    if (!packRow || !selectedContainer || isAddingReplacement) return;
+    setIsAddingReplacement(true);
+    try {
+      const updatedPack = await createContainerReplacement(packRow.id, selectedContainer.id);
+      setPackRow(updatedPack);
+      setWorkByPack((prev) => syncWorkDrafts([updatedPack], prev, lookups));
+      const replacement = (updatedPack.containers || []).find(
+        (container) =>
+          String(container.replacesContainerId ?? container.replaces_container_id) === String(selectedContainer.id),
+      );
+      if (replacement?.id) setSelectedContainerId(replacement.id);
+    } catch (err) {
+      showContainerValidationError(err?.message || "Failed to create replacement container.");
+    } finally {
+      setIsAddingReplacement(false);
+    }
+  }
+
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
     if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer)) {
@@ -974,18 +1031,6 @@ export default function PackDetailClient({ packId }) {
       );
       refreshPack();
       return;
-    }
-
-    // Add the release/park/transporter combo used for this import to the pack if it's
-    // not already one of the pack's release lines. updatePackRow persists the pack.
-    const currentReleases = Array.isArray(packRow.releases)
-      ? packRow.releases
-      : Array.isArray(packRow.releaseDetails)
-        ? packRow.releaseDetails
-        : [];
-    const nextReleases = ensureReleaseLineOnPack(currentReleases, logistics);
-    if (nextReleases !== currentReleases) {
-      updatePackRow({ releases: nextReleases });
     }
 
     setBulkImportOpen(false);
@@ -1335,6 +1380,9 @@ export default function PackDetailClient({ packId }) {
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
                       Seal {safeValue(container.sealNo)} · Net {toInputNumber(container.nettWeight)} MT
+                      {container.replacesContainerNumber ? (
+                        <span className="text-rose-700"> · Replaces {container.replacesContainerNumber}</span>
+                      ) : null}
                     </div>
                   </button>
                 );
@@ -1460,6 +1508,27 @@ export default function PackDetailClient({ packId }) {
                 </div>
               ) : null}
 
+              {!isImportJob && isEcFailedContainer(selectedContainer) ? (
+                <div className="flex flex-wrap items-center gap-2 border-t border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-sm font-medium text-rose-800">
+                    Empty container inspection failed — this container cannot be packed out on this job.
+                  </p>
+                  {!selectedContainer.replacedByContainerId ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      disabled={isAddingReplacement}
+                      onClick={addReplacementContainer}
+                    >
+                      {isAddingReplacement ? "Adding…" : "Add replacement container"}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-rose-700">Replacement container added</span>
+                  )}
+                </div>
+              ) : null}
+
               {missingChecks.length === 0 ? (
                 <div className="border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   All mandatory checks complete for this container.
@@ -1576,7 +1645,7 @@ export default function PackDetailClient({ packId }) {
             updatePemsDraft({
               stagedContainerIds:
                 pemsDraft.recordType === GPPIR_RECORD_TYPE
-                  ? containerRows.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                  ? containerRows.filter(isEligibleForPemsGppir).map((container) => container.id)
                   : containerRows.map((container) => container.id),
             })
           }
@@ -1646,8 +1715,9 @@ export default function PackDetailClient({ packId }) {
         key={bulkImportOpen ? "bulk-import-open" : "bulk-import-closed"}
         open={bulkImportOpen}
         onClose={() => !bulkImportApplying && setBulkImportOpen(false)}
-        packReleases={packReleases}
+        linkedReleases={packReleases}
         referenceReleases={referenceReleaseOptions}
+        catalogReleases={lookups.releases || []}
         containers={containerRows}
         containerNumberField="containerNo"
         containerParkOptions={containerParkOptions}
@@ -1655,7 +1725,6 @@ export default function PackDetailClient({ packId }) {
         onApply={handleBulkImportApply}
         isApplying={bulkImportApplying}
         applyProgress={bulkImportProgress}
-        isLoadingReleases={lookups.isLoading}
       />
       {bulkImportError ? (
         <div className="fixed bottom-4 right-4 z-[70] max-w-md rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">

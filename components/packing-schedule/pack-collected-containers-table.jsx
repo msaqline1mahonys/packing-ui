@@ -1,0 +1,141 @@
+"use client";
+
+import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { Grid } from "@/components/clutch-table";
+import { updateContainer } from "@/lib/api/packing";
+import { isUuid } from "@/lib/pack-schedule-api";
+import {
+  buildContainerGridColumns,
+  decoratePackScopedContainerRow,
+  displayContainerStage,
+  hasCollectedContainerRow,
+} from "@/lib/packing-containers-grid";
+import { cn } from "@/lib/utils";
+
+/**
+ * Pack-scoped slice of the packing schedule containers grid (same Grid + columns as /packing-schedule/containers).
+ */
+export default function PackCollectedContainersTable({
+  containers = [],
+  pack = {},
+  packId = null,
+  containerParkOptions = [],
+  transporterOptions = [],
+  onContainerUpdated,
+  className,
+}) {
+  const router = useRouter();
+  const resolvedPackId = packId ?? pack.id ?? null;
+  const canOpenPackers = Boolean(resolvedPackId && isUuid(resolvedPackId));
+  const [savingSiteStageId, setSavingSiteStageId] = useState(null);
+  const [localPatches, setLocalPatches] = useState({});
+
+  const rows = useMemo(() => {
+    return containers
+      .filter(hasCollectedContainerRow)
+      .map((container) => {
+        const decorated = decoratePackScopedContainerRow(container, {
+          pack: { ...pack, id: resolvedPackId },
+          containerParkOptions,
+          transporterOptions,
+        });
+        const patch = localPatches[decorated.id];
+        return patch ? { ...decorated, ...patch } : decorated;
+      })
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  }, [containers, pack, resolvedPackId, containerParkOptions, transporterOptions, localPatches]);
+
+  const toggleSiteStage = useCallback(
+    async (row) => {
+      if (!row?.id || !resolvedPackId || savingSiteStageId) return;
+      const stage = displayContainerStage(row);
+      if (stage !== "Off Site" && stage !== "On Site") return;
+      const next = stage === "Off Site";
+      setSavingSiteStageId(row.id);
+      setLocalPatches((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), onSite: next } }));
+      try {
+        await updateContainer(resolvedPackId, row.id, { onSite: next });
+        onContainerUpdated?.(row.id, { onSite: next });
+      } catch (err) {
+        setLocalPatches((prev) => {
+          const current = prev[row.id];
+          if (!current) return prev;
+          const nextPatches = { ...prev, [row.id]: { ...current, onSite: !next } };
+          if (nextPatches[row.id].onSite === row.onSite) {
+            const { [row.id]: _, ...rest } = nextPatches;
+            return rest;
+          }
+          return nextPatches;
+        });
+        window.alert(err?.message || "Failed to update container stage.");
+      } finally {
+        setSavingSiteStageId(null);
+      }
+    },
+    [resolvedPackId, savingSiteStageId, onContainerUpdated],
+  );
+
+  const gridColumns = useMemo(
+    () =>
+      buildContainerGridColumns({
+        onToggleSiteStage: resolvedPackId && isUuid(resolvedPackId) ? toggleSiteStage : null,
+        savingSiteStageId,
+      }),
+    [toggleSiteStage, savingSiteStageId, resolvedPackId],
+  );
+
+  const openPackers = useCallback(
+    (row) => {
+      if (!canOpenPackers || !row?.id || !isUuid(row.id)) return;
+      router.push(`/packers-schedule/${resolvedPackId}?container=${encodeURIComponent(row.id)}`);
+    },
+    [canOpenPackers, resolvedPackId, router],
+  );
+
+  if (!rows.length) {
+    return (
+      <section
+        className={cn("min-w-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm", className)}
+        aria-label="Collected containers"
+      >
+        <p className="px-3 py-8 text-center text-xs text-slate-400">No containers collected yet.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={cn("min-w-0", className)} aria-label="Collected containers">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <Grid
+          columns={gridColumns}
+          rows={rows}
+          getRowId={(row) => row.id}
+          theme="light"
+          density="standard"
+          fileName="Packing Schedule Containers"
+          visibleRows={Math.min(Math.max(rows.length, 5), 14)}
+          persistKey={resolvedPackId ? `pack-form-containers-${resolvedPackId}` : false}
+          onRowClick={canOpenPackers ? openPackers : undefined}
+          getRowClassName={({ row }) => {
+            const rowClasses = [];
+            if (row.importExport === "Import") rowClasses.push("clutch-row-import");
+            if (canOpenPackers) rowClasses.push("cursor-pointer");
+            return rowClasses.join(" ") || undefined;
+          }}
+          getRowStyle={({ row }) => {
+            if (row.importExport === "Import") return { backgroundColor: "#eff6ff" };
+            return undefined;
+          }}
+          toolbarActions={
+            <span className="ms-auto text-[11px] text-slate-500">
+              {rows.length} container{rows.length === 1 ? "" : "s"}
+              {canOpenPackers ? " · click row to open Packers Schedule" : ""}
+            </span>
+          }
+        />
+      </div>
+    </section>
+  );
+}

@@ -335,26 +335,82 @@ export default function ContainerFormSections({
   const canAoSignoff = hasPermission("packing.container.ao-signoff");
   const packerOptions = packerSelectOptions ?? packerNames ?? [];
   const releaseSelectOptions = useMemo(
-    () => packReleases.map((r, idx) => ({ value: r.releaseRef, label: r.releaseRef, key: r.id ?? idx })),
+    () =>
+      packReleases.map((r, idx) => ({
+        value: String(r.releaseId ?? r.id ?? r.releaseRef ?? r.releaseNumber ?? idx),
+        label: r.releaseNumber ?? r.releaseRef ?? "Release",
+        key: r.packReleaseId ?? r.id ?? idx,
+      })),
     [packReleases]
   );
-  const parkSelectOptions = useMemo(
-    () => containerParkOptions.map((park) => ({ value: park.id, label: park.name })),
-    [containerParkOptions]
-  );
-  const transporterSelectOptions = useMemo(
-    () => transporterOptions.map((t) => ({ value: t.id, label: t.name })),
-    [transporterOptions]
-  );
 
-  function handleReleaseSelect(releaseRef) {
+  const selectedRelease = useMemo(() => {
+    const currentId = container?.releaseId ?? container?.release_id;
+    const currentRef = getValue(container, names, "releaseNumber");
+    return (
+      packReleases.find((r) => currentId && String(r.releaseId ?? r.id) === String(currentId)) ||
+      packReleases.find((r) => (r.releaseNumber ?? r.releaseRef) === currentRef) ||
+      null
+    );
+  }, [packReleases, container, names]);
+
+  const parkSelectOptions = useMemo(() => {
+    const parks = Array.isArray(selectedRelease?.parks) ? selectedRelease.parks : [];
+    if (!parks.length) {
+      return containerParkOptions.map((park) => ({ value: park.id, label: park.name }));
+    }
+    return parks
+      .map((park) => {
+        const id = park.containerParkId ?? park.container_park_id ?? "";
+        const name =
+          park.containerParkName ??
+          containerParkOptions.find((p) => String(p.id) === String(id))?.name ??
+          id;
+        return id ? { value: id, label: name } : null;
+      })
+      .filter(Boolean);
+  }, [selectedRelease, containerParkOptions]);
+
+  const transporterSelectOptions = useMemo(() => {
+    const parks = Array.isArray(selectedRelease?.parks) ? selectedRelease.parks : [];
+    const parkId = container?.emptyContainerParkId;
+    const park = parks.find((p) => String(p.containerParkId ?? p.container_park_id) === String(parkId));
+    const ids = park
+      ? Array.isArray(park.transporterIds)
+        ? park.transporterIds
+        : (park.transporters || []).map((t) => t.id)
+      : [];
+    if (!ids.length) {
+      return transporterOptions.map((t) => ({ value: t.id, label: t.name }));
+    }
+    return ids
+      .map((id) => {
+        const name =
+          park?.transporters?.find((t) => String(t.id) === String(id))?.name ??
+          transporterOptions.find((t) => String(t.id) === String(id))?.name ??
+          id;
+        return { value: id, label: name };
+      })
+      .filter(Boolean);
+  }, [selectedRelease, container?.emptyContainerParkId, transporterOptions]);
+
+  function handleReleaseSelect(releaseKey) {
     if (readOnly) return;
-    const release = packReleases.find((r) => r.releaseRef === releaseRef);
+    const release = packReleases.find(
+      (r) => String(r.releaseId ?? r.id ?? r.releaseRef) === String(releaseKey)
+    );
     if (release) {
-      const parkId = release.emptyContainerParkId ?? null;
-      const transId = release.transporterId ?? null;
+      const releaseNumber = release.releaseNumber ?? release.releaseRef ?? "";
+      const firstPark = (release.parks || [])[0];
+      const parkId = firstPark?.containerParkId ?? release.emptyContainerParkId ?? null;
+      const transId =
+        (firstPark?.transporterIds || [])[0] ??
+        (firstPark?.transporters || [])[0]?.id ??
+        release.transporterId ??
+        null;
       const parkName =
         containerParkOptions.find((p) => String(p.id) === String(parkId))?.name ||
+        firstPark?.containerParkName ||
         release.emptyContainerPark?.name ||
         "";
       const transName =
@@ -362,14 +418,15 @@ export default function ContainerFormSections({
         release.transporter?.name ||
         "";
       onChange?.({
-        [names.releaseNumber || "releaseNumber"]: releaseRef,
+        releaseId: release.releaseId ?? release.id ?? null,
+        [names.releaseNumber || "releaseNumber"]: releaseNumber,
         emptyContainerParkId: parkId,
         transporterId: transId,
         [names.releasePark || "releasePark"]: parkName,
         [names.transporter || "transporter"]: transName,
       });
     } else {
-      onChange?.({ [names.releaseNumber || "releaseNumber"]: releaseRef });
+      onChange?.({ [names.releaseNumber || "releaseNumber"]: releaseKey });
     }
   }
 
@@ -532,7 +589,13 @@ export default function ContainerFormSections({
               <label className="block text-sm font-medium text-slate-600">Release Number</label>
               <ClutchSelect
                 options={releaseSelectOptions}
-                value={releaseSelectOptions.find((o) => o.value === getValue(container, names, "releaseNumber")) ?? null}
+                value={
+                  releaseSelectOptions.find(
+                    (o) =>
+                      o.value === String(container?.releaseId ?? container?.release_id ?? "") ||
+                      o.label === getValue(container, names, "releaseNumber")
+                  ) ?? null
+                }
                 onChange={(option) => handleReleaseSelect(option ? option.value : "")}
                 placeholder="- Select release -"
                 isDisabled={readOnly}
@@ -580,8 +643,16 @@ export default function ContainerFormSections({
             value={getValue(container, names, "outLoaded", "No")}
             options={yesNoOptions}
             onChange={(value) => setField("outLoaded", value)}
-            disabled={signoffDisabled}
-            hint={sealRequiredForSignoff ? "Enter a seal number first" : readOnly ? "Locked after packer signoff" : ""}
+            disabled={signoffDisabled || (!isImportPack && emptyFailed)}
+            hint={
+              !isImportPack && emptyFailed
+                ? "EC failed — cannot pack out this container"
+                : sealRequiredForSignoff
+                  ? "Enter a seal number first"
+                  : readOnly
+                    ? "Locked after packer signoff"
+                    : ""
+            }
           />
           {!isImportPack ? (
             <>
@@ -594,7 +665,7 @@ export default function ContainerFormSections({
           <Button type="button" variant="secondary" size="sm" onClick={onResetContainer} disabled={readOnly}>
             Reset container
           </Button>
-          <Button type="button" size="sm" onClick={onMarkPacked} disabled={readOnly}>
+          <Button type="button" size="sm" onClick={onMarkPacked} disabled={readOnly || (!isImportPack && emptyFailed)}>
             {isImportPack ? "Mark in-loaded" : "Mark packed"}
           </Button>
           {!isImportPack ? (

@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   applyBulkImport,
+  buildBulkImportReleaseOptions,
+  comboKey,
+  countContainersForCombo,
   getReleaseRef,
+  isValidCombo,
   planBulkImport,
   prefillParkTransporterFromRelease,
 } from "@/lib/container-bulk-import";
+import { enrichReleaseFromCatalog, fetchReleaseById, getValidCombos, normalizeReleaseParks } from "@/lib/releases-api";
 import { cn } from "@/lib/utils";
 
 const fieldClass =
@@ -30,37 +35,247 @@ function statusClass(status) {
   return "text-slate-500";
 }
 
+function ComboSelectors({
+  linkedReleases,
+  referenceReleases,
+  catalogReleases = [],
+  containerParkOptions,
+  transporterOptions,
+  releaseId,
+  parkId,
+  transporterId,
+  onReleaseChange,
+  onParkChange,
+  onTransporterChange,
+}) {
+  const catalog = catalogReleases.length ? catalogReleases : referenceReleases;
+
+  const releaseOptions = useMemo(() => {
+    const linked = Array.isArray(linkedReleases) ? linkedReleases : [];
+    return linked.map((r) => {
+      const enriched = enrichReleaseFromCatalog(r, catalog);
+      return {
+        value: String(enriched?.releaseId ?? enriched?.id ?? ""),
+        label: enriched?.releaseNumber ?? enriched?.releaseRef ?? "Release",
+      };
+    });
+  }, [linkedReleases, catalog]);
+
+  const selectedRelease = useMemo(() => {
+    const id = String(releaseId ?? "");
+    const linked = Array.isArray(linkedReleases) ? linkedReleases : [];
+    const found =
+      linked.find((r) => String(r.releaseId ?? r.id ?? "") === id) ||
+      (Array.isArray(referenceReleases) ? referenceReleases : []).find(
+        (r) => String(r.id ?? r.releaseId ?? "") === id
+      ) ||
+      null;
+    return enrichReleaseFromCatalog(found, catalog);
+  }, [linkedReleases, referenceReleases, catalog, releaseId]);
+
+  const parkOptions = useMemo(() => {
+    const parks = normalizeReleaseParks(selectedRelease?.parks);
+    const fromParks = parks
+      .map((p) => {
+        const id = p.containerParkId ?? "";
+        const name =
+          p.containerParkName ||
+          containerParkOptions.find((cp) => String(cp.id) === String(id))?.name ||
+          id;
+        return id ? { value: String(id), label: name } : null;
+      })
+      .filter(Boolean);
+
+    if (fromParks.length) return fromParks;
+
+    const seen = new Set();
+    return getValidCombos(selectedRelease)
+      .map((combo) => combo.emptyContainerParkId)
+      .filter((id) => {
+        if (!id || seen.has(String(id))) return false;
+        seen.add(String(id));
+        return true;
+      })
+      .map((id) => ({
+        value: String(id),
+        label: containerParkOptions.find((cp) => String(cp.id) === String(id))?.name ?? String(id),
+      }));
+  }, [selectedRelease, containerParkOptions]);
+
+  const transporterOptionsForPark = useMemo(() => {
+    const parks = normalizeReleaseParks(selectedRelease?.parks);
+    const park = parks.find((p) => String(p.containerParkId) === String(parkId ?? ""));
+    if (!park) return [];
+    const ids = Array.isArray(park.transporterIds) ? park.transporterIds : [];
+    return ids
+      .map((id) => {
+        const name =
+          park.transporters?.find((t) => String(t.id) === String(id))?.name ??
+          transporterOptions.find((t) => String(t.id) === String(id))?.name ??
+          id;
+        return { value: String(id), label: name };
+      })
+      .filter(Boolean);
+  }, [selectedRelease, parkId, transporterOptions]);
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      <div className="space-y-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Release</label>
+        <select
+          className={fieldClass}
+          value={releaseId || ""}
+          onChange={(e) => onReleaseChange(e.target.value)}
+        >
+          <option value="">Select release…</option>
+          {releaseOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Container park</label>
+        <select
+          className={fieldClass}
+          value={parkId || ""}
+          disabled={!releaseId}
+          onChange={(e) => onParkChange(e.target.value)}
+        >
+          <option value="">Select park…</option>
+          {parkOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Transporter</label>
+        <select
+          className={fieldClass}
+          value={transporterId || ""}
+          disabled={!parkId}
+          onChange={(e) => onTransporterChange(e.target.value)}
+        >
+          <option value="">Select transporter…</option>
+          {transporterOptionsForPark.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 /**
- * Embedded bulk-import panel. Targets a single, fixed release (the one being edited in the
- * release modal) so there are no release/park/transporter selectors here — those come from
- * the release record itself. Pasted numbers fill empty container slots on the pack.
+ * Modal bulk-import UI with release / park / transporter combo selectors.
  */
-export default function BulkContainerImportPanel({
-  release,
+export function BulkContainerImportDialog({
+  open = false,
+  onClose,
+  linkedReleases = [],
+  packReleases = [],
+  referenceReleases = [],
+  catalogReleases = [],
   containers = [],
   containerNumberField = "containerNumber",
-  releaseNumberField = "releaseNumber",
   containerParkOptions = [],
   transporterOptions = [],
   onApply,
   isApplying = false,
   applyProgress = "",
-  disabled = false,
-  disabledReason = "",
 }) {
+  const linked = linkedReleases.length ? linkedReleases : packReleases;
+  const catalog = catalogReleases.length ? catalogReleases : referenceReleases;
+
+  const initialCombo = useMemo(() => {
+    if (linked.length !== 1) return { releaseId: "", parkId: "", transporterId: "" };
+    const enriched = enrichReleaseFromCatalog(linked[0], catalog);
+    const { parkId, transporterId } = prefillParkTransporterFromRelease(enriched);
+    return {
+      releaseId: String(enriched?.releaseId ?? enriched?.id ?? ""),
+      parkId,
+      transporterId,
+    };
+  }, [linked, catalog]);
+
+  const [releaseId, setReleaseId] = useState(initialCombo.releaseId);
+  const [parkId, setParkId] = useState(initialCombo.parkId);
+  const [transporterId, setTransporterId] = useState(initialCombo.transporterId);
   const [pastedText, setPastedText] = useState("");
   const [userActions, setUserActions] = useState({});
+  const [fetchedRelease, setFetchedRelease] = useState(null);
 
-  const selectedReleaseRef = getReleaseRef(release);
-  const { parkId, transporterId } = useMemo(
-    () => prefillParkTransporterFromRelease(release),
-    [release]
+  useEffect(() => {
+    if (!open || !releaseId) {
+      setFetchedRelease(null);
+      return undefined;
+    }
+
+    const found = linked.find((r) => String(r.releaseId ?? r.id ?? "") === String(releaseId));
+    const enriched = enrichReleaseFromCatalog(found, catalog);
+    if (normalizeReleaseParks(enriched?.parks).length > 0) {
+      setFetchedRelease(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    fetchReleaseById(releaseId)
+      .then((row) => {
+        if (!cancelled) setFetchedRelease(row);
+      })
+      .catch(() => {
+        if (!cancelled) setFetchedRelease(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, releaseId, linked, catalog]);
+
+  const resolvedCatalog = useMemo(() => {
+    if (!fetchedRelease) return catalog;
+    const list = Array.isArray(catalog) ? [...catalog] : [];
+    const idx = list.findIndex((r) => String(r.id) === String(fetchedRelease.id));
+    if (idx >= 0) list[idx] = fetchedRelease;
+    else list.push(fetchedRelease);
+    return list;
+  }, [catalog, fetchedRelease]);
+
+  const selectedRelease = useMemo(() => {
+    const found = linked.find((r) => String(r.releaseId ?? r.id ?? "") === String(releaseId)) ?? null;
+    return enrichReleaseFromCatalog(found, resolvedCatalog);
+  }, [linked, resolvedCatalog, releaseId]);
+
+  useEffect(() => {
+    if (!open || !releaseId) return undefined;
+    const parks = normalizeReleaseParks(selectedRelease?.parks);
+    if (!parks.length) return undefined;
+    if (parkId) return undefined;
+    const { parkId: nextParkId, transporterId: nextTransporterId } =
+      prefillParkTransporterFromRelease(selectedRelease);
+    if (nextParkId) setParkId(nextParkId);
+    if (nextTransporterId && !transporterId) setTransporterId(nextTransporterId);
+    return undefined;
+  }, [open, releaseId, selectedRelease, parkId, transporterId]);
+
+  const selectedReleaseRef = getReleaseRef(selectedRelease);
+  const comboValid = isValidCombo(selectedRelease, parkId, transporterId);
+
+  const packComboCount = useMemo(
+    () =>
+      countContainersForCombo(containers, {
+        releaseId,
+        releaseNumber: selectedReleaseRef,
+        emptyContainerParkId: parkId,
+        transporterId,
+      }),
+    [containers, releaseId, selectedReleaseRef, parkId, transporterId]
   );
-
-  const parkName =
-    containerParkOptions.find((p) => String(p.id) === String(parkId))?.name || "";
-  const transporterName =
-    transporterOptions.find((t) => String(t.id) === String(transporterId))?.name || "";
 
   const plan = useMemo(
     () =>
@@ -68,22 +283,22 @@ export default function BulkContainerImportPanel({
         pastedText,
         containers,
         selectedReleaseRef,
+        selectedReleaseId: releaseId,
         containerNumberField,
-        releaseNumberField,
         userActions,
       }),
-    [pastedText, containers, selectedReleaseRef, containerNumberField, releaseNumberField, userActions]
+    [pastedText, containers, selectedReleaseRef, releaseId, containerNumberField, userActions]
   );
 
-  function setRowAction(rowKey, action) {
-    setUserActions((prev) => ({ ...prev, [rowKey]: action }));
-  }
+  const canPaste = Boolean(releaseId && parkId && transporterId && comboValid);
 
   async function handleApply() {
-    if (disabled || plan.blocked || plan.toApply === 0 || isApplying) return;
+    if (!canPaste || plan.blocked || plan.toApply === 0 || isApplying) return;
 
     const logistics = {
+      releaseId: releaseId || null,
       releaseRef: selectedReleaseRef,
+      releaseNumber: selectedReleaseRef,
       emptyContainerParkId: parkId || null,
       transporterId: transporterId || null,
     };
@@ -101,140 +316,122 @@ export default function BulkContainerImportPanel({
     if (ok) {
       setPastedText("");
       setUserActions({});
+      onClose?.();
     }
   }
 
-  const canImport = !disabled && !plan.blocked && plan.toApply > 0 && !isApplying;
-
-  if (disabled) {
-    return (
-      <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-        {disabledReason || "Save the release first to import container numbers."}
-      </div>
-    );
-  }
+  if (!open) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-          Container numbers
-        </label>
-        <textarea
-          className={cn(fieldClass, "min-h-[110px] resize-y font-mono")}
-          value={pastedText}
-          disabled={isApplying}
-          placeholder={"Paste one container number per line\nABCU1234567\nMSCU7654321"}
-          onChange={(e) => {
-            setPastedText(e.target.value);
-            setUserActions({});
-          }}
-        />
-        <p className="text-[10px] text-slate-500">
-          One per line, or separated by commas or tabs. Numbers fill empty slots on this pack and are
-          tagged with release <span className="font-semibold">{selectedReleaseRef || "—"}</span>
-          {parkName || transporterName ? (
-            <>
-              {" "}
-              · park <span className="font-semibold">{parkName || "—"}</span>
-              {" "}
-              · transporter <span className="font-semibold">{transporterName || "—"}</span>
-            </>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
+      <div className="relative max-h-[min(92vh,760px)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">Bulk import containers</h2>
+          <button type="button" className="rounded-md px-2 py-1 text-lg text-slate-500 hover:bg-slate-100" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="space-y-4 p-4">
+          <ComboSelectors
+            linkedReleases={linked}
+            referenceReleases={referenceReleases}
+            catalogReleases={resolvedCatalog}
+            containerParkOptions={containerParkOptions}
+            transporterOptions={transporterOptions}
+            releaseId={releaseId}
+            parkId={parkId}
+            transporterId={transporterId}
+            onReleaseChange={(id) => {
+              setReleaseId(id);
+              const release = enrichReleaseFromCatalog(
+                linked.find((r) => String(r.releaseId ?? r.id) === String(id)),
+                resolvedCatalog
+              );
+              const { parkId: p, transporterId: t } = prefillParkTransporterFromRelease(release);
+              setParkId(p);
+              setTransporterId(t);
+            }}
+            onParkChange={(id) => {
+              setParkId(id);
+              setTransporterId("");
+            }}
+            onTransporterChange={setTransporterId}
+          />
+
+          {releaseId && parkId && transporterId ? (
+            <p className="text-xs text-slate-600">
+              {comboValid ? (
+                <>
+                  <span className="font-medium">{packComboCount}</span> container slot
+                  {packComboCount === 1 ? "" : "s"} on this pack use this combination.
+                </>
+              ) : (
+                <span className="text-amber-700">This park/transporter combination is not valid for the selected release.</span>
+              )}
+            </p>
           ) : null}
-          .
-        </p>
-      </div>
 
-      {plan.duplicateNumbers.length ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Duplicate numbers in paste (only first occurrence imported): {plan.duplicateNumbers.join(", ")}
-        </div>
-      ) : null}
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Container numbers</label>
+            <textarea
+              className={cn(fieldClass, "min-h-[120px] font-mono text-xs")}
+              placeholder="Paste container numbers (one per line, or comma/tab separated)"
+              value={pastedText}
+              disabled={!canPaste || isApplying}
+              onChange={(e) => setPastedText(e.target.value)}
+            />
+          </div>
 
-      {plan.blocked && plan.parsedCount > 0 ? (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {plan.blockReason}
-        </div>
-      ) : null}
-
-      {plan.parsedCount > 0 && !plan.blocked ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-          {plan.parsedCount} number{plan.parsedCount === 1 ? "" : "s"} → {plan.toApply} slot
-          {plan.toApply === 1 ? "" : "s"} ({plan.emptySlotCount} empty available)
-        </div>
-      ) : null}
-
-      {plan.rows.length > 0 ? (
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[560px] text-left text-xs">
-            <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-2 py-2">#</th>
-                <th className="px-2 py-2">Container no.</th>
-                <th className="px-2 py-2">Slot</th>
-                <th className="px-2 py-2">Current</th>
-                <th className="px-2 py-2">Status</th>
-                <th className="px-2 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {plan.rows.map((row) => {
-                const hasConflict = row.conflictType === "number_on_other_slot";
-                const actionOptions = hasConflict
-                  ? [
-                      { value: "skip", label: "Skip" },
-                      { value: "overwrite", label: `Overwrite slot #${row.conflictSlotOrder}` },
-                    ]
-                  : [{ value: "apply", label: "Apply" }];
-
-                return (
-                  <tr key={row.rowKey} className="bg-white">
-                    <td className="px-2 py-1.5 tabular-nums text-slate-500">{row.importIndex}</td>
-                    <td className="px-2 py-1.5 font-mono font-medium text-slate-900">{row.number}</td>
-                    <td className="px-2 py-1.5 tabular-nums text-slate-700">
-                      {row.targetSlotOrder ? `#${row.targetSlotOrder}` : row.slotOrder ? `#${row.slotOrder}` : "—"}
-                    </td>
-                    <td className="px-2 py-1.5 font-mono text-slate-500">{row.currentValue || "—"}</td>
-                    <td className={cn("px-2 py-1.5", statusClass(row.status))}>
-                      {row.status === "invalid_format" && row.formatError
-                        ? row.formatError
-                        : hasConflict && row.action === "skip"
-                        ? `Already on slot #${row.conflictSlotOrder}`
-                        : STATUS_LABELS[row.status] || row.status}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      {hasConflict && !plan.blocked ? (
-                        <select
-                          className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
-                          value={row.action}
-                          disabled={isApplying}
-                          onChange={(e) => setRowAction(row.rowKey, e.target.value)}
-                        >
-                          {actionOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
+          {plan.rows.length > 0 ? (
+            <div className="max-h-48 overflow-auto rounded-md border border-slate-200 text-xs">
+              <table className="w-full">
+                <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase text-slate-500">
+                  <tr>
+                    <th className="px-2 py-1">#</th>
+                    <th className="px-2 py-1">Number</th>
+                    <th className="px-2 py-1">Slot</th>
+                    <th className="px-2 py-1">Status</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {plan.rows.map((row) => (
+                    <tr key={row.rowKey} className="border-t border-slate-100">
+                      <td className="px-2 py-1">{row.importIndex}</td>
+                      <td className="px-2 py-1 font-mono">{row.number}</td>
+                      <td className="px-2 py-1">{row.targetSlotOrder ?? row.slotOrder ?? "—"}</td>
+                      <td className={cn("px-2 py-1", statusClass(row.status))}>{STATUS_LABELS[row.status] ?? row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {plan.blocked && plan.blockReason ? (
+            <p className="text-xs text-red-700">{plan.blockReason}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={isApplying}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canPaste || plan.blocked || plan.toApply === 0 || isApplying}
+              onClick={handleApply}
+            >
+              {isApplying ? applyProgress || "Applying…" : `Import ${plan.toApply} container${plan.toApply === 1 ? "" : "s"}`}
+            </Button>
+          </div>
         </div>
-      ) : null}
-
-      {applyProgress ? <div className="text-xs font-medium text-slate-600">{applyProgress}</div> : null}
-
-      <div className="flex justify-end">
-        <Button type="button" size="sm" disabled={!canImport} onClick={handleApply}>
-          {isApplying ? "Importing…" : `Import ${plan.toApply} container${plan.toApply === 1 ? "" : "s"}`}
-        </Button>
       </div>
     </div>
   );
+}
+
+/** @deprecated Use BulkContainerImportDialog for combo selection. */
+export default function BulkContainerImportPanel(props) {
+  return <BulkContainerImportDialog open {...props} />;
 }

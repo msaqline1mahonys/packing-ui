@@ -16,6 +16,7 @@ import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
 import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
+import { countEcFailedContainers, countOnSiteContainers } from "@/lib/packers-work-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -133,21 +134,106 @@ function formatMtDisplay(value) {
   return Number.isFinite(n) ? n.toFixed(1) : String(value);
 }
 
-function emptyParkRaw(row) {
-  const releases = Array.isArray(row.releases) ? row.releases
-    : Array.isArray(row.release_details) ? row.release_details
-    : Array.isArray(row.releaseDetails) ? row.releaseDetails
-    : [];
-  const names = [];
-  const seen = new Set();
-  for (const r of releases) {
-    const name = r.empty_container_park?.name ?? r.emptyContainerPark?.name ?? null;
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      names.push(name);
+function parksFromRowReleases(row) {
+  const items = [];
+  const seenIds = new Set();
+  for (const r of rowReleases(row)) {
+    const nested = r.release ?? null;
+    const parks = Array.isArray(r.parks)
+      ? r.parks
+      : Array.isArray(nested?.parks)
+        ? nested.parks
+        : [];
+    if (parks.length) {
+      for (const park of parks) {
+        const id = String(
+          park.container_park_id ??
+            park.containerParkId ??
+            park.container_park?.id ??
+            park.containerPark?.id ??
+            ""
+        ).trim();
+        const name =
+          park.containerParkName ??
+          park.container_park?.name ??
+          park.containerPark?.name ??
+          "";
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          items.push({ id, name: name || id });
+        }
+      }
+      continue;
+    }
+    const legacyPark = r.empty_container_park ?? r.emptyContainerPark;
+    const id = String(
+      r.empty_container_park_id ?? r.emptyContainerParkId ?? legacyPark?.id ?? ""
+    ).trim();
+    const name = legacyPark?.name ?? "";
+    if (id && !seenIds.has(id)) {
+      seenIds.add(id);
+      items.push({ id, name: name || id });
+    } else if (name && !items.some((p) => p.name === name)) {
+      items.push({ id: "", name });
     }
   }
-  return names.join(", ");
+  return items;
+}
+
+function containerCountsByPark(row) {
+  const counts = new Map();
+  for (const c of rowContainers(row)) {
+    const num = String(c.container_number ?? c.containerNumber ?? "").trim();
+    if (!num) continue;
+    const parkId = String(c.empty_container_park_id ?? c.emptyContainerParkId ?? "").trim();
+    if (!parkId) continue;
+    counts.set(parkId, (counts.get(parkId) || 0) + 1);
+  }
+  return counts;
+}
+
+// Per empty-park container breakdown: [{ name, count }] for this pack.
+function emptyParkBreakdown(row) {
+  const counts = containerCountsByPark(row);
+  const items = [];
+  const seen = new Set();
+
+  for (const park of parksFromRowReleases(row)) {
+    if (park.id) {
+      seen.add(park.id);
+      items.push({ name: park.name, count: counts.get(park.id) || 0 });
+    } else if (park.name) {
+      items.push({ name: park.name, count: 0 });
+    }
+  }
+
+  for (const c of rowContainers(row)) {
+    const num = String(c.container_number ?? c.containerNumber ?? "").trim();
+    if (!num) continue;
+    const parkId = String(c.empty_container_park_id ?? c.emptyContainerParkId ?? "").trim();
+    if (!parkId || seen.has(parkId)) continue;
+    seen.add(parkId);
+    const nested = c.empty_container_park ?? c.emptyContainerPark;
+    const name =
+      nested?.name ??
+      c.emptyContainerParkName ??
+      c.releasePark ??
+      parkId;
+    items.push({ name, count: counts.get(parkId) || 0 });
+  }
+
+  return items;
+}
+
+function emptyParkRaw(row) {
+  const items = emptyParkBreakdown(row);
+  if (items.length) {
+    return items.map((item) => `${item.name} (${item.count})`).join(", ");
+  }
+  return parksFromRowReleases(row)
+    .map((park) => park.name)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function emptyParkDisplay(row) {
@@ -206,13 +292,17 @@ function releaseContainerTotal(row) {
   return releaseContainerBreakdown(row).reduce((sum, item) => sum + item.count, 0);
 }
 
-// How many of the pack's containers are physically on site (ready to pack).
+function rowIsImport(row) {
+  return String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
+}
+
+// How many containers are in the On Site stage (derived from on_site until packing starts).
 function onSiteContainerCount(row) {
-  let n = 0;
-  for (const c of rowContainers(row)) {
-    if (c.on_site ?? c.onSite) n += 1;
-  }
-  return n;
+  return countOnSiteContainers(rowContainers(row), rowIsImport(row));
+}
+
+function ecFailedContainerCount(row) {
+  return countEcFailedContainers(rowContainers(row), rowIsImport(row));
 }
 
 function getDateOnlyValue(rawValue) {
@@ -399,6 +489,28 @@ export default function PackingSchedulePage() {
       if (column.key === "jobReference") {
         return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
       }
+      if (column.key === "containersRequired") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => Number(row.containers_required ?? row.containersRequired ?? 0) || 0,
+          renderCell: ({ row }) => {
+            const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
+            const ecFailed = ecFailedContainerCount(row);
+            if (!required && !ecFailed) return "";
+            return (
+              <span className="inline-flex flex-wrap items-center gap-1" title={ecFailed ? `${required} required · ${ecFailed} EC failed` : `${required} containers required`}>
+                <span className="tabular-nums">{required || ""}</span>
+                {ecFailed > 0 ? (
+                  <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-rose-900 ring-1 ring-rose-200">
+                    {ecFailed} EC failed
+                  </span>
+                ) : null}
+              </span>
+            );
+          },
+        };
+      }
       if (column.key === "actualPacked") {
         return {
           ...base,
@@ -490,7 +602,23 @@ export default function PackingSchedulePage() {
           ...base,
           type: "text",
           valueGetter: (row) => emptyParkRaw(row),
-          format: (v) => (v ? String(v) : ""),
+          renderCell: ({ row }) => {
+            const items = emptyParkBreakdown(row);
+            if (!items.length) return "";
+            const full = items.map((item) => `${item.name}: ${item.count}`).join(" · ");
+            return (
+              <span className="inline-flex flex-wrap gap-1" title={full}>
+                {items.map((item) => (
+                  <span
+                    key={item.name}
+                    className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
+                  >
+                    {item.name}: {item.count}
+                  </span>
+                ))}
+              </span>
+            );
+          },
         };
       }
       if (column.key === "onSiteContainers") {
@@ -877,7 +1005,31 @@ export default function PackingSchedulePage() {
               <Field label="Cut-off" value={formatCutoffOrEtdDisplay(selected.vessel_cutoff_date ?? selected.vesselCutoffDate ?? selected.vessel_voyage?.vessel_cutoff_date ?? "")} />
               <Field label="Packing Start Date" value={formatCutoffOrEtdDisplay(selected.packing_start_date ?? selected.packingStartDate ?? "")} />
               <Field label="Empty park" value={emptyParkDisplay(selected)} />
-              <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
+              {emptyParkBreakdown(selected).length ? (
+                <div className="space-y-0.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Containers per empty park
+                  </div>
+                  <div className="space-y-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    {emptyParkBreakdown(selected).map((item) => (
+                      <div key={item.name} className="flex items-center justify-between text-[11px] text-slate-700">
+                        <span className="truncate pr-2">{item.name}</span>
+                        <span className="shrink-0 tabular-nums font-medium">{item.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <Field
+                label="Count"
+                value={(() => {
+                  const required = String(selected.containers_required ?? selected.containersRequired ?? "");
+                  const ecFailed = ecFailedContainerCount(selected);
+                  if (!required && !ecFailed) return "";
+                  if (!ecFailed) return required;
+                  return `${required}${required ? " · " : ""}${ecFailed} EC failed`;
+                })()}
+              />
               <Field
                 label="On site to pack"
                 value={`${onSiteContainerCount(selected)}${

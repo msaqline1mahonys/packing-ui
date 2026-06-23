@@ -20,11 +20,6 @@ import { cn } from "@/lib/utils";
 
 const inputClass =
   "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
-const config = {
-  title: "Packing Schedule",
-  subtitle: "Manage pack queues, status workflows, and daily planning.",
-};
-
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
   { key: "commodity", label: "Commodity Grade" },
@@ -693,121 +688,113 @@ export default function PackingSchedulePage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0 shrink-0">
-          <p className="text-xs text-slate-500">Operations / {config.title}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
-          <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p>
-        </div>
-
-        <section className="w-full min-w-0 flex-1 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm xl:min-w-[32rem]">
-          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap xl:gap-3">
-            <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-            <ClutchSelect
-              className="w-[148px] shrink-0"
-              isClearable={false}
-              options={IE_FILTER_OPTIONS}
-              value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
-              onChange={(option) => setImportExportFilter(option ? option.value : "all")}
-            />
-            <div className="ms-auto flex shrink-0 flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "all"}
-                    onChange={() => setDateFilterMode("all")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    All Dates
-                  </span>
-                </label>
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "specific"}
-                    onChange={() => setDateFilterMode("specific")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    By Date
-                  </span>
-                </label>
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "range"}
-                    onChange={() => setDateFilterMode("range")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    Date Range
-                  </span>
-                </label>
-              </div>
-            </div>
-          </div>
-          {dateFilterMode === "specific" || dateFilterMode === "range" ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
-              </span>
-              <ClutchSelect
-                className="w-[150px]"
-                isClearable={false}
-                options={DATE_FIELD_OPTIONS}
-                value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
-                onChange={(option) => setDateFilterField(option ? option.value : "vesselCutoffDate")}
-                aria-label="Select date filter field"
-              />
-              {dateFilterMode === "specific" ? (
+    <div className="space-y-4">
+      <section className="w-full min-w-0 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm xl:min-w-[32rem]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="shrink-0 text-base font-semibold tracking-tight text-slate-900">Packing Schedule</h1>
+          <div className="h-6 w-px shrink-0 bg-slate-200" aria-hidden="true" />
+          <ClutchSelect
+            compact
+            className="w-[128px] shrink-0"
+            isClearable={false}
+            options={IE_FILTER_OPTIONS}
+            value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
+            onChange={(option) => setImportExportFilter(option ? option.value : "all")}
+          />
+          <div className="ms-auto flex min-w-0 flex-wrap items-center gap-2">
+            <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 p-0.5">
+              <label className="cursor-pointer">
                 <input
                   suppressHydrationWarning
-                  className={`${inputClass} w-[160px]`}
-                  type="date"
-                  value={specificDate}
-                  onChange={(e) => setSpecificDate(e.target.value)}
-                  aria-label="Specific date"
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "all"}
+                  onChange={() => setDateFilterMode("all")}
+                  className="sr-only"
                 />
-              ) : (
-                <div className="w-72">
-                  <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
-                </div>
-              )}
+                <span
+                  className={cn(
+                    "inline-flex h-7 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                    dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  All Dates
+                </span>
+              </label>
+              <label className="cursor-pointer">
+                <input
+                  suppressHydrationWarning
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "specific"}
+                  onChange={() => setDateFilterMode("specific")}
+                  className="sr-only"
+                />
+                <span
+                  className={cn(
+                    "inline-flex h-7 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                    dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  By Date
+                </span>
+              </label>
+              <label className="cursor-pointer">
+                <input
+                  suppressHydrationWarning
+                  type="radio"
+                  name="date-filter-mode"
+                  checked={dateFilterMode === "range"}
+                  onChange={() => setDateFilterMode("range")}
+                  className="sr-only"
+                />
+                <span
+                  className={cn(
+                    "inline-flex h-7 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                    dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  Date Range
+                </span>
+              </label>
             </div>
-          ) : null}
-          <StatusFilterBar
-            compact
-            label="Filter by Status"
-            statuses={PACK_STATUSES}
-            selectedStatuses={selectedStatuses}
-            onSelectedStatusesChange={setSelectedStatuses}
-          />
-        </section>
-      </div>
+            {dateFilterMode === "specific" || dateFilterMode === "range" ? (
+              <>
+                <ClutchSelect
+                  compact
+                  className="w-[128px] shrink-0"
+                  isClearable={false}
+                  options={DATE_FIELD_OPTIONS}
+                  value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
+                  onChange={(option) => setDateFilterField(option ? option.value : "vesselCutoffDate")}
+                  aria-label="Select date filter field"
+                />
+                {dateFilterMode === "specific" ? (
+                  <input
+                    suppressHydrationWarning
+                    className={`${inputClass} w-[128px] shrink-0`}
+                    type="date"
+                    value={specificDate}
+                    onChange={(e) => setSpecificDate(e.target.value)}
+                    aria-label="Specific date"
+                  />
+                ) : (
+                  <div className="w-[11rem] shrink-0">
+                    <CustomDateRangePicker compact value={dateRangeValue} onChange={handleDateRangeChange} />
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+        </div>
+        <StatusFilterBar
+          compact
+          label="Filter by Status"
+          statuses={PACK_STATUSES}
+          selectedStatuses={selectedStatuses}
+          onSelectedStatusesChange={setSelectedStatuses}
+        />
+      </section>
 
       <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
         <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
@@ -816,9 +803,9 @@ export default function PackingSchedulePage() {
             rows={filtered}
             getRowId={(row) => row.id}
             theme="light"
-            density="standard"
+            density="compact"
             fileName="Packing Schedule"
-            visibleRows={14}
+            visibleRows={17}
             onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
             onRowDoubleClick={openEditForRow}
             onPersistedRowActivate={(row) => setSelectedId(row.id)}

@@ -9,6 +9,7 @@ import { PickerDay } from "@mui/x-date-pickers/PickerDay";
 import { CalendarIcon, X } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import dayjs from "dayjs";
+import { cn } from "@/lib/utils";
 import isBetween from "dayjs/plugin/isBetween";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import "react-day-picker/dist/style.css";
@@ -20,6 +21,7 @@ const CustomDateRangePicker = ({
   value = [null, null],
   onChange,
   format = "DD/MM/YYYY",
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [startDate, setStartDate] = useState(value[0]);
@@ -354,7 +356,10 @@ const CustomDateRangePicker = ({
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="flex-1 min-w-0 h-9 px-2 text-sm text-left bg-white border border-gray-300 rounded-sm hover:border-blue-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 flex items-center justify-between"
+            className={cn(
+              "flex-1 min-w-0 text-left bg-white border border-slate-200 rounded-md hover:border-brand/35 focus:outline-none focus:border-brand/35 focus:ring-2 focus:ring-brand/15 flex items-center justify-between",
+              compact ? "h-7 px-2 text-[11px]" : "h-9 px-2 text-sm hover:border-blue-500 focus:border-blue-500 focus:ring-blue-100 border-gray-300 rounded-sm",
+            )}
           >
             <span className="truncate text-gray-700">{displayText}</span>
             <CalendarIcon className="w-4 h-4 text-gray-500 shrink-0 ml-2" />
@@ -520,11 +525,16 @@ const CustomDateRangePicker = ({
       {/* Input Field */}
       <div
         ref={inputRef}
-        className="flex items-center h-9 px-3 bg-white border border-gray-300 rounded-sm hover:border-blue-500 transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"
+        className={cn(
+          "flex items-center bg-white border transition-colors",
+          compact
+            ? "h-7 px-2 border-slate-200 rounded-md hover:border-brand/35 focus-within:border-brand/35 focus-within:ring-2 focus-within:ring-brand/15"
+            : "h-9 px-3 border-gray-300 rounded-sm hover:border-blue-500 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100",
+        )}
         style={{ width: "100%" }}
       >
         <CalendarIcon
-          className="w-4 h-4 text-gray-500 mr-2 cursor-pointer"
+          className={cn("text-gray-500 mr-2 cursor-pointer", compact ? "w-3.5 h-3.5" : "w-4 h-4")}
           onClick={() => setIsOpen(!isOpen)}
         />
         <input
@@ -534,11 +544,11 @@ const CustomDateRangePicker = ({
           onBlur={handleInputBlur}
           onFocus={() => setIsOpen(true)}
           placeholder="DD/MM/YYYY – DD/MM/YYYY"
-          className="flex-1 text-sm outline-none bg-transparent"
+          className={cn("flex-1 outline-none bg-transparent", compact ? "text-[11px] text-slate-800" : "text-sm")}
         />
         {(startDate || endDate) && (
           <X
-            className="w-4 h-4 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer"
+            className={cn("text-gray-400 hover:text-gray-600 ml-2 cursor-pointer", compact ? "w-3.5 h-3.5" : "w-4 h-4")}
             onClick={(e) => {
               e.stopPropagation();
               setStartDate(null);

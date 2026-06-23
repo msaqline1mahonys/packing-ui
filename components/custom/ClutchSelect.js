@@ -72,6 +72,7 @@ export default function ClutchSelect({
   className,
   error,
   menuPortal = true,
+  compact = false,
   inputId: inputIdProp,
   ...rest
 }) {
@@ -159,7 +160,7 @@ export default function ClutchSelect({
         formatOptionLabel={computedFormatOptionLabel}
         classNamePrefix="clutch-select"
         menuPortalTarget={menuPortal && typeof document !== "undefined" ? document.body : undefined}
-        styles={selectStyles(Boolean(error))}
+        styles={selectStyles(Boolean(error), compact)}
         {...rest}
       />
 
@@ -187,16 +188,17 @@ function defaultFormatOptionLabel(option) {
 
 /* Brand-themed react-select style overrides. Colors come from the app's CSS
  * custom properties (var(--brand) = #0070ff) so this control tracks the theme. */
-function selectStyles(hasError) {
+function selectStyles(hasError, compact = false) {
   const BRAND = "var(--brand, #0070ff)";
   const RING = "color-mix(in srgb, var(--brand, #0070ff) 15%, transparent)";
   return {
     control: (base, state) => ({
       ...base,
-      minHeight: 36,
+      minHeight: compact ? 28 : 36,
+      height: compact ? 28 : undefined,
       backgroundColor: "#fff",
-      borderRadius: 8,
-      fontSize: "0.875rem",
+      borderRadius: compact ? 6 : 8,
+      fontSize: compact ? "11px" : "0.875rem",
       borderColor: hasError
         ? "#ef4444"
         : state.isFocused
@@ -206,18 +208,18 @@ function selectStyles(hasError) {
       transition: "border-color 120ms ease, box-shadow 120ms ease",
       "&:hover": { borderColor: state.isFocused ? BRAND : "#cbd5e1" },
     }),
-    valueContainer: (base) => ({ ...base, padding: "0 8px" }),
+    valueContainer: (base) => ({ ...base, padding: compact ? "0 6px" : "0 8px" }),
     placeholder: (base) => ({ ...base, color: "#94a3b8" }),
     input: (base) => ({ ...base, color: "#0f172a", margin: 0, padding: 0 }),
     singleValue: (base) => ({ ...base, color: "#0f172a" }),
     indicatorSeparator: (base) => ({ ...base, backgroundColor: "#e2e8f0" }),
     dropdownIndicator: (base, state) => ({
       ...base,
-      padding: 6,
+      padding: compact ? 4 : 6,
       color: state.isFocused ? BRAND : "#94a3b8",
       "&:hover": { color: BRAND },
     }),
-    clearIndicator: (base) => ({ ...base, padding: 6, color: "#94a3b8", "&:hover": { color: "#64748b" } }),
+    clearIndicator: (base) => ({ ...base, padding: compact ? 4 : 6, color: "#94a3b8", "&:hover": { color: "#64748b" } }),
     menu: (base) => ({
       ...base,
       borderRadius: 8,
@@ -228,7 +230,7 @@ function selectStyles(hasError) {
     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
     option: (base, state) => ({
       ...base,
-      fontSize: "0.875rem",
+      fontSize: compact ? "11px" : "0.875rem",
       cursor: "pointer",
       color: state.isSelected ? "#fff" : "#334155",
       backgroundColor: state.isSelected

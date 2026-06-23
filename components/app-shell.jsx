@@ -24,12 +24,16 @@ function isPrintRoute(pathname) {
   );
 }
 
-function MainPanel({ children, compactTop = false, contentKey = 0 }) {
+function MainPanel({ children, compactTop = false, tightPadding = false, contentKey = 0 }) {
   return (
     <main
       className={cn(
         "relative min-h-dvh min-w-0 flex-1 overflow-x-hidden",
-        compactTop ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3" : "p-6 md:p-10"
+        compactTop
+          ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3"
+          : tightPadding
+            ? "pb-6 ps-6 pt-2 pe-2 md:pb-10 md:ps-10 md:pt-3 md:pe-4"
+            : "p-6 md:p-10"
       )}
     >
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
@@ -47,6 +51,8 @@ function AppShellInner({ children }) {
   const authUser = useAuthNavUser();
   const { dock, isVertical, verticalExpanded } = useNavDock();
   const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
+  const tightMainPadding =
+    pathname.startsWith("/packing-schedule") && !compactMainTop;
   const [contentKey, setContentKey] = useState(0);
 
   useEffect(() => {
@@ -76,13 +82,13 @@ function AppShellInner({ children }) {
         {top ? (
           <>
             <ErpNavbar user={authUser ?? undefined} />
-            <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+            <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
               {children}
             </MainPanel>
           </>
         ) : (
           <>
-            <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+            <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
               {children}
             </MainPanel>
             <ErpNavbar user={authUser ?? undefined} />
@@ -101,7 +107,7 @@ function AppShellInner({ children }) {
             verticalExpanded ? "pe-14 md:pe-[17.25rem]" : "pe-14 md:pe-[4.5rem]"
           )}
         >
-          <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+          <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
             {children}
           </MainPanel>
         </div>
@@ -120,7 +126,7 @@ function AppShellInner({ children }) {
           verticalExpanded ? "ps-14 md:ps-[17.25rem]" : "ps-14 md:ps-[4.5rem]"
         )}
       >
-        <MainPanel compactTop={compactMainTop} contentKey={contentKey}>
+        <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
           {children}
         </MainPanel>
       </div>

@@ -27,7 +27,7 @@ import {
   toRoundedNumber,
 } from "@/lib/packers-work-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
-import { stageBadgeClass } from "@/lib/packing-container-ui";
+import { stageBadgeClass, isPackersContainerLockedAfterSignoff } from "@/lib/packing-container-ui";
 import {
   attachPemsSubmissionSnapshot,
   GPPIR_RECORD_TYPE,
@@ -334,9 +334,17 @@ export default function PackDetailClient({ packId }) {
   const [bulkImportApplying, setBulkImportApplying] = useState(false);
   const [bulkImportProgress, setBulkImportProgress] = useState("");
   const [bulkImportError, setBulkImportError] = useState("");
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockReason, setUnlockReason] = useState("");
+  const [isUnlocking, setIsUnlocking] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
   const previewRevokeRef = useRef(null);
 
+
+  useEffect(() => {
+    setShowUnlockModal(false);
+    setUnlockReason("");
+  }, [selectedContainerId]);
 
   const { packerNames, packerSelectOptions: allPackerSelectOptions } = lookups;
   const packPackerSelectOptions = useMemo(
@@ -543,6 +551,10 @@ export default function PackDetailClient({ packId }) {
 
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
+    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer)) {
+      showContainerValidationError("This container is locked after packer signoff. Use Unlock and enter a reason to edit.");
+      return;
+    }
     const isImport = isImportPack(packRow);
     const result = applyContainerPatch(selectedContainer, patch, { isImport });
     if (!result.ok) {
@@ -858,8 +870,32 @@ export default function PackDetailClient({ packId }) {
     }).catch(() => {});
   }
 
+  async function submitContainerUnlock() {
+    const reason = unlockReason.trim();
+    if (!reason || !packRow || !selectedContainer) return;
+
+    setIsUnlocking(true);
+    clearContainerValidationFeedback();
+    try {
+      const updated = await updateContainer(packRow.id, selectedContainer.id, { packerEditUnlockReason: reason });
+      if (updated?.id) {
+        updateContainerById(updated.id, updated);
+      }
+      setShowUnlockModal(false);
+      setUnlockReason("");
+    } catch (err) {
+      showContainerValidationError(err?.message || "Unlock failed — check connection.");
+    } finally {
+      setIsUnlocking(false);
+    }
+  }
+
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
+    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer)) {
+      showContainerValidationError("This container is locked after packer signoff. Use Unlock and enter a reason to edit.");
+      return;
+    }
 
     const saveError = validateContainerForSave(selectedContainer, { isImport: isImportPack(packRow) });
     if (saveError) {
@@ -986,6 +1022,9 @@ export default function PackDetailClient({ packId }) {
   const packDetailTabs = isImportJob ? ["Packing"] : PACK_DETAIL_TABS;
   const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer, { isImport: isImportJob }) : [];
   const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer, { isImport: isImportJob }) : [];
+  const containerFieldsLocked = selectedContainer
+    ? isPackersContainerLockedAfterSignoff(packRow?.status, selectedContainer)
+    : false;
   const packChecks = selectedPackDraft?.packChecks || {};
   const packChecksCompleteCount = packCheckFields.filter((field) => Boolean(packChecks[field.key])).length;
   const allPackChecksComplete = packChecksCompleteCount === packCheckFields.length;
@@ -1366,17 +1405,40 @@ export default function PackDetailClient({ packId }) {
                   ) : containerSaveStatus === "saved" ? (
                     <span className="text-[11px] font-medium text-emerald-700">Saved</span>
                   ) : null}
+                  {containerFieldsLocked ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-8 px-3 text-sm"
+                      onClick={() => setShowUnlockModal(true)}
+                    >
+                      Unlock
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"
                     className="h-8 px-4 text-sm"
-                    disabled={isSavingContainer}
+                    disabled={isSavingContainer || containerFieldsLocked}
                     onClick={saveSelectedContainer}
                   >
                     {isSavingContainer ? "Saving…" : "Save"}
                   </Button>
                 </div>
               </div>
+
+              {containerFieldsLocked ? (
+                <div className="border-t border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Container fields are locked after packer signoff. Use Unlock and enter a reason to edit.
+                </div>
+              ) : null}
+
+              {!containerFieldsLocked && String(selectedContainer.packerEditUnlockReason || "").trim() ? (
+                <div className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <span className="font-semibold">Unlock reason:</span> {selectedContainer.packerEditUnlockReason}
+                </div>
+              ) : null}
 
               {containerSaveStatus === "not-found" ? (
                 <p className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
@@ -1458,6 +1520,7 @@ export default function PackDetailClient({ packId }) {
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
               isImportPack={isImportJob}
+              readOnly={containerFieldsLocked}
             />
 
             {!isImportJob && packCommodityTypeId ? (
@@ -1476,6 +1539,7 @@ export default function PackDetailClient({ packId }) {
                         tests: { ...(selectedContainer.tests ?? {}), [name]: value },
                       })
                     }
+                    disabled={containerFieldsLocked}
                     inputClass={inputClass}
                     emptyMessage="No tests are configured for this commodity."
                   />
@@ -1603,6 +1667,69 @@ export default function PackDetailClient({ packId }) {
           >
             Dismiss
           </button>
+        </div>
+      ) : null}
+
+      {showUnlockModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-3 backdrop-blur-[1px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="container-unlock-title"
+          onClick={() => !isUnlocking && setShowUnlockModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+              <h3 id="container-unlock-title" className="text-sm font-semibold text-slate-900">
+                Unlock container for editing
+              </h3>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-8 shrink-0 px-2"
+                disabled={isUnlocking}
+                onClick={() => setShowUnlockModal(false)}
+                aria-label="Close unlock dialog"
+              >
+                <X className="size-4" aria-hidden />
+              </Button>
+            </div>
+            <div className="space-y-3 px-4 py-4">
+              <p className="text-sm text-slate-600">
+                This container was signed off. Enter a reason to unlock editing. The reason is stored on the container record.
+              </p>
+              <div className="space-y-1">
+                <label htmlFor="container-unlock-reason" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Unlock reason
+                </label>
+                <textarea
+                  id="container-unlock-reason"
+                  className={`${inputClass} min-h-[96px] w-full resize-y text-sm`}
+                  value={unlockReason}
+                  onChange={(event) => setUnlockReason(event.target.value)}
+                  placeholder="Explain why this container needs to be edited after signoff"
+                  disabled={isUnlocking}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
+              <Button type="button" variant="secondary" size="sm" disabled={isUnlocking} onClick={() => setShowUnlockModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={isUnlocking || !unlockReason.trim()}
+                onClick={submitContainerUnlock}
+              >
+                {isUnlocking ? "Unlocking…" : "Unlock"}
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

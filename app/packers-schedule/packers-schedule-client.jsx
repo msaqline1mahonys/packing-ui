@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { getPackPraProgress, getPackProgress, getPackProgressLabel, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
+import { PACKERS_SCHEDULE_STATUSES } from "@/lib/packing-container-ui";
 import { isImportPack } from "@/lib/pack-import";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,13 @@ function emptyParkDisplay(row, parkIdToName) {
   return s || "";
 }
 
+function loadPackersQueueRows() {
+  return fetchPackRows({ status: PACKERS_SCHEDULE_STATUSES }).then(({ rows: data }) => {
+    const allowed = new Set(PACKERS_SCHEDULE_STATUSES);
+    return Array.isArray(data) ? data.filter((row) => allowed.has(row.status)) : [];
+  });
+}
+
 export default function PackersScheduleClient() {
   const router = useRouter();
   const lookups = useAllPackLookups();
@@ -92,9 +100,7 @@ export default function PackersScheduleClient() {
   const [selectedId, setSelectedId] = useState(null);
 
   useEffect(() => {
-    fetchPackRows({ status: "Inprogress" }).then(({ rows: data }) => {
-      setRows(Array.isArray(data) ? data.filter((row) => row.status === "Inprogress") : []);
-    }).catch(() => setRows([]));
+    loadPackersQueueRows().then(setRows).catch(() => setRows([]));
   }, []);
 
   const filtered = useMemo(() => {
@@ -218,9 +224,7 @@ export default function PackersScheduleClient() {
   }
 
   function refreshRows() {
-    fetchPackRows({ status: "Inprogress" }).then(({ rows: data }) => {
-      setRows(Array.isArray(data) ? data.filter((row) => row.status === "Inprogress") : []);
-    }).catch(() => {});
+    loadPackersQueueRows().then(setRows).catch(() => {});
   }
 
   return (
@@ -288,10 +292,15 @@ export default function PackersScheduleClient() {
           </div>
         ) : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-7 items-center rounded-md border border-brand/30 bg-brand/15 px-2.5 text-[11px] font-medium text-brand-ink shadow-sm">
-            Inprogress only
-          </span>
-          <span className="text-[11px] text-slate-500">Packers queue uses in-progress packs from Packing Schedule.</span>
+          {PACKERS_SCHEDULE_STATUSES.map((status) => (
+            <span
+              key={status}
+              className="inline-flex h-7 items-center rounded-md border border-brand/30 bg-brand/15 px-2.5 text-[11px] font-medium text-brand-ink shadow-sm"
+            >
+              {status}
+            </span>
+          ))}
+          <span className="text-[11px] text-slate-500">Packers queue shows Pending, On Hold, and Inprogress packs from Packing Schedule.</span>
         </div>
       </section>
 
@@ -320,12 +329,12 @@ export default function PackersScheduleClient() {
                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={refreshRows}>
                   Refresh
                 </Button>
-                <span className="ms-auto text-[11px] text-slate-500">View: Inprogress queue</span>
+                <span className="ms-auto text-[11px] text-slate-500">View: Packers queue</span>
               </div>
             }
           />
           {!rowsWithProgress.length ? (
-            <p className="border-t border-slate-100 px-3 py-8 text-center text-xs text-slate-400">No in-progress packs match the current filters.</p>
+            <p className="border-t border-slate-100 px-3 py-8 text-center text-xs text-slate-400">No packs in the Packers queue match the current filters.</p>
           ) : null}
         </div>
 

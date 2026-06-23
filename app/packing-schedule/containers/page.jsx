@@ -17,6 +17,7 @@ import { containerStage } from "@/lib/packers-work-store";
 import {
   ACTIVE_PACK_STATUSES,
   CONTAINER_STAGE_OPTIONS,
+  PACKERS_SCHEDULE_STATUSES,
   stageBadgeClass,
 } from "@/lib/packing-container-ui";
 import { usePolling } from "@/lib/use-polling";
@@ -636,7 +637,7 @@ export default function PackingScheduleContainersPage() {
                 >
                   Open pack
                 </Link>
-                {selected.packStatus === "Inprogress" ? (
+                {PACKERS_SCHEDULE_STATUSES.includes(selected.packStatus) ? (
                   <Link
                     href={`/packers-schedule/${selected.packId}`}
                     className="inline-flex h-7 items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80"
@@ -645,7 +646,7 @@ export default function PackingScheduleContainersPage() {
                   </Link>
                 ) : (
                   <span
-                    title="Packers schedule only shows Inprogress packs"
+                    title="Packers schedule only shows Pending, On Hold, and Inprogress packs"
                     className="inline-flex h-7 cursor-not-allowed items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground opacity-50"
                   >
                     Open in Packers

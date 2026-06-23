@@ -25,11 +25,6 @@ import { cn } from "@/lib/utils";
 const inputClass =
   "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
 
-const config = {
-  title: "Containers",
-  subtitle: "Cross-pack visibility for containers currently in the packing pipeline.",
-};
-
 const TABLE_COLUMNS = [
   { key: "containerNumber", label: "Container #" },
   { key: "onSite", label: "On site" },
@@ -412,12 +407,6 @@ export default function PackingScheduleContainersPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-xs text-slate-500">Operations / Packing Schedule / {config.title}</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
-        <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p>
-      </div>
-
       <section className="rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
         <p className="text-[11px] text-slate-600">
           <span className="font-semibold text-slate-800">Total: {summary.total}</span>
@@ -436,14 +425,15 @@ export default function PackingScheduleContainersPage() {
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Filters</p>
           <ClutchSelect
-            className="w-[160px]"
+            compact
+            className="w-[128px] shrink-0"
             isClearable={false}
             options={IE_FILTER_OPTIONS}
             value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
             onChange={(option) => setImportExportFilter(option ? option.value : "all")}
           />
-          <div className="ms-auto flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
+          <div className="ms-auto flex min-w-0 flex-wrap items-center gap-2">
+            <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 p-0.5">
               {["all", "specific", "range"].map((mode) => (
                 <label key={mode} className="cursor-pointer">
                   <input
@@ -456,7 +446,7 @@ export default function PackingScheduleContainersPage() {
                   />
                   <span
                     className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                      "inline-flex h-7 items-center rounded px-2 text-[11px] font-medium transition-colors",
                       dateFilterMode === mode ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700",
                     )}
                   >
@@ -465,37 +455,35 @@ export default function PackingScheduleContainersPage() {
                 </label>
               ))}
             </div>
+            {dateFilterMode === "specific" || dateFilterMode === "range" ? (
+              <>
+                <ClutchSelect
+                  compact
+                  className="w-[128px] shrink-0"
+                  isClearable={false}
+                  options={DATE_FIELD_OPTIONS}
+                  value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
+                  onChange={(option) => setDateFilterField(option ? option.value : "packingStartDate")}
+                  aria-label="Select date filter field"
+                />
+                {dateFilterMode === "specific" ? (
+                  <input
+                    suppressHydrationWarning
+                    className={`${inputClass} w-[128px] shrink-0`}
+                    type="date"
+                    value={specificDate}
+                    onChange={(e) => setSpecificDate(e.target.value)}
+                    aria-label="Specific date"
+                  />
+                ) : (
+                  <div className="w-[11rem] shrink-0">
+                    <CustomDateRangePicker compact value={dateRangeValue} onChange={handleDateRangeChange} />
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
         </div>
-        {dateFilterMode === "specific" || dateFilterMode === "range" ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
-            </span>
-            <ClutchSelect
-              className="w-[150px]"
-              isClearable={false}
-              options={DATE_FIELD_OPTIONS}
-              value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
-              onChange={(option) => setDateFilterField(option ? option.value : "packingStartDate")}
-              aria-label="Select date filter field"
-            />
-            {dateFilterMode === "specific" ? (
-              <input
-                suppressHydrationWarning
-                className={`${inputClass} w-[160px]`}
-                type="date"
-                value={specificDate}
-                onChange={(e) => setSpecificDate(e.target.value)}
-                aria-label="Specific date"
-              />
-            ) : (
-              <div className="w-72">
-                <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
-              </div>
-            )}
-          </div>
-        ) : null}
         <StatusFilterBar
           label="Filter by Pack Status"
           statuses={PACK_STATUSES.filter((s) => ACTIVE_PACK_STATUSES.includes(s) || s === "Completed" || s === "Invoiced")}

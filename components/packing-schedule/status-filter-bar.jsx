@@ -8,6 +8,7 @@ export function StatusFilterBar({
   selectedStatuses,
   onSelectedStatusesChange,
   compact = false,
+  embedded = false,
 }) {
   const allSelected = selectedStatuses.length === statuses.length;
   const noneSelected = selectedStatuses.length === 0;
@@ -22,7 +23,13 @@ export function StatusFilterBar({
 
   if (compact) {
     return (
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-slate-100 pt-2">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-2 gap-y-1.5",
+          !embedded && "mt-2 border-t border-slate-100 pt-2",
+          embedded && "min-w-0 flex-1",
+        )}
+      >
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           {statuses.map((status) => {

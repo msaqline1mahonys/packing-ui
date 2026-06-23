@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useState } from 'react'
 import { Box, IconButton, Tooltip } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ArrowUpward from '@mui/icons-material/ArrowUpward'
 import ArrowDownward from '@mui/icons-material/ArrowDownward'
 import FilterAlt from '@mui/icons-material/FilterAlt'
@@ -11,10 +12,20 @@ import DragIndicator from '@mui/icons-material/DragIndicator'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
+const collapsedActionSx = {
+  width: 0,
+  minWidth: 0,
+  p: 0,
+  m: 0,
+  overflow: 'hidden',
+  opacity: 0,
+  pointerEvents: 'none',
+}
+
 export function HeaderCell({
   column, width, pin, pinLeftOffset, pinRightOffset,
   sortIndex, sortDir, hasFilter, showColumnMenu, enableColumnFilters,
-  hideActionsUntilHover = false,
+  hideActionsUntilHover = true, isLegacySkin = false,
   onSortClick, onFilterClick, onMenuClick, onResizeStart, isDraggable,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
@@ -29,10 +40,10 @@ export function HeaderCell({
   const filterable = enableColumnFilters && column.filterable !== false
   const align = column.align ?? (column.type === 'number' ? 'right' : 'left')
   const showDragHandle = isDraggable && pin == null
-  const showHoverActions = !hideActionsUntilHover || isHovered || isDragging
-  const showFilterAction = filterable && (showHoverActions || hasFilter)
-  const showMenuAction = showColumnMenu && showHoverActions
-  const showSortIndicator = sortDir && showHoverActions
+  const showActions = !hideActionsUntilHover || isHovered || isDragging
+  const showFilterAction = showActions || hasFilter
+  const headerBg = (theme) => (isLegacySkin ? '#1f4d2e' : alpha(theme.palette.primary.main, 0.06))
+  const headerHoverBg = (theme) => (isLegacySkin ? '#266038' : alpha(theme.palette.primary.main, 0.11))
 
   const handleClick = useCallback((e) => {
     if (!sortable) return
@@ -76,18 +87,21 @@ export function HeaderCell({
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
       sx={{
-        boxSizing: 'border-box', display: 'flex', alignItems: hideActionsUntilHover ? 'center' : 'flex-start',
+        boxSizing: 'border-box', display: 'flex', alignItems: 'flex-start',
         justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-        gap: hideActionsUntilHover ? 0 : 0.5, px: hideActionsUntilHover ? 0.75 : 1, py: hideActionsUntilHover ? 0.25 : 0.75,
-        fontWeight: 600, fontSize: hideActionsUntilHover ? '11px' : '0.82rem',
-        color: 'text.primary', bgcolor: pin ? 'background.paper' : 'transparent',
-        borderRight: '1px solid', borderColor: 'divider', userSelect: 'none',
+        gap: 0.5, px: 1, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
+        color: isLegacySkin ? '#fff' : 'text.primary',
+        bgcolor: pin ? headerBg : 'transparent',
+        borderRight: '1px solid',
+        borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : 'divider',
+        userSelect: 'none',
         position: stickyStyles.position ?? 'relative',
-        '&:hover': { bgcolor: hideActionsUntilHover ? undefined : 'action.hover' },
+        transition: 'background-color 120ms',
+        '&:hover': { bgcolor: headerHoverBg },
       }}
       {...dragAttributes}
     >
-      {showDragHandle && showHoverActions && (
+      {showDragHandle && (
         <Box
           className="dg-drag-handle"
           {...listeners}
@@ -96,11 +110,11 @@ export function HeaderCell({
             alignItems: 'center',
             flexShrink: 0,
             mt: 0.125,
-            opacity: isDragging ? 0.85 : 0.7,
             cursor: isDragging ? 'grabbing' : 'grab',
-            color: 'text.secondary',
-            transition: 'opacity 120ms',
+            color: isLegacySkin ? '#fff' : 'text.secondary',
+            transition: 'opacity 120ms, width 120ms',
             touchAction: 'none',
+            ...(showActions ? { opacity: 0.7, width: 'auto', minWidth: 'auto', pointerEvents: 'auto' } : collapsedActionSx),
           }}
         >
           <DragIndicator sx={{ fontSize: 16 }} />
@@ -122,8 +136,8 @@ export function HeaderCell({
         {column.header}
       </Box>
 
-      {showSortIndicator && (
-        <Box className="dg-sort-indicator" component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, flexShrink: 0, mt: 0.125 }}>
+      {sortDir && (
+        <Box component="span" className="dg-sort-indicator" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, flexShrink: 0, mt: 0.125 }}>
           {sortDir === 'asc' ? (
             <ArrowUpward sx={{ fontSize: 14, color: 'primary.main' }} />
           ) : (
@@ -137,10 +151,16 @@ export function HeaderCell({
         </Box>
       )}
 
-      {showFilterAction && (
+      {filterable && (
         <Tooltip title={hasFilter ? 'Filter active' : 'Filter column'}>
           <IconButton className="dg-header-action" size="small" onClick={onFilterClick}
-            sx={{ p: 0.25, flexShrink: 0, opacity: 1, transition: 'opacity 120ms' }}>
+            sx={{
+              flexShrink: 0,
+              transition: 'opacity 120ms, width 120ms',
+              ...(showFilterAction
+                ? { p: 0.25, opacity: 1, width: 'auto', minWidth: 'auto', pointerEvents: 'auto' }
+                : collapsedActionSx),
+            }}>
             {hasFilter ? (
               <FilterAlt sx={{ fontSize: 16, color: 'primary.main' }} />
             ) : (
@@ -150,9 +170,15 @@ export function HeaderCell({
         </Tooltip>
       )}
 
-      {showMenuAction && (
+      {showColumnMenu && (
         <IconButton className="dg-header-action" size="small" onClick={onMenuClick}
-          sx={{ p: 0.25, flexShrink: 0, opacity: 1, transition: 'opacity 120ms' }}>
+          sx={{
+            flexShrink: 0,
+            transition: 'opacity 120ms, width 120ms',
+            ...(showActions
+              ? { p: 0.25, opacity: 1, width: 'auto', minWidth: 'auto', pointerEvents: 'auto' }
+              : collapsedActionSx),
+          }}>
           <MoreVert sx={{ fontSize: 16 }} />
         </IconButton>
       )}
@@ -172,7 +198,7 @@ export function HeaderCell({
               right: 4,
               width: 2,
               borderRadius: 1,
-              bgcolor: hideActionsUntilHover && !showHoverActions ? 'transparent' : 'divider',
+              bgcolor: 'divider',
             },
             '&:hover::after': { bgcolor: 'primary.main', opacity: 0.8 },
           }}

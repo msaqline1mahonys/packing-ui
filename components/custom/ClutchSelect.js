@@ -191,42 +191,35 @@ function defaultFormatOptionLabel(option) {
 function selectStyles(hasError, compact = false) {
   const BRAND = "var(--brand, #0070ff)";
   const RING = "color-mix(in srgb, var(--brand, #0070ff) 15%, transparent)";
-  const borderColor = compact ? "#c5d5c5" : "#e2e8f0";
   return {
     control: (base, state) => ({
       ...base,
-      minHeight: compact ? 24 : 36,
-      height: compact ? 24 : undefined,
+      minHeight: compact ? 28 : 36,
+      height: compact ? 28 : undefined,
       backgroundColor: "#fff",
-      borderRadius: compact ? 4 : 8,
-      fontSize: compact ? "10px" : "0.875rem",
+      borderRadius: compact ? 6 : 8,
+      fontSize: compact ? "11px" : "0.875rem",
       borderColor: hasError
         ? "#ef4444"
         : state.isFocused
-          ? compact
-            ? "color-mix(in srgb, #1f4d2e 40%, transparent)"
-            : "color-mix(in srgb, var(--brand, #0070ff) 35%, transparent)"
-          : borderColor,
-      boxShadow: state.isFocused
-        ? compact
-          ? "0 0 0 1px color-mix(in srgb, #1f4d2e 15%, transparent)"
-          : `0 0 0 2px ${RING}`
-        : "none",
+          ? "color-mix(in srgb, var(--brand, #0070ff) 35%, transparent)"
+          : "#e2e8f0",
+      boxShadow: state.isFocused ? `0 0 0 2px ${RING}` : "none",
       transition: "border-color 120ms ease, box-shadow 120ms ease",
-      "&:hover": { borderColor: state.isFocused ? (compact ? "#1f4d2e" : BRAND) : (compact ? "#a8bba8" : "#cbd5e1") },
+      "&:hover": { borderColor: state.isFocused ? BRAND : "#cbd5e1" },
     }),
-    valueContainer: (base) => ({ ...base, padding: compact ? "0 4px" : "0 8px" }),
-    placeholder: (base) => ({ ...base, color: "#94a3b8", fontSize: compact ? "10px" : base.fontSize }),
-    input: (base) => ({ ...base, color: "#0f172a", margin: 0, padding: 0, fontSize: compact ? "10px" : base.fontSize }),
-    singleValue: (base) => ({ ...base, color: "#0f172a", fontSize: compact ? "10px" : base.fontSize }),
-    indicatorSeparator: (base) => ({ ...base, backgroundColor: borderColor, marginTop: compact ? 2 : base.marginTop, marginBottom: compact ? 2 : base.marginBottom }),
+    valueContainer: (base) => ({ ...base, padding: compact ? "0 6px" : "0 8px" }),
+    placeholder: (base) => ({ ...base, color: "#94a3b8" }),
+    input: (base) => ({ ...base, color: "#0f172a", margin: 0, padding: 0 }),
+    singleValue: (base) => ({ ...base, color: "#0f172a" }),
+    indicatorSeparator: (base) => ({ ...base, backgroundColor: "#e2e8f0" }),
     dropdownIndicator: (base, state) => ({
       ...base,
-      padding: compact ? 2 : 6,
-      color: state.isFocused ? (compact ? "#1f4d2e" : BRAND) : "#94a3b8",
-      "&:hover": { color: compact ? "#1f4d2e" : BRAND },
+      padding: compact ? 4 : 6,
+      color: state.isFocused ? BRAND : "#94a3b8",
+      "&:hover": { color: BRAND },
     }),
-    clearIndicator: (base) => ({ ...base, padding: compact ? 2 : 6, color: "#94a3b8", "&:hover": { color: "#64748b" } }),
+    clearIndicator: (base) => ({ ...base, padding: compact ? 4 : 6, color: "#94a3b8", "&:hover": { color: "#64748b" } }),
     menu: (base) => ({
       ...base,
       borderRadius: 8,
@@ -237,7 +230,7 @@ function selectStyles(hasError, compact = false) {
     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
     option: (base, state) => ({
       ...base,
-      fontSize: "0.875rem",
+      fontSize: compact ? "11px" : "0.875rem",
       cursor: "pointer",
       color: state.isSelected ? "#fff" : "#334155",
       backgroundColor: state.isSelected

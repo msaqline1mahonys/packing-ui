@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip, FormControl, Select } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
 import Download from '@mui/icons-material/Download';
@@ -41,8 +42,8 @@ const DENSITIES = {
     headerHeight: 56
   },
   legacy: {
-    rowHeight: 34,
-    headerHeight: 36
+    rowHeight: 26,
+    headerHeight: 28
   }
 };
 
@@ -109,9 +110,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
     searchValue: searchValueProp,
     onSearchChange,
     /** When true, column widths grow so the grid uses the full scroll-area width (slack split evenly). */
-    fillContainerWidth = true,
-    /** When true, the scroll body grows to fill available height and pagination stays at the bottom. */
-    fillHeight = false
+    fillContainerWidth = true
   } = props;
   const pathname = usePathname();
   const effectivePersistKey = useMemo(() => {
@@ -1290,13 +1289,8 @@ export const Grid = forwardRef(function Grid(props, ref) {
       borderRadius: isLegacySkin ? 0 : 2,
       fontFamily: t => t.typography.fontFamily,
       bgcolor: 'background.paper',
-      ...(fillHeight && {
-        flex: 1,
-        minHeight: 0,
-        height: '100%',
-      }),
       ...(isLegacySkin && {
-        border: '1px solid #e2e8f0',
+        border: '1px solid #b8c9b8',
         borderRadius: 0,
       }),
     }}>
@@ -1306,8 +1300,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
         gap: 1,
         p: isLegacySkin ? 0.75 : 1.25,
         borderBottom: '1px solid',
-        borderColor: 'divider',
+        borderColor: isLegacySkin ? '#d5e3d5' : 'divider',
         flexWrap: 'wrap',
+        bgcolor: isLegacySkin ? '#f4f8f4' : undefined,
         ...(hideToolbar && { display: 'none' }),
       }}>
           {enableGlobalSearch && <Box sx={{
@@ -1410,14 +1405,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
         <Box ref={attachScrollContainer} sx={{
         position: 'relative',
         overflow: 'auto',
-        outline: 'none',
-        ...(fillHeight ? {
-          flex: 1,
-          minHeight: 0,
-        } : {
-          maxHeight: effectiveMaxBodyHeight,
-          minHeight: 160,
-        }),
+        maxHeight: effectiveMaxBodyHeight,
+        minHeight: 160,
+        outline: 'none'
       }} tabIndex={focusedCell ? -1 : 0} onFocus={e => {
         // Tab into the grid: move focus to the first cell (or last focused cell)
         if (e.target !== e.currentTarget) return;
@@ -1441,9 +1431,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
                 position: 'sticky',
                 top: 0,
                 zIndex: 4,
-                bgcolor: isLegacySkin ? '#1f4d2e' : 'background.paper',
-                borderBottom: isLegacySkin ? 'none' : '2px solid',
-                borderColor: 'divider'
+                bgcolor: isLegacySkin ? '#1f4d2e' : (theme) => alpha(theme.palette.primary.main, 0.06),
+                borderBottom: '2px solid',
+                borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : (theme) => alpha(theme.palette.primary.main, 0.18),
               }}>
                   {enableSelection && <Box sx={{
                   width: 42,
@@ -1454,9 +1444,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
                   position: 'sticky',
                   left: 0,
                   zIndex: 5,
-                  bgcolor: 'background.paper',
+                  bgcolor: isLegacySkin ? '#1f4d2e' : (theme) => alpha(theme.palette.primary.main, 0.06),
                   borderRight: '1px solid',
-                  borderColor: 'divider'
+                  borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : 'divider'
                 }}>
                       <Checkbox size="small" checked={allOnPageSelected} indeterminate={!allOnPageSelected && pagedRows.some(r => selection.isSelected(safeGetRowId(r)))} onChange={() => {
                     const ids = pagedRows.map(r => safeGetRowId(r));
@@ -1468,7 +1458,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
                   const sortItem = sortModel.find(s => s.key === col.def.key);
                   const sortIdx = sortModel.findIndex(s => s.key === col.def.key);
                   const hasFilter = Boolean(filters[col.def.key]);
-                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={(leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} hideActionsUntilHover={isLegacySkin} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
+                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={(leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} hideActionsUntilHover isLegacySkin={isLegacySkin} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
                     e.stopPropagation();
                     setActiveColumnKey(col.def.key);
                     setFilterAnchor(e.currentTarget);
@@ -1544,8 +1534,8 @@ export const Grid = forwardRef(function Grid(props, ref) {
                 height: effectiveRowHeight,
                 transform: `translateY(${vi.start}px)`,
                 bgcolor: stickyRowBg,
-                borderBottom: isLegacySkin ? 'none' : '1px solid',
-                borderColor: isLegacySkin ? '#cbd5e1' : 'divider',
+                borderBottom: '1px solid',
+                borderColor: isLegacySkin ? '#d5e3d5' : 'divider',
                 cursor: enableSelection || onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
                 outline: 'none',
                 ...(!isLegacySkin && {
@@ -1556,13 +1546,11 @@ export const Grid = forwardRef(function Grid(props, ref) {
                     },
                   },
                 }),
-                ...(!isLegacySkin && {
-                  '&:focus-visible': {
-                    outline: '2px solid',
-                    outlineColor: 'primary.main',
-                    outlineOffset: '-2px'
-                  }
-                })
+                '&:focus-visible': {
+                  outline: '2px solid',
+                  outlineColor: 'primary.main',
+                  outlineOffset: '-2px'
+                }
               }}>
                       {enableSelection && <Box className={['dg-sticky-cell', 'dg-selection-cell', rowClass].filter(Boolean).join(' ') || undefined} sx={{
                   width: 42,
@@ -1678,9 +1666,8 @@ export const Grid = forwardRef(function Grid(props, ref) {
                     justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
                     px: isLegacySkin ? 0.75 : 1,
                     fontSize: isLegacySkin ? '11px' : '0.85rem',
-                    borderRight: isLegacySkin ? 'none' : '1px solid',
-                    borderBottom: isLegacySkin ? '1px solid' : 'none',
-                    borderColor: isLegacySkin ? '#cbd5e1' : 'divider',
+                    borderRight: '1px solid',
+                    borderColor: isLegacySkin ? '#d5e3d5' : 'divider',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -1688,13 +1675,13 @@ export const Grid = forwardRef(function Grid(props, ref) {
                     outline: 'none',
                     ...(pin && { bgcolor: stickyRowBg }),
                     ...stickyStyles,
-                    ...(!isLegacySkin && inRange && {
+                    ...(inRange && {
                       bgcolor: t => t.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.24)' : 'rgba(25, 118, 210, 0.12)',
                       outline: t => `1px solid ${t.palette.primary.main}`,
                       outlineOffset: '-1px',
                       zIndex: 1
                     }),
-                    ...(!isLegacySkin && isFocused && {
+                    ...(isFocused && {
                       outline: t => `2px solid ${t.palette.primary.main}`,
                       outlineOffset: '-2px',
                       zIndex: 3
@@ -1815,7 +1802,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
             <Button size="small" onClick={clearRange}>Clear range</Button>
           </Box>}
 
-        <Box className="dg-grid-footer" sx={{
+        <Box sx={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -1823,8 +1810,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
         borderTop: '1px solid',
         borderColor: 'divider',
         gap: 1,
-        flexWrap: 'wrap',
-        flexShrink: 0,
+        flexWrap: 'wrap'
       }}>
           <Box sx={{
           display: 'flex',

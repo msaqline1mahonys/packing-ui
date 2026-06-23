@@ -420,16 +420,6 @@ export default function ReleasesPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-xs text-slate-500">Packing Schedule / Releases</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Releases</h1>
-        {!isMobile ? (
-          <p className="mt-1 text-xs text-slate-500">
-            Maintain container release records — pickup references, parks, transporters, and supporting attachments.
-          </p>
-        ) : null}
-      </div>
-
       {!modalMode && error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
       ) : null}

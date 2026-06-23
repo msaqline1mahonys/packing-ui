@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
+import { Columns3, Download } from "lucide-react";
 
 import { Grid } from "@/components/clutch-table";
-import { StatusFilterBar } from "@/components/packing-schedule/status-filter-bar";
+import { ScheduleFilterBar } from "@/components/packing-schedule/schedule-filter-bar";
+import { ScheduleViewTabs, SCHEDULE_VIEW_TABS } from "@/components/packing-schedule/schedule-view-tabs";
 import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
-import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
-import ClutchSelect from "@/components/custom/ClutchSelect";
 import { PACK_STATUSES } from "@/lib/Data";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
@@ -17,13 +17,6 @@ import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
 import { cn } from "@/lib/utils";
-
-const inputClass =
-  "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
-const config = {
-  title: "Packing Schedule",
-  subtitle: "Manage pack queues, status workflows, and daily planning.",
-};
 
 const TABLE_COLUMNS = [
   { key: "customer", label: "Customer" },
@@ -100,26 +93,6 @@ const BOOL_COLUMN_KEYS = new Set([
   "fumigationRequired", "packWarningRequired", "importPermitRequired",
   "rfpAdditionalDeclarationRequired",
 ]);
-
-const DATE_FILTER_OPTIONS = [
-  { key: "vesselCutoffDate", label: "Cut-off" },
-  { key: "etd", label: "ETD" },
-  { key: "packingStartDate", label: "Packing Start Date" },
-];
-
-const DATE_FILTER_MODES = [
-  { key: "all", label: "Any Date" },
-  { key: "specific", label: "Specific Date" },
-  { key: "range", label: "Date Range" },
-];
-
-const IE_FILTER_OPTIONS = [
-  { value: "all", label: "All (Import/Export)" },
-  { value: "Import", label: "Import" },
-  { value: "Export", label: "Export" },
-];
-
-const DATE_FIELD_OPTIONS = DATE_FILTER_OPTIONS.map((opt) => ({ value: opt.key, label: opt.label }));
 
 function formatCutoffOrEtdDisplay(value) {
   if (value == null || String(value).trim() === "") return "";
@@ -231,6 +204,24 @@ function getDateOnlyValue(rawValue) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function formatStatusDisplay(status) {
+  if (status === "Inprogress") return "In Progress";
+  return status ?? "";
+}
+
+function buildScheduleFooterSummary(row) {
+  if (!row) return "";
+  const parts = [
+    formatCutoffOrEtdDisplay(row.packing_start_date ?? row.packingStartDate ?? ""),
+    row.customer?.name ?? row.customer_name ?? row.customer ?? "",
+    row.job_reference ?? row.jobReference ?? "",
+    row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "",
+    row.vessel_voyage?.vessel?.vessel_name ?? row.vesselVoyage?.vessel?.vesselName ?? row.vessel ?? "",
+    formatCutoffOrEtdDisplay(row.vessel_cutoff_date ?? row.vesselCutoffDate ?? row.vessel_voyage?.vessel_cutoff_date ?? ""),
+  ].filter((part) => String(part).trim() !== "");
+  return parts.join(" | ");
+}
+
 export default function PackingSchedulePage() {
   const router = useRouter();
   const [rows, setRows] = useState([]);
@@ -242,10 +233,13 @@ export default function PackingSchedulePage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
+  const [activeViewTab, setActiveViewTab] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [gridSearch, setGridSearch] = useState("");
   const tableRef = useRef(null);
   const detailsRef = useRef(null);
+  const gridRef = useRef(null);
 
   useEffect(() => {
     if (selectedId == null) return;
@@ -354,6 +348,14 @@ export default function PackingSchedulePage() {
     setDateTo(end && end.isValid() ? end.format("YYYY-MM-DD") : "");
   }, []);
 
+  const applyScheduleViewTab = useCallback((tabId) => {
+    const tab = SCHEDULE_VIEW_TABS.find((item) => item.id === tabId);
+    if (!tab) return;
+    setActiveViewTab(tabId);
+    setSelectedStatuses([...tab.statuses]);
+    setImportExportFilter(tab.importExport);
+  }, []);
+
   const gridColumns = useMemo(() => {
     return TABLE_COLUMNS.map((column) => {
       const base = {
@@ -370,6 +372,21 @@ export default function PackingSchedulePage() {
       }
       if (column.key === "commodity") {
         return { ...base, valueGetter: (row) => row.commodity?.description ?? row.commodity_description ?? row.commodity ?? "" };
+      }
+      if (column.key === "status") {
+        return {
+          ...base,
+          width: 92,
+          valueGetter: (row) => formatStatusDisplay(row.status),
+          renderCell: ({ row }) => {
+            const status = row.status ?? "";
+            const label = formatStatusDisplay(status);
+            if (status === "Inprogress") {
+              return <span className="clutch-status-inprogress">{label}</span>;
+            }
+            return label;
+          },
+        };
       }
       if (column.key === "blend") {
         return {
@@ -693,181 +710,139 @@ export default function PackingSchedulePage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0 shrink-0">
-          <p className="text-xs text-slate-500">Operations / {config.title}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{config.title}</h1>
-          <p className="mt-1 text-xs text-slate-500">{config.subtitle}</p>
-        </div>
+    <div className="flex h-[calc(100dvh-1.5rem)] flex-col">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-3 xl:items-stretch",
+          selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1"
+        )}
+      >
+        <div ref={tableRef} className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-slate-200 bg-white">
+        <ScheduleFilterBar
+          gridSearch={gridSearch}
+          onGridSearchChange={(value) => {
+            setGridSearch(value);
+            gridRef.current?.resetPage?.();
+          }}
+          onClearSearch={() => {
+            setGridSearch("");
+            gridRef.current?.resetPage?.();
+          }}
+          dateFilterMode={dateFilterMode}
+          onDateFilterModeChange={setDateFilterMode}
+          dateFilterField={dateFilterField}
+          onDateFilterFieldChange={setDateFilterField}
+          specificDate={specificDate}
+          onSpecificDateChange={setSpecificDate}
+          dateRangeValue={dateRangeValue}
+          onDateRangeChange={handleDateRangeChange}
+        />
 
-        <section className="w-full min-w-0 flex-1 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm xl:min-w-[32rem]">
-          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap xl:gap-3">
-            <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Status Filters</p>
-            <ClutchSelect
-              className="w-[148px] shrink-0"
-              isClearable={false}
-              options={IE_FILTER_OPTIONS}
-              value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
-              onChange={(option) => setImportExportFilter(option ? option.value : "all")}
-            />
-            <div className="ms-auto flex shrink-0 flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1">
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "all"}
-                    onChange={() => setDateFilterMode("all")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "all" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    All Dates
-                  </span>
-                </label>
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "specific"}
-                    onChange={() => setDateFilterMode("specific")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "specific" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    By Date
-                  </span>
-                </label>
-                <label className="cursor-pointer">
-                  <input
-                    suppressHydrationWarning
-                    type="radio"
-                    name="date-filter-mode"
-                    checked={dateFilterMode === "range"}
-                    onChange={() => setDateFilterMode("range")}
-                    className="sr-only"
-                  />
-                  <span
-                    className={cn(
-                      "inline-flex h-5 items-center rounded px-2 text-[11px] font-medium transition-colors",
-                      dateFilterMode === "range" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"
-                    )}
-                  >
-                    Date Range
-                  </span>
-                </label>
-              </div>
-            </div>
-          </div>
-          {dateFilterMode === "specific" || dateFilterMode === "range" ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                {dateFilterMode === "range" ? "Filter by Date Range" : "Filter by Date"}
-              </span>
-              <ClutchSelect
-                className="w-[150px]"
-                isClearable={false}
-                options={DATE_FIELD_OPTIONS}
-                value={DATE_FIELD_OPTIONS.find((o) => String(o.value) === String(dateFilterField)) ?? null}
-                onChange={(option) => setDateFilterField(option ? option.value : "vesselCutoffDate")}
-                aria-label="Select date filter field"
-              />
-              {dateFilterMode === "specific" ? (
-                <input
-                  suppressHydrationWarning
-                  className={`${inputClass} w-[160px]`}
-                  type="date"
-                  value={specificDate}
-                  onChange={(e) => setSpecificDate(e.target.value)}
-                  aria-label="Specific date"
-                />
-              ) : (
-                <div className="w-72">
-                  <CustomDateRangePicker value={dateRangeValue} onChange={handleDateRangeChange} />
-                </div>
-              )}
-            </div>
-          ) : null}
-          <StatusFilterBar
-            compact
-            label="Filter by Status"
-            statuses={PACK_STATUSES}
-            selectedStatuses={selectedStatuses}
-            onSelectedStatusesChange={setSelectedStatuses}
-          />
-        </section>
-      </div>
-
-      <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
-        <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-          <Grid
-            columns={gridColumns}
-            rows={filtered}
-            getRowId={(row) => row.id}
-            theme="light"
-            density="standard"
-            fileName="Packing Schedule"
-            visibleRows={14}
-            onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-            onRowDoubleClick={openEditForRow}
-            onPersistedRowActivate={(row) => setSelectedId(row.id)}
-            getRowClassName={({ row }) => {
-              const ie = row.import_export ?? row.importExport;
-              const rowClasses = [];
-              if (ie === "Import") rowClasses.push("clutch-row-import");
-              if (hasPendingVesselScheduleUpdate(row)) rowClasses.push("clutch-row-vessel-updated");
-              if (row.id === selectedId) rowClasses.push("clutch-row-selected");
-              return rowClasses.join(" ") || undefined;
-            }}
-            getRowStyle={({ row }) => {
-              const ie = row.import_export ?? row.importExport;
-              if (row.id === selectedId) return { backgroundColor: "#dbeafe" };
-              if (hasPendingVesselScheduleUpdate(row)) return { backgroundColor: "#fffbeb" };
-              if (ie === "Import") return { backgroundColor: "#eff6ff" };
-              return undefined;
-            }}
-            toolbarActions={
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" size="sm" variant="secondary" disabled title="Calendar view coming soon" className="h-7 px-2.5 text-[11px]">
-                  Schedule
+        <div className="mt-1.5 border-b border-slate-200 bg-white px-1 pt-1 pb-0.5">
+          <ScheduleViewTabs
+            activeTabId={activeViewTab}
+            onTabChange={applyScheduleViewTab}
+            actions={
+              <>
+                <Button type="button" size="sm" onClick={openAddPage} className="h-5 rounded px-1.5 text-[10px]">
+                  + Add
                 </Button>
-                <Button type="button" size="sm" onClick={openAddPage} className="h-7 px-2.5 text-[11px]">
-                  + Add Pack
-                </Button>
-                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={openEditPage}>
+                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-5 rounded px-1.5 text-[10px]" onClick={openEditPage}>
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-7 px-2.5 text-[11px]" onClick={() => setHistoryOpen(true)}>
+                <Button type="button" size="sm" variant="secondary" disabled={!selected} className="h-5 rounded px-1.5 text-[10px]" onClick={() => setHistoryOpen(true)}>
                   History
                 </Button>
-                <span className="ms-auto text-[11px] text-slate-500">
-                  {loading ? "Loading…" : pendingVesselUpdateCount > 0 ? `${pendingVesselUpdateCount} vessel update${pendingVesselUpdateCount === 1 ? "" : "s"} pending` : "View: All Orders"}
+                <Button type="button" size="sm" variant="secondary" className="h-5 rounded px-1.5 text-[10px]" onClick={loadRows}>
+                  Refresh
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-5 w-5 rounded p-0"
+                  onClick={() => gridRef.current?.exportCsv?.()}
+                  aria-label="Download CSV"
+                  title="Download CSV"
+                >
+                  <Download className="size-3.5" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-5 gap-1 rounded px-1.5 text-[10px]"
+                  onClick={(e) => gridRef.current?.openColumnsMenu(e.currentTarget)}
+                  aria-label="Choose columns"
+                >
+                  <Columns3 className="size-3" aria-hidden />
+                  Columns
+                </Button>
+                <span className="ps-0.5 text-[10px] text-slate-600">
+                  {loading ? "Loading…" : `${filtered.length} row${filtered.length === 1 ? "" : "s"}`}
+                  {pendingVesselUpdateCount > 0 ? ` · ${pendingVesselUpdateCount} update${pendingVesselUpdateCount === 1 ? "" : "s"}` : ""}
                 </span>
-              </div>
+              </>
             }
           />
-          {!loading && !filtered.length ? (
-            <p className="border-t border-slate-100 px-3 py-8 text-center text-xs text-slate-400">No packs match the current filters.</p>
-          ) : null}
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Grid
+              ref={gridRef}
+              columns={gridColumns}
+              rows={filtered}
+              getRowId={(row) => row.id}
+              skin="legacy"
+              className="packing-schedule-legacy-grid h-full min-h-0 flex-1"
+              theme="light"
+              enableSelection={false}
+              enableGlobalSearch={false}
+              enableSavedViews={false}
+              hideToolbar
+              fillHeight
+              enableRangeSelection={false}
+              searchValue={gridSearch}
+              onSearchChange={setGridSearch}
+              fileName="Packing Schedule"
+              visibleRows={20}
+              onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+              onRowDoubleClick={openEditForRow}
+              onPersistedRowActivate={(row) => setSelectedId(row.id)}
+              getRowClassName={({ row }) => {
+                const rowClasses = [];
+                if (hasPendingVesselScheduleUpdate(row)) rowClasses.push("clutch-row-vessel-updated");
+                if (row.id === selectedId) rowClasses.push("clutch-row-selected");
+                return rowClasses.join(" ") || undefined;
+              }}
+              getRowStyle={({ row }) => {
+                if (row.id === selectedId) return { backgroundColor: "#c8e6c9" };
+                if (hasPendingVesselScheduleUpdate(row)) {
+                  return { backgroundColor: "#fffbeb" };
+                }
+                return { backgroundColor: "#ffffff" };
+              }}
+            />
+          </div>
+          <div className="flex shrink-0 min-h-[22px] items-center border-t border-slate-200 bg-[#ececec] px-2 py-0.5 text-[10px] leading-tight text-slate-700">
+          <span className="shrink-0 pe-3 text-slate-500">v 2.0</span>
+          <span className="min-w-0 truncate">
+            {selected ? buildScheduleFooterSummary(selected) : filtered.length ? "Select a row to view details" : "No packs match the current filters"}
+          </span>
+        </div>
+        </div>
+        {!loading && !filtered.length ? (
+          <p className="border-t border-slate-200 px-3 py-4 text-center text-[11px] text-slate-500">No packs match the current filters.</p>
+        ) : null}
         </div>
 
         {selected ? (
-          <div ref={detailsRef} className="rounded-xl border border-slate-200/90 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-3 py-3">
-              <h3 className="text-sm font-semibold text-slate-900">Pack Details</h3>
+          <div ref={detailsRef} className="overflow-hidden border border-slate-200 bg-white xl:sticky xl:top-2">
+            <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+              <h3 className="text-[13px] font-semibold text-slate-800">Pack Details</h3>
             </div>
-            <div className="space-y-3 p-3 text-xs">
+            <div className="max-h-[calc(100vh-8rem)] space-y-3 overflow-y-auto p-3 text-xs">
               {hasPendingVesselScheduleUpdate(selected) ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
                   <p className="text-[11px] leading-snug">

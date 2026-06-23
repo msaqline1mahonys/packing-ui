@@ -9,6 +9,7 @@ import { PickerDay } from "@mui/x-date-pickers/PickerDay";
 import { CalendarIcon, X } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import dayjs from "dayjs";
+import { cn } from "@/lib/utils";
 import isBetween from "dayjs/plugin/isBetween";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import "react-day-picker/dist/style.css";
@@ -20,6 +21,7 @@ const CustomDateRangePicker = ({
   value = [null, null],
   onChange,
   format = "DD/MM/YYYY",
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [startDate, setStartDate] = useState(value[0]);
@@ -339,6 +341,15 @@ const CustomDateRangePicker = ({
     }
   };
 
+  const triggerClass = compact
+    ? "flex items-center h-6 px-2 bg-white border border-[#c5d5c5] rounded hover:border-[#1f4d2e]/40 transition-colors focus-within:border-[#1f4d2e]/40 focus-within:ring-1 focus-within:ring-[#1f4d2e]/15"
+    : "flex items-center h-9 px-3 bg-white border border-gray-300 rounded-sm hover:border-blue-500 transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100";
+  const inputTextClass = compact
+    ? "flex-1 text-[11px] outline-none bg-transparent text-slate-800 placeholder:text-slate-400"
+    : "flex-1 text-sm outline-none bg-transparent";
+  const iconClass = compact ? "w-3.5 h-3.5 text-slate-400 mr-1.5 cursor-pointer" : "w-4 h-4 text-gray-500 mr-2 cursor-pointer";
+  const clearIconClass = compact ? "w-3.5 h-3.5 text-slate-400 hover:text-slate-600 ml-1.5 cursor-pointer" : "w-4 h-4 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer";
+
   // Mobile view: button with calendar modal
   if (isMobile) {
     const displayText =
@@ -354,10 +365,12 @@ const CustomDateRangePicker = ({
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="flex-1 min-w-0 h-9 px-2 text-sm text-left bg-white border border-gray-300 rounded-sm hover:border-blue-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 flex items-center justify-between"
+            className={compact
+              ? "flex min-w-0 flex-1 h-6 items-center justify-between rounded border border-[#c5d5c5] bg-white px-2 text-left text-[11px] hover:border-[#1f4d2e]/40 focus:outline-none focus:border-[#1f4d2e]/40 focus:ring-1 focus:ring-[#1f4d2e]/15"
+              : "flex-1 min-w-0 h-9 px-2 text-sm text-left bg-white border border-gray-300 rounded-sm hover:border-blue-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 flex items-center justify-between"}
           >
-            <span className="truncate text-gray-700">{displayText}</span>
-            <CalendarIcon className="w-4 h-4 text-gray-500 shrink-0 ml-2" />
+            <span className={cn("truncate", compact ? "text-slate-700" : "text-gray-700")}>{displayText}</span>
+            <CalendarIcon className={compact ? "ml-1 h-3 w-3 shrink-0 text-slate-400" : "w-4 h-4 text-gray-500 shrink-0 ml-2"} />
           </button>
           {(startDate || endDate) && (
             <button
@@ -520,11 +533,11 @@ const CustomDateRangePicker = ({
       {/* Input Field */}
       <div
         ref={inputRef}
-        className="flex items-center h-9 px-3 bg-white border border-gray-300 rounded-sm hover:border-blue-500 transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"
+        className={triggerClass}
         style={{ width: "100%" }}
       >
         <CalendarIcon
-          className="w-4 h-4 text-gray-500 mr-2 cursor-pointer"
+          className={iconClass}
           onClick={() => setIsOpen(!isOpen)}
         />
         <input
@@ -533,12 +546,12 @@ const CustomDateRangePicker = ({
           onChange={handleInputChange}
           onBlur={handleInputBlur}
           onFocus={() => setIsOpen(true)}
-          placeholder="DD/MM/YYYY – DD/MM/YYYY"
-          className="flex-1 text-sm outline-none bg-transparent"
+          placeholder={compact ? "DD/MM/YY – DD/MM/YY" : "DD/MM/YYYY – DD/MM/YYYY"}
+          className={inputTextClass}
         />
         {(startDate || endDate) && (
           <X
-            className="w-4 h-4 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer"
+            className={clearIconClass}
             onClick={(e) => {
               e.stopPropagation();
               setStartDate(null);

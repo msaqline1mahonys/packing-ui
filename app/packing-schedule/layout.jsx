@@ -1,6 +1,6 @@
 export default function PackingScheduleLayout({ children }) {
   return (
-    <div className="-mx-5 w-full max-w-none space-y-6 px-2 md:-mx-9 md:px-3">
+    <div className="-mx-2 w-full max-w-none px-1 md:-mx-3 md:px-1.5">
       {children}
     </div>
   );

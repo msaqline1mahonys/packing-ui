@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { Box, Paper, ThemeProvider, createTheme, CssBaseline, IconButton, Button, Typography, Checkbox, Tooltip, CircularProgress, LinearProgress, Menu, MenuItem, ListItemText, Chip, FormControl, Select } from '@mui/material';
 import Search from '@mui/icons-material/Search';
 import Clear from '@mui/icons-material/Clear';
@@ -39,6 +39,10 @@ const DENSITIES = {
   comfortable: {
     rowHeight: 52,
     headerHeight: 56
+  },
+  legacy: {
+    rowHeight: 34,
+    headerHeight: 36
   }
 };
 
@@ -57,7 +61,7 @@ function persistKeyFromPathname(pathname) {
   return String(pathname ?? '').replace(/^\/|\/$/g, '').replace(/\//g, '-') || 'home';
 }
 
-export function Grid(props) {
+export const Grid = forwardRef(function Grid(props, ref) {
   const {
     columns,
     rows,
@@ -99,8 +103,15 @@ export function Grid(props) {
     toolbarActions,
     fileName = 'export',
     persistKey,
+    skin = 'default',
+    className,
+    hideToolbar = false,
+    searchValue: searchValueProp,
+    onSearchChange,
     /** When true, column widths grow so the grid uses the full scroll-area width (slack split evenly). */
-    fillContainerWidth = true
+    fillContainerWidth = true,
+    /** When true, the scroll body grows to fill available height and pagination stays at the bottom. */
+    fillHeight = false
   } = props;
   const pathname = usePathname();
   const effectivePersistKey = useMemo(() => {
@@ -121,7 +132,9 @@ export function Grid(props) {
       .replace(/^-|-$/g, '');
     return `clutch-grid-${slug || 'default'}`;
   }, [effectivePersistKey, fileName]);
-  const dimensions = DENSITIES[density];
+  const isLegacySkin = skin === 'legacy';
+  const effectiveDensity = isLegacySkin ? 'legacy' : density;
+  const dimensions = DENSITIES[effectiveDensity] ?? DENSITIES.standard;
   const effectiveRowHeight = rowHeight ?? dimensions.rowHeight;
   const effectiveHeaderHeight = headerHeight ?? dimensions.headerHeight;
   const effectiveMaxBodyHeight = maxBodyHeight ?? effectiveHeaderHeight + Math.max(1, visibleRows) * effectiveRowHeight;
@@ -176,13 +189,23 @@ export function Grid(props) {
     if (!appliedServerColumnStateRef.current) return;
     saveColumnStateToServer(colStates);
   }, [colStates, saveColumnStateToServer]);
-  const [globalSearch, setGlobalSearch] = useState('');
-  useEffect(() => {
-    setSessionSearch(effectivePersistKey, globalSearch);
-  }, [effectivePersistKey, globalSearch]);
+  const [internalGlobalSearch, setInternalGlobalSearch] = useState('');
+  const isSearchControlled = searchValueProp !== undefined;
   const [sortModel, setSortModel] = useState([]);
   const [filters, setFilters] = useState({});
   const [page, setPage] = useState(0);
+  const globalSearch = isSearchControlled ? (searchValueProp ?? '') : internalGlobalSearch;
+  const updateGlobalSearch = useCallback((next, { resetPage = true } = {}) => {
+    if (isSearchControlled) {
+      onSearchChange?.(next);
+    } else {
+      setInternalGlobalSearch(next);
+    }
+    if (resetPage) setPage(0);
+  }, [isSearchControlled, onSearchChange]);
+  useEffect(() => {
+    setSessionSearch(effectivePersistKey, globalSearch);
+  }, [effectivePersistKey, globalSearch]);
   const [internalPageSize, setInternalPageSize] = useState(pageSize);
   const [lastInteractedRowId, setLastInteractedRowId] = useState(null);
   useLayoutEffect(() => {
@@ -191,8 +214,8 @@ export function Grid(props) {
     setLegacySnapshot(persisted);
     if (!persisted) return;
     const sessionSearch = getSessionSearch(effectivePersistKey);
-    if (sessionSearch) setGlobalSearch(sessionSearch);
-    else if (persisted.globalSearch) setGlobalSearch(persisted.globalSearch);
+    if (sessionSearch) updateGlobalSearch(sessionSearch, { resetPage: false });
+    else if (persisted.globalSearch) updateGlobalSearch(persisted.globalSearch, { resetPage: false });
     if (Array.isArray(persisted.sortModel) && persisted.sortModel.length > 0) {
       setSortModel(persisted.sortModel);
     }
@@ -1051,6 +1074,12 @@ export function Grid(props) {
     const csv = rowsToCsv(validCols, processed);
     downloadCsv(fileName, csv);
   }, [validCols, processed, fileName]);
+  useImperativeHandle(ref, () => ({
+    openColumnsMenu: (anchorEl) => setColumnsMenuAnchor(anchorEl),
+    closeColumnsMenu: () => setColumnsMenuAnchor(null),
+    resetPage: () => setPage(0),
+    exportCsv: () => handleCsvExport(),
+  }), [handleCsvExport]);
   const rangeStats = useMemo(() => {
     if (liveSelection.size === 0) return null;
     let sum = 0;
@@ -1227,7 +1256,7 @@ export function Grid(props) {
   const viewsRef = useRef(views);
   useEffect(() => { viewsRef.current = views; }, [views]);
   const applySnapshot = useCallback(snap => {
-    setGlobalSearch(snap.globalSearch ?? '');
+    updateGlobalSearch(snap.globalSearch ?? '', { resetPage: false });
     setSortModel(snap.sortModel ?? []);
     setFilters(snap.filters ?? {});
     setPage(typeof snap.page === 'number' ? snap.page : 0);
@@ -1251,25 +1280,35 @@ export function Grid(props) {
         }
       }
     });
-  }, [applyColumnState, enableVirtualization, virtualizer, pageSize]);
+  }, [applyColumnState, enableVirtualization, virtualizer, pageSize, updateGlobalSearch]);
   return <ThemeProvider theme={muiTheme}>
       <CssBaseline />
-      <Paper elevation={0} variant="outlined" sx={{
+      <Paper elevation={0} variant="outlined" className={className} sx={{
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
-      borderRadius: 2,
+      borderRadius: isLegacySkin ? 0 : 2,
       fontFamily: t => t.typography.fontFamily,
-      bgcolor: 'background.paper'
+      bgcolor: 'background.paper',
+      ...(fillHeight && {
+        flex: 1,
+        minHeight: 0,
+        height: '100%',
+      }),
+      ...(isLegacySkin && {
+        border: '1px solid #e2e8f0',
+        borderRadius: 0,
+      }),
     }}>
         <Box sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        p: 1.25,
+        p: isLegacySkin ? 0.75 : 1.25,
         borderBottom: '1px solid',
         borderColor: 'divider',
-        flexWrap: 'wrap'
+        flexWrap: 'wrap',
+        ...(hideToolbar && { display: 'none' }),
       }}>
           {enableGlobalSearch && <Box sx={{
           minWidth: 240,
@@ -1285,8 +1324,7 @@ export function Grid(props) {
         }}>
               <Search fontSize="small" color="action" />
               <Box component="input" type="text" placeholder="Search..." value={globalSearch} suppressHydrationWarning onChange={e => {
-            setGlobalSearch(e.target.value);
-            setPage(0);
+            updateGlobalSearch(e.target.value);
           }} sx={{
             flex: 1,
             minWidth: 0,
@@ -1301,7 +1339,7 @@ export function Grid(props) {
               opacity: 1
             }
           }} />
-              {globalSearch ? <IconButton size="small" onClick={() => setGlobalSearch('')}>
+              {globalSearch ? <IconButton size="small" onClick={() => updateGlobalSearch('')}>
                   <Clear fontSize="small" />
                 </IconButton> : null}
             </Box>}
@@ -1372,9 +1410,14 @@ export function Grid(props) {
         <Box ref={attachScrollContainer} sx={{
         position: 'relative',
         overflow: 'auto',
-        maxHeight: effectiveMaxBodyHeight,
-        minHeight: 160,
-        outline: 'none'
+        outline: 'none',
+        ...(fillHeight ? {
+          flex: 1,
+          minHeight: 0,
+        } : {
+          maxHeight: effectiveMaxBodyHeight,
+          minHeight: 160,
+        }),
       }} tabIndex={focusedCell ? -1 : 0} onFocus={e => {
         // Tab into the grid: move focus to the first cell (or last focused cell)
         if (e.target !== e.currentTarget) return;
@@ -1392,14 +1435,14 @@ export function Grid(props) {
         }}>
             <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleColumns.filter(c => c.state.pin == null).map(c => c.def.key)} strategy={horizontalListSortingStrategy}>
-                <Box role="row" sx={{
+                <Box role="row" className={isLegacySkin ? 'dg-legacy-header-row' : undefined} sx={{
                 display: 'flex',
                 height: effectiveHeaderHeight,
                 position: 'sticky',
                 top: 0,
                 zIndex: 4,
-                bgcolor: 'background.paper',
-                borderBottom: '2px solid',
+                bgcolor: isLegacySkin ? '#1f4d2e' : 'background.paper',
+                borderBottom: isLegacySkin ? 'none' : '2px solid',
                 borderColor: 'divider'
               }}>
                   {enableSelection && <Box sx={{
@@ -1425,7 +1468,7 @@ export function Grid(props) {
                   const sortItem = sortModel.find(s => s.key === col.def.key);
                   const sortIdx = sortModel.findIndex(s => s.key === col.def.key);
                   const hasFilter = Boolean(filters[col.def.key]);
-                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={(leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
+                  return <HeaderCell key={col.def.key} column={col.def} width={columnWidthByKey.get(col.def.key) ?? col.state.width} pin={col.state.pin} pinLeftOffset={(leftPinOffsets.get(col.def.key) ?? 0) + (enableSelection && col.state.pin === 'left' ? 42 : 0)} pinRightOffset={rightPinOffsets.get(col.def.key) ?? 0} sortIndex={sortIdx} sortDir={sortItem?.dir ?? null} hasFilter={hasFilter} showColumnMenu={enableColumnMenu} enableColumnFilters={enableColumnFilters} hideActionsUntilHover={isLegacySkin} isDraggable={col.def.reorderable !== false} onSortClick={e => cycleSort(col.def.key, e.shiftKey)} onFilterClick={e => {
                     e.stopPropagation();
                     setActiveColumnKey(col.def.key);
                     setFilterAnchor(e.currentTarget);
@@ -1501,21 +1544,25 @@ export function Grid(props) {
                 height: effectiveRowHeight,
                 transform: `translateY(${vi.start}px)`,
                 bgcolor: stickyRowBg,
-                borderBottom: '1px solid',
-                borderColor: 'divider',
+                borderBottom: isLegacySkin ? 'none' : '1px solid',
+                borderColor: isLegacySkin ? '#cbd5e1' : 'divider',
                 cursor: enableSelection || onRowClick || onRowDoubleClick || getRowHref ? 'pointer' : 'default',
                 outline: 'none',
-                '&:hover': {
-                  bgcolor: theme => rowBackgroundColor ?? (isSelected ? theme.palette.action.selected : theme.palette.action.hover),
-                  '& .dg-sticky-cell': {
+                ...(!isLegacySkin && {
+                  '&:hover': {
                     bgcolor: theme => rowBackgroundColor ?? (isSelected ? theme.palette.action.selected : theme.palette.action.hover),
+                    '& .dg-sticky-cell': {
+                      bgcolor: theme => rowBackgroundColor ?? (isSelected ? theme.palette.action.selected : theme.palette.action.hover),
+                    },
                   },
-                },
-                '&:focus-visible': {
-                  outline: '2px solid',
-                  outlineColor: 'primary.main',
-                  outlineOffset: '-2px'
-                }
+                }),
+                ...(!isLegacySkin && {
+                  '&:focus-visible': {
+                    outline: '2px solid',
+                    outlineColor: 'primary.main',
+                    outlineOffset: '-2px'
+                  }
+                })
               }}>
                       {enableSelection && <Box className={['dg-sticky-cell', 'dg-selection-cell', rowClass].filter(Boolean).join(' ') || undefined} sx={{
                   width: 42,
@@ -1629,10 +1676,11 @@ export function Grid(props) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-                    px: 1,
-                    fontSize: '0.85rem',
-                    borderRight: '1px solid',
-                    borderColor: 'divider',
+                    px: isLegacySkin ? 0.75 : 1,
+                    fontSize: isLegacySkin ? '11px' : '0.85rem',
+                    borderRight: isLegacySkin ? 'none' : '1px solid',
+                    borderBottom: isLegacySkin ? '1px solid' : 'none',
+                    borderColor: isLegacySkin ? '#cbd5e1' : 'divider',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -1640,13 +1688,13 @@ export function Grid(props) {
                     outline: 'none',
                     ...(pin && { bgcolor: stickyRowBg }),
                     ...stickyStyles,
-                    ...(inRange && {
+                    ...(!isLegacySkin && inRange && {
                       bgcolor: t => t.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.24)' : 'rgba(25, 118, 210, 0.12)',
                       outline: t => `1px solid ${t.palette.primary.main}`,
                       outlineOffset: '-1px',
                       zIndex: 1
                     }),
-                    ...(isFocused && {
+                    ...(!isLegacySkin && isFocused && {
                       outline: t => `2px solid ${t.palette.primary.main}`,
                       outlineOffset: '-2px',
                       zIndex: 3
@@ -1767,7 +1815,7 @@ export function Grid(props) {
             <Button size="small" onClick={clearRange}>Clear range</Button>
           </Box>}
 
-        <Box sx={{
+        <Box className="dg-grid-footer" sx={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -1775,7 +1823,8 @@ export function Grid(props) {
         borderTop: '1px solid',
         borderColor: 'divider',
         gap: 1,
-        flexWrap: 'wrap'
+        flexWrap: 'wrap',
+        flexShrink: 0,
       }}>
           <Box sx={{
           display: 'flex',
@@ -1849,5 +1898,5 @@ export function Grid(props) {
       setPin(activeColumnKey, pin);
     }} />
     </ThemeProvider>;
-}
+});
 export default Grid;

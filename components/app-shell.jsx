@@ -29,7 +29,7 @@ function MainPanel({ children, compactTop = false, contentKey = 0 }) {
     <main
       className={cn(
         "relative min-h-dvh min-w-0 flex-1 overflow-x-hidden",
-        compactTop ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3" : "p-6 md:p-10"
+        compactTop ? "px-2 pb-3 pt-1.5 md:px-3 md:pb-4 md:pt-2" : "p-6 md:p-10"
       )}
     >
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
@@ -46,7 +46,7 @@ function AppShellInner({ children }) {
   const router = useRouter();
   const authUser = useAuthNavUser();
   const { dock, isVertical, verticalExpanded } = useNavDock();
-  const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
+  const compactMainTop = pathname.startsWith("/packing-schedule");
   const [contentKey, setContentKey] = useState(0);
 
   useEffect(() => {

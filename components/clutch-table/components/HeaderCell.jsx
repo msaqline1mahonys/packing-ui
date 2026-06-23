@@ -14,6 +14,7 @@ import { CSS } from '@dnd-kit/utilities'
 export function HeaderCell({
   column, width, pin, pinLeftOffset, pinRightOffset,
   sortIndex, sortDir, hasFilter, showColumnMenu, enableColumnFilters,
+  hideActionsUntilHover = false,
   onSortClick, onFilterClick, onMenuClick, onResizeStart, isDraggable,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
@@ -28,6 +29,10 @@ export function HeaderCell({
   const filterable = enableColumnFilters && column.filterable !== false
   const align = column.align ?? (column.type === 'number' ? 'right' : 'left')
   const showDragHandle = isDraggable && pin == null
+  const showHoverActions = !hideActionsUntilHover || isHovered || isDragging
+  const showFilterAction = filterable && (showHoverActions || hasFilter)
+  const showMenuAction = showColumnMenu && showHoverActions
+  const showSortIndicator = sortDir && showHoverActions
 
   const handleClick = useCallback((e) => {
     if (!sortable) return
@@ -71,17 +76,18 @@ export function HeaderCell({
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
       sx={{
-        boxSizing: 'border-box', display: 'flex', alignItems: 'flex-start',
+        boxSizing: 'border-box', display: 'flex', alignItems: hideActionsUntilHover ? 'center' : 'flex-start',
         justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-        gap: 0.5, px: 1, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
+        gap: hideActionsUntilHover ? 0 : 0.5, px: hideActionsUntilHover ? 0.75 : 1, py: hideActionsUntilHover ? 0.25 : 0.75,
+        fontWeight: 600, fontSize: hideActionsUntilHover ? '11px' : '0.82rem',
         color: 'text.primary', bgcolor: pin ? 'background.paper' : 'transparent',
         borderRight: '1px solid', borderColor: 'divider', userSelect: 'none',
         position: stickyStyles.position ?? 'relative',
-        '&:hover': { bgcolor: 'action.hover' },
+        '&:hover': { bgcolor: hideActionsUntilHover ? undefined : 'action.hover' },
       }}
       {...dragAttributes}
     >
-      {showDragHandle && (
+      {showDragHandle && showHoverActions && (
         <Box
           className="dg-drag-handle"
           {...listeners}
@@ -90,7 +96,7 @@ export function HeaderCell({
             alignItems: 'center',
             flexShrink: 0,
             mt: 0.125,
-            opacity: isHovered || isDragging ? 0.7 : 0.25,
+            opacity: isDragging ? 0.85 : 0.7,
             cursor: isDragging ? 'grabbing' : 'grab',
             color: 'text.secondary',
             transition: 'opacity 120ms',
@@ -116,8 +122,8 @@ export function HeaderCell({
         {column.header}
       </Box>
 
-      {sortDir && (
-        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, flexShrink: 0, mt: 0.125 }}>
+      {showSortIndicator && (
+        <Box className="dg-sort-indicator" component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, flexShrink: 0, mt: 0.125 }}>
           {sortDir === 'asc' ? (
             <ArrowUpward sx={{ fontSize: 14, color: 'primary.main' }} />
           ) : (
@@ -131,10 +137,10 @@ export function HeaderCell({
         </Box>
       )}
 
-      {filterable && (
+      {showFilterAction && (
         <Tooltip title={hasFilter ? 'Filter active' : 'Filter column'}>
           <IconButton className="dg-header-action" size="small" onClick={onFilterClick}
-            sx={{ p: 0.25, flexShrink: 0, opacity: hasFilter || isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
+            sx={{ p: 0.25, flexShrink: 0, opacity: 1, transition: 'opacity 120ms' }}>
             {hasFilter ? (
               <FilterAlt sx={{ fontSize: 16, color: 'primary.main' }} />
             ) : (
@@ -144,9 +150,9 @@ export function HeaderCell({
         </Tooltip>
       )}
 
-      {showColumnMenu && (
+      {showMenuAction && (
         <IconButton className="dg-header-action" size="small" onClick={onMenuClick}
-          sx={{ p: 0.25, flexShrink: 0, opacity: isHovered ? 1 : 0, transition: 'opacity 120ms' }}>
+          sx={{ p: 0.25, flexShrink: 0, opacity: 1, transition: 'opacity 120ms' }}>
           <MoreVert sx={{ fontSize: 16 }} />
         </IconButton>
       )}
@@ -166,7 +172,7 @@ export function HeaderCell({
               right: 4,
               width: 2,
               borderRadius: 1,
-              bgcolor: 'divider',
+              bgcolor: hideActionsUntilHover && !showHoverActions ? 'transparent' : 'divider',
             },
             '&:hover::after': { bgcolor: 'primary.main', opacity: 0.8 },
           }}

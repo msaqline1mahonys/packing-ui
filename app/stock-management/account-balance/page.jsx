@@ -95,6 +95,49 @@ function mapBalanceRow(row) {
 
 const qtyColor = (q) => (q < 0 ? "text-red-600" : "text-emerald-600");
 
+function aggregateNegativeTotals(rows, getKey, getName) {
+  const map = new Map();
+  rows.forEach((r) => {
+    const key = getKey(r);
+    if (!map.has(key)) map.set(key, { key, name: getName(r), quantity: 0 });
+    map.get(key).quantity += r.quantity;
+  });
+  return Array.from(map.values())
+    .filter((item) => item.quantity < -0.001)
+    .sort((a, b) => a.quantity - b.quantity);
+}
+
+function NegativeBalanceCard({ title, items, emptyLabel = "None in deficit" }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-[11px] font-semibold text-slate-500">
+        {title}
+        {items.length > 0 ? (
+          <span className="ml-1.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+            {items.length}
+          </span>
+        ) : null}
+      </p>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-emerald-600">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-2 max-h-36 space-y-1.5 overflow-y-auto [scrollbar-width:thin]">
+          {items.map((item) => (
+            <li key={item.key} className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate font-medium text-slate-900" title={item.name}>
+                {item.name}
+              </span>
+              <span className={cn("shrink-0 tabular-nums font-semibold", qtyColor(item.quantity))}>
+                {item.quantity.toFixed(3)} MT
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function AccountBalancePage() {
   const [stockRows, setStockRows] = useState([]);
   const [shrinkAccounts, setShrinkAccounts] = useState([]);
@@ -106,7 +149,8 @@ export default function AccountBalancePage() {
   const [filterCommodity, setFilterCommodity] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
   const [commodityTypeOptions, setCommodityTypeOptions] = useState([]);
-  const [showSystemAccounts, setShowSystemAccounts] = useState(false);
+  const [showShrinkAccount, setShowShrinkAccount] = useState(true);
+  const [showWriteOffAccount, setShowWriteOffAccount] = useState(false);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
   const [activeTab, setActiveTab] = useState("byAccount");
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -119,7 +163,8 @@ export default function AccountBalancePage() {
     setError("");
     try {
       const data = await fetchAccountBalances({
-        excludeSystemAccounts: !showSystemAccounts,
+        excludeShrinkAccounts: !showShrinkAccount,
+        excludeWriteOffAccounts: !showWriteOffAccount,
         ...(filterAccount ? { accountId: filterAccount } : {}),
       });
       setStockRows(data.map(mapBalanceRow));
@@ -129,11 +174,21 @@ export default function AccountBalancePage() {
     } finally {
       setLoading(false);
     }
-  }, [showSystemAccounts, filterAccount]);
+  }, [showShrinkAccount, showWriteOffAccount, filterAccount]);
 
   useEffect(() => {
     loadBalances();
   }, [loadBalances]);
+
+  useEffect(() => {
+    if (!filterAccount) return;
+    if (!showShrinkAccount && shrinkAccounts.some((a) => a.key === filterAccount)) {
+      setFilterAccount("");
+    }
+    if (!showWriteOffAccount && writeOffAccounts.some((a) => a.key === filterAccount)) {
+      setFilterAccount("");
+    }
+  }, [showShrinkAccount, showWriteOffAccount, filterAccount, shrinkAccounts, writeOffAccounts]);
 
   useEffect(() => {
     fetchShrinkAccounts()
@@ -162,13 +217,13 @@ export default function AccountBalancePage() {
     // Always surface the Shrinkage account so its balance can be viewed even
     // before any shrink transactions appear in the balance data.
     shrinkAccounts.forEach((a) => {
-      if (!map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
+      if (showShrinkAccount && !map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
     });
     writeOffAccounts.forEach((a) => {
-      if (!map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
+      if (showWriteOffAccount && !map.has(a.key)) map.set(a.key, { key: a.key, name: a.name });
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [stockRows, shrinkAccounts, writeOffAccounts]);
+  }, [stockRows, shrinkAccounts, writeOffAccounts, showShrinkAccount, showWriteOffAccount]);
   const commodities = useMemo(() => {
     const map = new Map();
     stockRows.forEach((r) => {
@@ -195,17 +250,35 @@ export default function AccountBalancePage() {
     });
   }, [stockRows, showZeroBalances, filterAccount, filterCommodityType, filterCommodity, filterLocation]);
 
-  const summaryCards = useMemo(() => {
-    const totalStock = flattenedStock.reduce((s, r) => s + r.quantity, 0);
-    const accountCount = new Set(flattenedStock.map((r) => r.accountKey)).size;
+  const negativeAccounts = useMemo(
+    () => aggregateNegativeTotals(flattenedStock, (r) => r.accountKey, (r) => r.accountName),
+    [flattenedStock]
+  );
+
+  const negativeCommodities = useMemo(
+    () => aggregateNegativeTotals(flattenedStock, (r) => r.commodityId, (r) => r.commodityName),
+    [flattenedStock]
+  );
+
+  const topCommodityByVolume = useMemo(() => {
     const commTotals = {};
-    flattenedStock.forEach((r) => { commTotals[r.commodityName] = (commTotals[r.commodityName] || 0) + r.quantity; });
+    flattenedStock.forEach((r) => {
+      commTotals[r.commodityName] = (commTotals[r.commodityName] || 0) + r.quantity;
+    });
     const topComm = Object.entries(commTotals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
-    return { totalStock, accountCount, topCommodity: topComm ? topComm[0] : "-" };
+    return topComm ? topComm[0] : "—";
   }, [flattenedStock]);
 
   const hasActiveFilters =
-    Boolean(filterAccount || filterCommodityType || filterCommodity || filterLocation || showZeroBalances || showSystemAccounts);
+    Boolean(
+      filterAccount
+      || filterCommodityType
+      || filterCommodity
+      || filterLocation
+      || showZeroBalances
+      || !showShrinkAccount
+      || showWriteOffAccount
+    );
 
   const clearFilters = () => {
     setFilterAccount("");
@@ -213,7 +286,8 @@ export default function AccountBalancePage() {
     setFilterCommodity("");
     setFilterLocation("");
     setShowZeroBalances(false);
-    setShowSystemAccounts(false);
+    setShowShrinkAccount(true);
+    setShowWriteOffAccount(false);
   };
 
   const filterInsights = useMemo(() => {
@@ -479,14 +553,8 @@ export default function AccountBalancePage() {
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-semibold text-slate-500">Total Stock</p>
-          <p className={cn("mt-1 text-xl font-bold", qtyColor(summaryCards.totalStock))}>{summaryCards.totalStock.toFixed(2)} MT</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-semibold text-slate-500">Accounts with Stock</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{summaryCards.accountCount}</p>
-        </div>
+        <NegativeBalanceCard title="Accounts in Deficit" items={negativeAccounts} />
+        <NegativeBalanceCard title="Commodity Grades in Deficit" items={negativeCommodities} />
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           {filterInsights ? (
             <>
@@ -506,7 +574,7 @@ export default function AccountBalancePage() {
           ) : (
             <>
               <p className="text-[11px] font-semibold text-slate-500">Top Commodity Grade by Volume</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{summaryCards.topCommodity}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{topCommodityByVolume}</p>
             </>
           )}
         </div>
@@ -567,8 +635,12 @@ export default function AccountBalancePage() {
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <input suppressHydrationWarning type="checkbox" checked={showSystemAccounts} onChange={(e) => setShowSystemAccounts(e.target.checked)} />
-            Include system accounts (Shrink / Write-Off)
+            <input suppressHydrationWarning type="checkbox" checked={showShrinkAccount} onChange={(e) => setShowShrinkAccount(e.target.checked)} />
+            Include Shrink
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input suppressHydrationWarning type="checkbox" checked={showWriteOffAccount} onChange={(e) => setShowWriteOffAccount(e.target.checked)} />
+            Include Write-Off
           </label>
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input suppressHydrationWarning type="checkbox" checked={showZeroBalances} onChange={(e) => setShowZeroBalances(e.target.checked)} />

@@ -622,8 +622,14 @@ export default function ContainerFormSections({
             value={getValue(container, names, "outLoaded", "No")}
             options={yesNoOptions}
             onChange={(value) => setField("outLoaded", value)}
-            disabled={sealRequiredForSignoff}
-            hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
+            disabled={sealRequiredForSignoff || (!isImportPack && emptyFailed)}
+            hint={
+              !isImportPack && emptyFailed
+                ? "EC failed — cannot pack out this container"
+                : sealRequiredForSignoff
+                  ? "Enter a seal number first"
+                  : ""
+            }
           />
           {!isImportPack ? (
             <>
@@ -636,7 +642,7 @@ export default function ContainerFormSections({
           <Button type="button" variant="secondary" size="sm" onClick={onResetContainer}>
             Reset container
           </Button>
-          <Button type="button" size="sm" onClick={onMarkPacked}>
+          <Button type="button" size="sm" onClick={onMarkPacked} disabled={!isImportPack && emptyFailed}>
             {isImportPack ? "Mark in-loaded" : "Mark packed"}
           </Button>
           {!isImportPack ? (

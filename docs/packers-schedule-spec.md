@@ -247,11 +247,18 @@ These are used for queue badges, save payloads, and PEMs/PRA integration. Backen
 
 | Stage | Condition |
 |-------|-----------|
+| **EC Failed** | `emptyInspection === "Failed"` — terminal; cannot out-load; may have a linked replacement |
 | **Complete** | PRA accepted **and** all mandatory checks done |
 | **PRA Passed** | PRA accepted, checks incomplete |
 | **PRA Failed** | PRA rejected or error |
 | **PRA Submitted** | `praSubmitted === true`, awaiting result |
-| **Packing** | Default — details still being entered |
+| **Packing** | On site and packing workflow started (seal/signoff/weights/inspection activity) |
+| **On Site** | `onSite === true`, packing workflow not yet started |
+| **Off Site** | `onSite === false`, packing workflow not yet started |
+
+**Draft** is a display overlay when stage would be Packing and `status === "draft"`.
+
+EC-failed containers remain on the job. Use `POST /api/packing/packs/{packId}/containers/{containerId}/replacement` to append a replacement slot linked via `replaces_container_id` / `replaced_by_container_id`. `containers_required` is unchanged — the job still needs that many successful pack-outs.
 
 Mandatory checks for **Complete** (also shown as missing-checks banner on the form):
 
@@ -301,6 +308,9 @@ The API accepts **snake_case** and **camelCase** (see `PackController`). Recomme
 | `inspectionRemarkCode` | `inspection_remark_code` |
 | `aoInspectionRemark` | `ao_inspection_remark` |
 | `aoSignoff` | `ao_signoff` |
+| `onSite` | `on_site` |
+| `replacesContainerId` | `replaces_container_id` |
+| `replacedByContainerId` | `replaced_by_container_id` |
 | `packerNotes` | `packer_notes` |
 | `ecrSubmitted` | `ecr_submitted` |
 
@@ -313,6 +323,8 @@ Conversion when saving from pack detail: `packContainerFromWorkContainer()` in `
 | List Inprogress packs | GET | `/api/packing/packs?status[]=Inprogress` |
 | Load single pack | GET | `/api/packing/packs/{id}` |
 | Save pack + containers | PUT | `/api/packing/packs/{id}` |
+| Patch single container | PATCH | `/api/packing/packs/{id}/containers/{containerId}` |
+| Create EC replacement slot | POST | `/api/packing/packs/{id}/containers/{containerId}/replacement` |
 | Lookups (packers, parks, transporters, …) | GET | `/api/packing/packs/form-data` |
 
 > The PEMS submission endpoints (`/api/pems/*`) are **not** listed here — see addendum §15. Auth/tenant headers are covered in addendum §13.

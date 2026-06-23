@@ -1,176 +1,141 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink } from "lucide-react";
 
+import { Grid } from "@/components/clutch-table";
+import { updateContainer } from "@/lib/api/packing";
 import { isUuid } from "@/lib/pack-schedule-api";
-import { containerStage } from "@/lib/packers-work-store";
-import { stageBadgeClass } from "@/lib/packing-container-ui";
+import {
+  buildContainerGridColumns,
+  decoratePackScopedContainerRow,
+  displayContainerStage,
+  hasCollectedContainerRow,
+} from "@/lib/packing-containers-grid";
 import { cn } from "@/lib/utils";
 
-function formatWeight(value) {
-  if (value == null || value === "") return "";
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(3) : String(value);
-}
-
-function displayStage(container, isImport) {
-  const stage = containerStage(container, isImport);
-  if (stage === "Packing" && String(container.status || "").toLowerCase() === "draft") return "Draft";
-  return stage;
-}
-
-function hasCollectionRow(container) {
-  const number = String(container.containerNumber ?? container.containerNo ?? "").trim();
-  if (number) return true;
-  const release = String(container.releaseNumber ?? "").trim();
-  const parkId = container.emptyContainerParkId ?? container.empty_container_park_id;
-  const transporterId = container.transporterId ?? container.transporter_id;
-  return Boolean(release && parkId && transporterId);
-}
-
-function resolveParkName(container, containerParkOptions) {
-  const fromField = String(container.releasePark ?? container.emptyContainerParkName ?? "").trim();
-  if (fromField) return fromField;
-  const parkId = container.emptyContainerParkId ?? container.empty_container_park_id;
-  if (!parkId) return "";
-  return containerParkOptions.find((p) => String(p.id) === String(parkId))?.name ?? "";
-}
-
-function resolveTransporterName(container, transporterOptions) {
-  const fromField = String(container.transporter ?? container.transporterName ?? "").trim();
-  if (fromField) return fromField;
-  const transporterId = container.transporterId ?? container.transporter_id;
-  if (!transporterId) return "";
-  return transporterOptions.find((t) => String(t.id) === String(transporterId))?.name ?? "";
-}
-
 /**
- * Pack-scoped container breakdown (release / park / transporter) with navigation to packers schedule.
+ * Pack-scoped slice of the packing schedule containers grid (same Grid + columns as /packing-schedule/containers).
  */
 export default function PackCollectedContainersTable({
   containers = [],
+  pack = {},
   packId = null,
-  isImport = false,
   containerParkOptions = [],
   transporterOptions = [],
+  onContainerUpdated,
   className,
 }) {
   const router = useRouter();
-  const canOpenPackers = Boolean(packId && isUuid(packId));
+  const resolvedPackId = packId ?? pack.id ?? null;
+  const canOpenPackers = Boolean(resolvedPackId && isUuid(resolvedPackId));
+  const [savingSiteStageId, setSavingSiteStageId] = useState(null);
+  const [localPatches, setLocalPatches] = useState({});
 
   const rows = useMemo(() => {
     return containers
-      .filter(hasCollectionRow)
+      .filter(hasCollectedContainerRow)
       .map((container) => {
-        const containerNumber = String(container.containerNumber ?? container.containerNo ?? "").trim();
-        return {
-          id: container.id,
-          order: container.order,
-          containerNumber: containerNumber || `Slot ${container.order ?? "—"}`,
-          releaseNumber: container.releaseNumber ?? "",
-          emptyPark: resolveParkName(container, containerParkOptions),
-          transporter: resolveTransporterName(container, transporterOptions),
-          isoCode: container.containerIsoCode ?? container.isoCode ?? "",
-          stage: displayStage(container, isImport),
-          emptyInspection: container.emptyInspection ?? "",
-          nettWeight: formatWeight(container.nettWeight),
-          hasNumber: Boolean(containerNumber),
-        };
+        const decorated = decoratePackScopedContainerRow(container, {
+          pack: { ...pack, id: resolvedPackId },
+          containerParkOptions,
+          transporterOptions,
+        });
+        const patch = localPatches[decorated.id];
+        return patch ? { ...decorated, ...patch } : decorated;
       })
       .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
-  }, [containers, containerParkOptions, transporterOptions, isImport]);
+  }, [containers, pack, resolvedPackId, containerParkOptions, transporterOptions, localPatches]);
 
-  if (!rows.length) return null;
+  const toggleSiteStage = useCallback(
+    async (row) => {
+      if (!row?.id || !resolvedPackId || savingSiteStageId) return;
+      const stage = displayContainerStage(row);
+      if (stage !== "Off Site" && stage !== "On Site") return;
+      const next = stage === "Off Site";
+      setSavingSiteStageId(row.id);
+      setLocalPatches((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), onSite: next } }));
+      try {
+        await updateContainer(resolvedPackId, row.id, { onSite: next });
+        onContainerUpdated?.(row.id, { onSite: next });
+      } catch (err) {
+        setLocalPatches((prev) => {
+          const current = prev[row.id];
+          if (!current) return prev;
+          const nextPatches = { ...prev, [row.id]: { ...current, onSite: !next } };
+          if (nextPatches[row.id].onSite === row.onSite) {
+            const { [row.id]: _, ...rest } = nextPatches;
+            return rest;
+          }
+          return nextPatches;
+        });
+        window.alert(err?.message || "Failed to update container stage.");
+      } finally {
+        setSavingSiteStageId(null);
+      }
+    },
+    [resolvedPackId, savingSiteStageId, onContainerUpdated],
+  );
 
-  function openPackers(containerId) {
-    if (!canOpenPackers || !containerId || !isUuid(containerId)) return;
-    router.push(`/packers-schedule/${packId}?container=${encodeURIComponent(containerId)}`);
+  const gridColumns = useMemo(
+    () =>
+      buildContainerGridColumns({
+        onToggleSiteStage: resolvedPackId && isUuid(resolvedPackId) ? toggleSiteStage : null,
+        savingSiteStageId,
+      }),
+    [toggleSiteStage, savingSiteStageId, resolvedPackId],
+  );
+
+  const openPackers = useCallback(
+    (row) => {
+      if (!canOpenPackers || !row?.id || !isUuid(row.id)) return;
+      router.push(`/packers-schedule/${resolvedPackId}?container=${encodeURIComponent(row.id)}`);
+    },
+    [canOpenPackers, resolvedPackId, router],
+  );
+
+  if (!rows.length) {
+    return (
+      <section
+        className={cn("min-w-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm", className)}
+        aria-label="Collected containers"
+      >
+        <p className="px-3 py-8 text-center text-xs text-slate-400">No containers collected yet.</p>
+      </section>
+    );
   }
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          Collected containers ({rows.length})
-        </p>
-        {canOpenPackers ? (
-          <p className="text-[10px] text-slate-500">Select a row to open in Packers Schedule</p>
-        ) : null}
+    <section className={cn("min-w-0", className)} aria-label="Collected containers">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <Grid
+          columns={gridColumns}
+          rows={rows}
+          getRowId={(row) => row.id}
+          theme="light"
+          density="standard"
+          fileName="Packing Schedule Containers"
+          visibleRows={Math.min(Math.max(rows.length, 5), 14)}
+          persistKey={resolvedPackId ? `pack-form-containers-${resolvedPackId}` : false}
+          onRowClick={canOpenPackers ? openPackers : undefined}
+          getRowClassName={({ row }) => {
+            const rowClasses = [];
+            if (row.importExport === "Import") rowClasses.push("clutch-row-import");
+            if (canOpenPackers) rowClasses.push("cursor-pointer");
+            return rowClasses.join(" ") || undefined;
+          }}
+          getRowStyle={({ row }) => {
+            if (row.importExport === "Import") return { backgroundColor: "#eff6ff" };
+            return undefined;
+          }}
+          toolbarActions={
+            <span className="ms-auto text-[11px] text-slate-500">
+              {rows.length} container{rows.length === 1 ? "" : "s"}
+              {canOpenPackers ? " · click row to open Packers Schedule" : ""}
+            </span>
+          }
+        />
       </div>
-
-      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-        <table className="w-full min-w-[720px] text-left text-[11px]">
-          <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-2 py-1.5">#</th>
-              <th className="px-2 py-1.5">Container</th>
-              <th className="px-2 py-1.5">Release</th>
-              <th className="px-2 py-1.5">Empty park</th>
-              <th className="px-2 py-1.5">Transporter</th>
-              <th className="px-2 py-1.5">ISO</th>
-              <th className="px-2 py-1.5">Stage</th>
-              <th className="px-2 py-1.5">Empty insp.</th>
-              <th className="px-2 py-1.5 text-right">Nett MT</th>
-              {canOpenPackers ? <th className="px-2 py-1.5 w-8" aria-label="Open" /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const clickable = canOpenPackers && isUuid(row.id);
-              return (
-                <tr
-                  key={row.id || `slot-${row.order}`}
-                  className={cn(
-                    "border-t border-slate-100",
-                    clickable && "cursor-pointer hover:bg-brand/5",
-                    !row.hasNumber && "text-slate-600"
-                  )}
-                  onClick={() => clickable && openPackers(row.id)}
-                  onKeyDown={(event) => {
-                    if (!clickable) return;
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openPackers(row.id);
-                    }
-                  }}
-                  tabIndex={clickable ? 0 : undefined}
-                  role={clickable ? "button" : undefined}
-                >
-                  <td className="px-2 py-1.5 tabular-nums text-slate-500">{row.order ?? "—"}</td>
-                  <td className="px-2 py-1.5 font-mono font-medium text-slate-900">{row.containerNumber}</td>
-                  <td className="px-2 py-1.5">{row.releaseNumber || "—"}</td>
-                  <td className="px-2 py-1.5">{row.emptyPark || "—"}</td>
-                  <td className="px-2 py-1.5">{row.transporter || "—"}</td>
-                  <td className="px-2 py-1.5">{row.isoCode || "—"}</td>
-                  <td className="px-2 py-1.5">
-                    {row.stage ? (
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                          stageBadgeClass(row.stage)
-                        )}
-                      >
-                        {row.stage}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-2 py-1.5">{row.emptyInspection || "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{row.nettWeight || "—"}</td>
-                  {canOpenPackers ? (
-                    <td className="px-2 py-1.5 text-slate-400">
-                      {clickable ? <ExternalLink className="h-3.5 w-3.5" aria-hidden /> : null}
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </section>
   );
 }

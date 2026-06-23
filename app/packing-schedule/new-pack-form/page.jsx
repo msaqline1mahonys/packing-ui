@@ -17,6 +17,7 @@ import {
   SAMPLE_STATUSES,
 } from "@/lib/Data";
 import { BulkContainerImportDialog } from "@/components/packing-schedule/bulk-container-import-dialog";
+import PackCollectedContainersTable from "@/components/packing-schedule/pack-collected-containers-table";
 import RemovePackContainersDialog from "@/components/packing-schedule/remove-pack-containers-dialog";
 import {
   countContainersForCombo,
@@ -134,8 +135,8 @@ const sectionRowClass = "grid items-stretch gap-1.5";
 const flushSectionClass = cn(sectionClass, "flex h-full min-h-0 flex-col");
 const flushSectionBodyClass = "flex min-h-0 flex-1 flex-col";
 const sectionColumnsClass = cn(sectionRowClass, "xl:grid-cols-2 2xl:grid-cols-3");
-const containersShippingRowClass = cn(sectionRowClass, "xl:grid-cols-2");
-const shippingGridClass = "grid min-h-0 flex-1 grid-cols-3 grid-rows-4 items-start gap-x-2 gap-y-2";
+const containersShippingRowClass = cn(sectionRowClass, "items-start xl:grid-cols-2");
+const shippingGridClass = "grid grid-cols-1 items-start gap-x-2 gap-y-2 sm:grid-cols-2 lg:grid-cols-3";
 const importScheduleGridClass =
   "grid gap-x-2 gap-y-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7";
 const topRowSectionsClass = (showImportBulkSection) =>
@@ -3702,8 +3703,8 @@ function NewPackFormPageInner() {
             />
 
             <div className={containersShippingRowClass}>
-              <section className={flushSectionClass} aria-label="Containers and quantity">
-                <div className={cn(innerPanelClass, flushSectionBodyClass)}>
+              <section className={sectionClass} aria-label="Containers and quantity">
+                <div className={innerPanelClass}>
                   <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
                     <FormRow label="Containers Required">
                       <div className="flex items-center gap-2">
@@ -3982,8 +3983,157 @@ function NewPackFormPageInner() {
                 </div>
               </section>
 
-              <section className={flushSectionClass} aria-label={isImportJob ? "Import vessel" : "Destination and shipping"}>
-                <div className={cn(flushSectionBodyClass, "gap-1", isImportJob && "rounded-md bg-emerald-50/60 p-2")}>
+              <PackCollectedContainersTable
+                className={cn(flushSectionClass, "flex h-full min-h-0 flex-col")}
+                containers={packContainers}
+                pack={pack}
+                packId={pack.id ?? editingRow?.id ?? editId ?? null}
+                containerParkOptions={containerParkOptions}
+                transporterOptions={transporterOptions}
+                onContainerUpdated={(containerId, patch) => {
+                  setPack((prev) => ({
+                    ...prev,
+                    containers: (prev.containers ?? []).map((container) =>
+                      container.id === containerId ? { ...container, ...patch } : container,
+                    ),
+                  }));
+                }}
+              />
+
+              {isImportJob ? (
+                <section className={cn(sectionClass, spanFullClass)} aria-label="Import schedule details">
+                  <div className={importScheduleGridClass}>
+                      <FormRow label="Planned inspection date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.plannedInspectionDate)}
+                          onChange={(e) => set("plannedInspectionDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF inspection booked">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.daffInspectionBooked === null ? "" : pack.daffInspectionBooked ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("daffInspectionBooked", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF confirmed date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.daffConfirmedDate)}
+                          onChange={(e) => set("daffConfirmedDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Tonnes per container">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          step="0.0001"
+                          value={pack.quantityPerContainer ?? ""}
+                          onChange={(e) => set("quantityPerContainer", e.target.value)}
+                          placeholder="Tonnes"
+                        />
+                      </FormRow>
+                      <FormRow label="Total tonnage">
+                        <input className={cn(inputClass, "bg-slate-50")} type="number" step="0.0001" value={computedMtTotal ?? pack.mtTotal ?? 0} readOnly tabIndex={-1} />
+                      </FormRow>
+                      <FormRow label="Unloading location">
+                        {(() => {
+                          const unloadingOpts = [
+                            ...(pack.unloadingLocation && !terminalOptions.some((t) => (t.terminal_name ?? t.terminalName ?? t.name) === pack.unloadingLocation)
+                              ? [{ value: pack.unloadingLocation, label: pack.unloadingLocation }]
+                              : []),
+                            ...terminalOptions.map((t) => ({
+                              value: t.terminal_name ?? t.terminalName ?? t.name,
+                              label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                            })),
+                          ];
+                          return (
+                            <ClutchSelect
+                              placeholder="- Select location -"
+                              options={unloadingOpts}
+                              value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
+                              onChange={(option) => set("unloadingLocation", option ? option.value : "")}
+                            />
+                          );
+                        })()}
+                      </FormRow>
+                      <FormRow label="Import directions received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.importDirectionsReceived === null ? "" : pack.importDirectionsReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("importDirectionsReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Import direction code">
+                        <input className={inputClass} value={pack.importDirectionCode || ""} onChange={(e) => set("importDirectionCode", e.target.value)} placeholder="Direction code" />
+                      </FormRow>
+                      <FormRow label="EDO received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.edoReceived === null ? "" : pack.edoReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("edoReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Date collected">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dateCollected)}
+                          onChange={(e) => set("dateCollected", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Free days">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={pack.freeDays ?? ""}
+                          onChange={(e) => set("freeDays", e.target.value)}
+                          placeholder="Days"
+                        />
+                      </FormRow>
+                      <FormRow label="Dehire by date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dehireByDate)}
+                          onChange={(e) => set("dehireByDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Final dehire date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.finalDehireDate)}
+                          onChange={(e) => set("finalDehireDate", e.target.value)}
+                        />
+                      </FormRow>
+                  </div>
+                </section>
+              ) : null}
+            </div>
+
+            <section className={sectionClass} aria-label={isImportJob ? "Import vessel" : "Destination and shipping"}>
+                <div className={cn("gap-1", isImportJob && "rounded-md bg-emerald-50/60 p-2")}>
                   <div className={shippingGridClass}>
                     {!isImportJob ? (
                       <>
@@ -4233,138 +4383,6 @@ function NewPackFormPageInner() {
                   ) : null}
                 </div>
               </section>
-
-              {isImportJob ? (
-                <section className={cn(sectionClass, spanFullClass)} aria-label="Import schedule details">
-                  <div className={importScheduleGridClass}>
-                      <FormRow label="Planned inspection date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.plannedInspectionDate)}
-                          onChange={(e) => set("plannedInspectionDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="DAFF inspection booked">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.daffInspectionBooked === null ? "" : pack.daffInspectionBooked ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("daffInspectionBooked", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="DAFF confirmed date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.daffConfirmedDate)}
-                          onChange={(e) => set("daffConfirmedDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Tonnes per container">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.0001"
-                          value={pack.quantityPerContainer ?? ""}
-                          onChange={(e) => set("quantityPerContainer", e.target.value)}
-                          placeholder="Tonnes"
-                        />
-                      </FormRow>
-                      <FormRow label="Total tonnage">
-                        <input className={cn(inputClass, "bg-slate-50")} type="number" step="0.0001" value={computedMtTotal ?? pack.mtTotal ?? 0} readOnly tabIndex={-1} />
-                      </FormRow>
-                      <FormRow label="Unloading location">
-                        {(() => {
-                          const unloadingOpts = [
-                            ...(pack.unloadingLocation && !terminalOptions.some((t) => (t.terminal_name ?? t.terminalName ?? t.name) === pack.unloadingLocation)
-                              ? [{ value: pack.unloadingLocation, label: pack.unloadingLocation }]
-                              : []),
-                            ...terminalOptions.map((t) => ({
-                              value: t.terminal_name ?? t.terminalName ?? t.name,
-                              label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
-                            })),
-                          ];
-                          return (
-                            <ClutchSelect
-                              placeholder="- Select location -"
-                              options={unloadingOpts}
-                              value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
-                              onChange={(option) => set("unloadingLocation", option ? option.value : "")}
-                            />
-                          );
-                        })()}
-                      </FormRow>
-                      <FormRow label="Import directions received">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.importDirectionsReceived === null ? "" : pack.importDirectionsReceived ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("importDirectionsReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="Import direction code">
-                        <input className={inputClass} value={pack.importDirectionCode || ""} onChange={(e) => set("importDirectionCode", e.target.value)} placeholder="Direction code" />
-                      </FormRow>
-                      <FormRow label="EDO received">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.edoReceived === null ? "" : pack.edoReceived ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("edoReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="Date collected">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.dateCollected)}
-                          onChange={(e) => set("dateCollected", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Free days">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={pack.freeDays ?? ""}
-                          onChange={(e) => set("freeDays", e.target.value)}
-                          placeholder="Days"
-                        />
-                      </FormRow>
-                      <FormRow label="Dehire by date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.dehireByDate)}
-                          onChange={(e) => set("dehireByDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Final dehire date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.finalDehireDate)}
-                          onChange={(e) => set("finalDehireDate", e.target.value)}
-                        />
-                      </FormRow>
-                  </div>
-                </section>
-              ) : null}
-            </div>
 
             <div className={importPermitRfpRowClass}>
               {!isImportJob ? (

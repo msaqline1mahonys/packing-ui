@@ -20,6 +20,7 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import {
   containerStage,
+  isEcFailedContainer,
   loadWorkDrafts,
   saveWorkDrafts,
   syncWorkDrafts,
@@ -46,7 +47,7 @@ import {
   isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
-import { updateContainer, updatePrepackChecks, packAssignedPackerOptions } from "@/lib/api/packing";
+import { updateContainer, updatePrepackChecks, packAssignedPackerOptions, createContainerReplacement } from "@/lib/api/packing";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
 import { fetchFumigantsNormalized } from "@/lib/api/fumigation";
@@ -279,6 +280,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   const [isSubmittingPems, setIsSubmittingPems] = useState(false);
   const [pemsSubmitError, setPemsSubmitError] = useState("");
   const [isSavingContainer, setIsSavingContainer] = useState(false);
+  const [isAddingReplacement, setIsAddingReplacement] = useState(false);
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
   const [containerSaveError, setContainerSaveError] = useState("");
   const containerValidationTimerRef = useRef(null);
@@ -463,10 +465,21 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       setSelectedContainerId(null);
       return;
     }
+    if (initialContainerId && !initialContainerAppliedRef.current) {
+      const match = filteredContainerRows.find(
+        (container) => String(container.id) === String(initialContainerId)
+      );
+      if (match) {
+        setSelectedContainerId(match.id);
+        setActiveTab("Packing");
+        initialContainerAppliedRef.current = true;
+        return;
+      }
+    }
     if (!selectedContainerId || !filteredContainerRows.some((container) => container.id === selectedContainerId)) {
       setSelectedContainerId(filteredContainerRows[0].id);
     }
-  }, [filteredContainerRows, selectedContainerId]);
+  }, [filteredContainerRows, selectedContainerId, initialContainerId]);
 
   const selectedContainer = useMemo(
     () => filteredContainerRows.find((container) => container.id === selectedContainerId) || null,
@@ -875,6 +888,25 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
         clearDirtyContainers();
       }
     }).catch(() => {});
+  }
+
+  async function addReplacementContainer() {
+    if (!packRow || !selectedContainer || isAddingReplacement) return;
+    setIsAddingReplacement(true);
+    try {
+      const updatedPack = await createContainerReplacement(packRow.id, selectedContainer.id);
+      setPackRow(updatedPack);
+      setWorkByPack((prev) => syncWorkDrafts([updatedPack], prev, lookups));
+      const replacement = (updatedPack.containers || []).find(
+        (container) =>
+          String(container.replacesContainerId ?? container.replaces_container_id) === String(selectedContainer.id),
+      );
+      if (replacement?.id) setSelectedContainerId(replacement.id);
+    } catch (err) {
+      showContainerValidationError(err?.message || "Failed to create replacement container.");
+    } finally {
+      setIsAddingReplacement(false);
+    }
   }
 
   async function saveSelectedContainer() {
@@ -1303,6 +1335,9 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
                       Seal {safeValue(container.sealNo)} · Net {toInputNumber(container.nettWeight)} MT
+                      {container.replacesContainerNumber ? (
+                        <span className="text-rose-700"> · Replaces {container.replacesContainerNumber}</span>
+                      ) : null}
                     </div>
                   </button>
                 );
@@ -1402,6 +1437,27 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                       {message}
                     </p>
                   ))}
+                </div>
+              ) : null}
+
+              {!isImportJob && isEcFailedContainer(selectedContainer) ? (
+                <div className="flex flex-wrap items-center gap-2 border-t border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-sm font-medium text-rose-800">
+                    Empty container inspection failed — this container cannot be packed out on this job.
+                  </p>
+                  {!selectedContainer.replacedByContainerId ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      disabled={isAddingReplacement}
+                      onClick={addReplacementContainer}
+                    >
+                      {isAddingReplacement ? "Adding…" : "Add replacement container"}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-rose-700">Replacement container added</span>
+                  )}
                 </div>
               ) : null}
 
@@ -1519,8 +1575,10 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
             updatePemsDraft({
               stagedContainerIds:
                 pemsDraft.recordType === GPPIR_RECORD_TYPE
-                  ? containerRows.filter((container) => container.ecrSubmitted).map((container) => container.id)
-                  : containerRows.map((container) => container.id),
+                  ? containerRows
+                      .filter((container) => container.ecrSubmitted && !isEcFailedContainer(container))
+                      .map((container) => container.id)
+                  : containerRows.filter((container) => !isEcFailedContainer(container)).map((container) => container.id),
             })
           }
           onClearStage={() => updatePemsDraft({ stagedContainerIds: [] })}

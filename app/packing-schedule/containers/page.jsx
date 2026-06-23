@@ -19,46 +19,17 @@ import {
   CONTAINER_STAGE_OPTIONS,
   stageBadgeClass,
 } from "@/lib/packing-container-ui";
+import {
+  buildContainerGridColumns,
+  displayContainerStage,
+  formatContainerWeight,
+  formatCutoffOrEtdDisplay,
+} from "@/lib/packing-containers-grid";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
-
-const TABLE_COLUMNS = [
-  { key: "containerNumber", label: "Container #" },
-  { key: "onSite", label: "On site" },
-  { key: "stage", label: "Stage" },
-  { key: "packNumber", label: "Pack No." },
-  { key: "jobReference", label: "Job Ref" },
-  { key: "packId", label: "Pack ID" },
-  { key: "customerName", label: "Customer" },
-  { key: "commodityName", label: "Commodity Grade" },
-  { key: "importExport", label: "I/E" },
-  { key: "order", label: "Order", numeric: true },
-  { key: "releaseNumber", label: "Release" },
-  { key: "emptyPark", label: "Empty park" },
-  { key: "transporterName", label: "Transporter" },
-  { key: "location", label: "Location" },
-  { key: "packer", label: "Packer" },
-  { key: "emptyInspection", label: "Empty insp." },
-  { key: "grainInspection", label: "Grain insp." },
-  { key: "praLastStatus", label: "PRA" },
-  { key: "pems", label: "ECR / GPPIR" },
-  { key: "outLoaded", label: "Out loaded" },
-  { key: "nettWeight", label: "Nett MT", numeric: true },
-  { key: "startDate", label: "Start date", date: true },
-  { key: "sealNumber", label: "Seal", hidden: true },
-  { key: "containerIsoCode", label: "ISO Code", hidden: true },
-  { key: "packStatus", label: "Pack status", hidden: true },
-  { key: "vessel", label: "Vessel", hidden: true },
-  { key: "etd", label: "ETD", date: true, hidden: true },
-  { key: "vesselCutoffDate", label: "Cut-off", hidden: true },
-  { key: "packerSignoff", label: "Packer signoff", hidden: true },
-  { key: "aoSignoff", label: "AO signoff", hidden: true },
-  { key: "praLastError", label: "PRA error", hidden: true },
-  { key: "packerNotes", label: "Packer notes", hidden: true },
-];
 
 const DATE_FILTER_OPTIONS = [
   { key: "packingStartDate", label: "Packing Start Date", apiField: "packing_start_date" },
@@ -74,17 +45,6 @@ const IE_FILTER_OPTIONS = [
   { value: "Export", label: "Export" },
 ];
 
-function formatCutoffOrEtdDisplay(value) {
-  if (value == null || String(value).trim() === "") return "";
-  const str = String(value).trim();
-  if (str.includes("T")) {
-    const [d, t] = str.split("T");
-    const hm = (t || "").slice(0, 5);
-    return hm ? `${d} ${hm}` : d;
-  }
-  return str;
-}
-
 function getDateOnlyValue(rawValue) {
   if (rawValue == null) return "";
   const value = String(rawValue).trim();
@@ -94,34 +54,6 @@ function getDateOnlyValue(rawValue) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toISOString().slice(0, 10);
-}
-
-function displayStage(row) {
-  const stage = containerStage(row);
-  if (stage === "Packing" && String(row.status || "").toLowerCase() === "draft") return "Draft";
-  return stage;
-}
-
-function locationDisplay(row) {
-  const grain = String(row.grainLocation || "").trim();
-  const bay = String(row.stockBayId || "").trim();
-  if (grain && bay) {
-    if (grain === bay) return grain;
-    return `${grain} · ${bay}`;
-  }
-  return grain || bay;
-}
-
-function pemsDisplay(row) {
-  const ecr = row.ecrSubmitted ? "ECR" : "No ECR";
-  const gppir = row.gppirSubmitted ? "GPPIR" : "No GPPIR";
-  return `${ecr} / ${gppir}`;
-}
-
-function formatWeight(value) {
-  if (value == null || value === "") return "";
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(3) : String(value);
 }
 
 export default function PackingScheduleContainersPage() {
@@ -136,25 +68,27 @@ export default function PackingScheduleContainersPage() {
   const [selectedPackStatuses, setSelectedPackStatuses] = useState(() => [...ACTIVE_PACK_STATUSES]);
   const [selectedStages, setSelectedStages] = useState(() => [...CONTAINER_STAGE_OPTIONS]);
   const [selectedId, setSelectedId] = useState(null);
-  const [savingOnSiteId, setSavingOnSiteId] = useState(null);
+  const [savingSiteStageId, setSavingSiteStageId] = useState(null);
   const tableRef = useRef(null);
   const detailsRef = useRef(null);
 
-  // Quick on-site toggle: optimistic flip, PATCH, revert on failure.
-  const toggleOnSite = useCallback(async (row) => {
-    if (!row?.id || !row?.packId || savingOnSiteId) return;
-    const next = !(row.onSite ?? false);
-    setSavingOnSiteId(row.id);
+  // Toggle Off Site ↔ On Site via on_site boolean (stage is derived).
+  const toggleSiteStage = useCallback(async (row) => {
+    if (!row?.id || !row?.packId || savingSiteStageId) return;
+    const stage = displayContainerStage(row);
+    if (stage !== "Off Site" && stage !== "On Site") return;
+    const next = stage === "Off Site";
+    setSavingSiteStageId(row.id);
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: next } : r)));
     try {
       await updateContainer(row.packId, row.id, { onSite: next });
     } catch (err) {
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: !next } : r)));
-      window.alert(err?.message || "Failed to update on-site status.");
+      window.alert(err?.message || "Failed to update container stage.");
     } finally {
-      setSavingOnSiteId(null);
+      setSavingSiteStageId(null);
     }
-  }, [savingOnSiteId]);
+  }, [savingSiteStageId]);
 
   useEffect(() => {
     if (selectedId == null) return;
@@ -206,7 +140,10 @@ export default function PackingScheduleContainersPage() {
 
   const filtered = useMemo(() => {
     return rows
-      .filter((row) => containerStage(row) !== "Complete")
+      .filter((row) => {
+        const isImport = String(row.importExport ?? "").toLowerCase() === "import";
+        return containerStage(row, isImport) !== "Complete";
+      })
       .filter((row) => {
         if (!selectedPackStatuses.length) return ACTIVE_PACK_STATUSES.includes(row.packStatus);
         return selectedPackStatuses.includes(row.packStatus);
@@ -214,7 +151,7 @@ export default function PackingScheduleContainersPage() {
       .filter((row) => (importExportFilter === "all" ? true : row.importExport === importExportFilter))
       .filter((row) => {
         if (!selectedStages.length) return true;
-        return selectedStages.includes(displayStage(row));
+        return selectedStages.includes(displayContainerStage(row));
       })
       .filter((row) => {
         if (dateFilterMode === "all") return true;
@@ -254,9 +191,19 @@ export default function PackingScheduleContainersPage() {
   );
 
   const summary = useMemo(() => {
-    const counts = { total: filtered.length, Draft: 0, Packing: 0, "PRA Submitted": 0, "PRA Passed": 0, "PRA Failed": 0 };
+    const counts = {
+      total: filtered.length,
+      Draft: 0,
+      "Off Site": 0,
+      "On Site": 0,
+      Packing: 0,
+      "EC Failed": 0,
+      "PRA Submitted": 0,
+      "PRA Passed": 0,
+      "PRA Failed": 0,
+    };
     for (const row of filtered) {
-      const stage = displayStage(row);
+      const stage = displayContainerStage(row);
       if (counts[stage] != null) counts[stage] += 1;
     }
     return counts;
@@ -273,132 +220,11 @@ export default function PackingScheduleContainersPage() {
   }, []);
 
   const gridColumns = useMemo(() => {
-    return TABLE_COLUMNS.map((column) => {
-      const base = {
-        key: column.key,
-        header: column.label,
-        type: column.numeric ? "number" : column.date ? "date" : "text",
-        sortable: true,
-        filterable: true,
-        resizable: true,
-        hidden: column.hidden ?? false,
-      };
-
-      if (column.key === "onSite") {
-        return {
-          ...base,
-          type: "text",
-          valueGetter: (row) => (row.onSite ? "On site" : "Off site"),
-          renderCell: ({ row }) => (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleOnSite(row);
-              }}
-              disabled={savingOnSiteId === row.id}
-              className={cn(
-                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-60",
-                row.onSite
-                  ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200",
-              )}
-              title="Toggle whether this container is on site to pack"
-            >
-              {row.onSite ? "On site" : "Off site"}
-            </button>
-          ),
-        };
-      }
-      if (column.key === "stage") {
-        return {
-          ...base,
-          sortable: true,
-          valueGetter: (row) => displayStage(row),
-          renderCell: ({ formattedValue }) =>
-            formattedValue ? (
-              <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", stageBadgeClass(formattedValue))}>
-                {formattedValue}
-              </span>
-            ) : (
-              ""
-            ),
-        };
-      }
-      if (column.key === "containerNumber") {
-        return {
-          ...base,
-          valueGetter: (row) => row.containerNumber || row.containerNo || "",
-        };
-      }
-      if (column.key === "emptyPark") {
-        return { ...base, valueGetter: (row) => row.emptyContainerParkName || row.releasePark || "" };
-      }
-      if (column.key === "location") {
-        return { ...base, valueGetter: (row) => locationDisplay(row) };
-      }
-      if (column.key === "pems") {
-        return {
-          ...base,
-          valueGetter: (row) => pemsDisplay(row),
-          renderCell: ({ row }) => (
-            <span className="text-[10px] text-slate-600">
-              <span className={row.ecrSubmitted ? "font-semibold text-emerald-700" : "text-slate-400"}>
-                {row.ecrSubmitted ? "ECR" : "No ECR"}
-              </span>
-              {" · "}
-              <span className={row.gppirSubmitted ? "font-semibold text-emerald-700" : "text-slate-400"}>
-                {row.gppirSubmitted ? "GPPIR" : "No GPPIR"}
-              </span>
-            </span>
-          ),
-        };
-      }
-      if (column.key === "startDate") {
-        return {
-          ...base,
-          type: "date",
-          valueGetter: (row) => row.startDate ?? "",
-          format: formatCutoffOrEtdDisplay,
-        };
-      }
-      if (column.key === "etd") {
-        return {
-          ...base,
-          type: "date",
-          valueGetter: (row) => row.etd ?? "",
-          format: formatCutoffOrEtdDisplay,
-        };
-      }
-      if (column.key === "vesselCutoffDate") {
-        return {
-          ...base,
-          valueGetter: (row) => row.vesselCutoffDate ?? "",
-          format: formatCutoffOrEtdDisplay,
-        };
-      }
-      if (column.key === "nettWeight") {
-        return {
-          ...base,
-          valueGetter: (row) => (row.nettWeight != null ? Number(row.nettWeight) : null),
-          format: (v) => (v != null ? formatWeight(v) : ""),
-        };
-      }
-
-      const snakeKey = column.key.replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`);
-      if (snakeKey !== column.key) {
-        return {
-          ...base,
-          valueGetter: (row) => {
-            const val = row[column.key] ?? row[snakeKey];
-            if (column.numeric) return val != null && val !== "" ? Number(val) : null;
-            return val ?? "";
-          },
-        };
-      }
-      return base;
+    return buildContainerGridColumns({
+      onToggleSiteStage: toggleSiteStage,
+      savingSiteStageId,
     });
-  }, [toggleOnSite, savingOnSiteId]);
+  }, [toggleSiteStage, savingSiteStageId]);
 
   const missingChecks = useMemo(
     () => (selected ? getCompletionMissingChecks(selected) : []),
@@ -413,7 +239,13 @@ export default function PackingScheduleContainersPage() {
           {" · "}
           Draft: {summary.Draft}
           {" · "}
+          Off site: {summary["Off Site"]}
+          {" · "}
+          On site: {summary["On Site"]}
+          {" · "}
           Packing: {summary.Packing}
+          {" · "}
+          EC failed: {summary["EC Failed"]}
           {" · "}
           PRA: {summary["PRA Submitted"] + summary["PRA Passed"] + summary["PRA Failed"]}
           {" · "}
@@ -542,8 +374,8 @@ export default function PackingScheduleContainersPage() {
             <div className="border-b border-slate-200 px-3 py-3">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-slate-900">Container Details</h3>
-                <span className={cn("ms-auto rounded-full px-2 py-0.5 text-[10px] font-semibold", stageBadgeClass(displayStage(selected)))}>
-                  {displayStage(selected)}
+                <span className={cn("ms-auto rounded-full px-2 py-0.5 text-[10px] font-semibold", stageBadgeClass(displayContainerStage(selected)))}>
+                  {displayContainerStage(selected)}
                 </span>
               </div>
             </div>
@@ -553,23 +385,29 @@ export default function PackingScheduleContainersPage() {
                 <Field label="Order" value={String(selected.order ?? "")} />
                 <Field label="ISO Code" value={selected.containerIsoCode || selected.isoCode || ""} />
                 <Field label="Seal" value={selected.sealNumber || ""} />
-                <div className="space-y-0.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">On site to pack</div>
-                  <button
-                    type="button"
-                    onClick={() => toggleOnSite(selected)}
-                    disabled={savingOnSiteId === selected.id}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
-                      selected.onSite
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                        : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100",
-                    )}
-                  >
-                    <span className={cn("h-2 w-2 rounded-full", selected.onSite ? "bg-emerald-500" : "bg-slate-400")} />
-                    {selected.onSite ? "On site — click to mark off site" : "Off site — click to mark on site"}
-                  </button>
-                </div>
+                {(() => {
+                  const stage = displayContainerStage(selected);
+                  const canToggle = stage === "Off Site" || stage === "On Site";
+                  if (!canToggle) {
+                    return <Field label="Stage" value={stage} />;
+                  }
+                  return (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Stage</div>
+                      <button
+                        type="button"
+                        onClick={() => toggleSiteStage(selected)}
+                        disabled={savingSiteStageId === selected.id}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
+                          stageBadgeClass(stage),
+                        )}
+                      >
+                        {stage === "On Site" ? "On site — click to mark off site" : "Off site — click to mark on site"}
+                      </button>
+                    </div>
+                  );
+                })()}
               </SidebarSection>
 
               <SidebarSection title="Pack">
@@ -602,9 +440,9 @@ export default function PackingScheduleContainersPage() {
               </SidebarSection>
 
               <SidebarSection title="Weights">
-                <Field label="Tare MT" value={formatWeight(selected.tare)} />
-                <Field label="Gross MT" value={formatWeight(selected.grossWeight)} />
-                <Field label="Nett MT" value={formatWeight(selected.nettWeight)} />
+                <Field label="Tare MT" value={formatContainerWeight(selected.tare)} />
+                <Field label="Gross MT" value={formatContainerWeight(selected.grossWeight)} />
+                <Field label="Nett MT" value={formatContainerWeight(selected.nettWeight)} />
               </SidebarSection>
 
               <SidebarSection title="Checks">

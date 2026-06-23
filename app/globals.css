@@ -158,6 +158,88 @@
   background-color: #fffbeb !important;
 }
 
+/* Legacy packing schedule grid — forest green headers, compact cells */
+.packing-schedule-legacy-grid {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.packing-schedule-legacy-grid [role="grid"] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.packing-schedule-legacy-grid .dg-grid-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.packing-schedule-legacy-grid .dg-header-cell {
+  align-items: center !important;
+  background: #1f4d2e !important;
+  border-right-color: rgba(255, 255, 255, 0.14) !important;
+  color: #fff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.1 !important;
+  padding: 2px 6px !important;
+}
+
+.packing-schedule-legacy-grid .dg-header-cell:hover {
+  background: #266038 !important;
+}
+
+.packing-schedule-legacy-grid .dg-header-cell .dg-sort-indicator svg,
+.packing-schedule-legacy-grid .dg-header-cell .dg-header-action svg {
+  color: #fff !important;
+}
+
+.packing-schedule-legacy-grid .dg-legacy-header-row .MuiCheckbox-root {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.packing-schedule-legacy-grid [role="gridcell"] {
+  color: #111827;
+  outline: none !important;
+  box-shadow: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+.packing-schedule-legacy-grid [role="rowgroup"] [role="row"] {
+  border-bottom: none !important;
+}
+
+.packing-schedule-legacy-grid [role="row"]:focus,
+.packing-schedule-legacy-grid [role="row"]:focus-visible {
+  outline: none !important;
+}
+
+.packing-schedule-legacy-grid .clutch-row-selected,
+.packing-schedule-legacy-grid .clutch-row-selected:hover {
+  background-color: #c8e6c9 !important;
+}
+
+.packing-schedule-legacy-grid .clutch-row-import {
+  background-color: inherit !important;
+}
+
+.packing-schedule-legacy-grid [role="row"]:not(.clutch-row-selected):hover {
+  background-color: #f1f5f9 !important;
+}
+
+.packing-schedule-legacy-grid .clutch-row-selected:hover {
+  background-color: #b9ddb9 !important;
+}
+
+.packing-schedule-legacy-grid .clutch-status-inprogress {
+  color: inherit;
+  font-weight: 600;
+}
+
 @media print {
   @page {
     margin: 0;

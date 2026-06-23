@@ -16,7 +16,7 @@ import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
 import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
-import { countOnSiteContainers } from "@/lib/packers-work-store";
+import { countEcFailedContainers, countOnSiteContainers } from "@/lib/packers-work-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -292,11 +292,17 @@ function releaseContainerTotal(row) {
   return releaseContainerBreakdown(row).reduce((sum, item) => sum + item.count, 0);
 }
 
+function rowIsImport(row) {
+  return String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
+}
+
 // How many containers are in the On Site stage (derived from on_site until packing starts).
 function onSiteContainerCount(row) {
-  const containers = rowContainers(row);
-  const isImport = String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
-  return countOnSiteContainers(containers, isImport);
+  return countOnSiteContainers(rowContainers(row), rowIsImport(row));
+}
+
+function ecFailedContainerCount(row) {
+  return countEcFailedContainers(rowContainers(row), rowIsImport(row));
 }
 
 function getDateOnlyValue(rawValue) {
@@ -482,6 +488,28 @@ export default function PackingSchedulePage() {
       }
       if (column.key === "jobReference") {
         return { ...base, valueGetter: (row) => row.job_reference ?? row.jobReference ?? "" };
+      }
+      if (column.key === "containersRequired") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => Number(row.containers_required ?? row.containersRequired ?? 0) || 0,
+          renderCell: ({ row }) => {
+            const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
+            const ecFailed = ecFailedContainerCount(row);
+            if (!required && !ecFailed) return "";
+            return (
+              <span className="inline-flex flex-wrap items-center gap-1" title={ecFailed ? `${required} required · ${ecFailed} EC failed` : `${required} containers required`}>
+                <span className="tabular-nums">{required || ""}</span>
+                {ecFailed > 0 ? (
+                  <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-rose-900 ring-1 ring-rose-200">
+                    {ecFailed} EC failed
+                  </span>
+                ) : null}
+              </span>
+            );
+          },
+        };
       }
       if (column.key === "actualPacked") {
         return {
@@ -992,7 +1020,16 @@ export default function PackingSchedulePage() {
                   </div>
                 </div>
               ) : null}
-              <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
+              <Field
+                label="Count"
+                value={(() => {
+                  const required = String(selected.containers_required ?? selected.containersRequired ?? "");
+                  const ecFailed = ecFailedContainerCount(selected);
+                  if (!required && !ecFailed) return "";
+                  if (!ecFailed) return required;
+                  return `${required}${required ? " · " : ""}${ecFailed} EC failed`;
+                })()}
+              />
               <Field
                 label="On site to pack"
                 value={`${onSiteContainerCount(selected)}${

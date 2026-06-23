@@ -58,10 +58,10 @@ import { packAssignedPackerOptions, performBlend, removePackContainers, updateCo
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import {
   countPackedContainers,
-  totalNettWeight,
   totalPackedNettWeight,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
+import { isEcFailedContainer, isEligibleForPemsGppir } from "@/lib/packers-work-store";
 import { isUuid } from "@/lib/pack-schedule-api";
 import { fetchStockByLocationForAccount } from "@/lib/stock-transfers-api";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
@@ -2656,9 +2656,13 @@ function NewPackFormPageInner() {
       return;
     }
     if (isGppir) {
-      const missingEcr = containers.filter((container) => !container.ecrSubmitted);
-      if (missingEcr.length) {
-        setPemsSubmitError("ECR must be submitted before GPPIR for all staged containers.");
+      const ineligible = containers.filter((container) => !isEligibleForPemsGppir(container));
+      if (ineligible.length) {
+        if (ineligible.some(isEcFailedContainer)) {
+          setPemsSubmitError("EC failed containers cannot be included in grain and plant product inspections.");
+        } else {
+          setPemsSubmitError("ECR must be submitted before GPPIR for all staged containers.");
+        }
         return;
       }
     } else if (!String(pemsDraft.ecrComments ?? "").trim()) {
@@ -2903,9 +2907,10 @@ function NewPackFormPageInner() {
   const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));
   const pemsEligibleContainerIds = useMemo(
     () =>
-      packContainers
-        .filter((container) => pemsDraft.recordType !== GPPIR_RECORD_TYPE || container.ecrSubmitted)
-        .map((container) => container.id),
+      (pemsDraft.recordType === GPPIR_RECORD_TYPE
+        ? packContainers.filter(isEligibleForPemsGppir)
+        : packContainers
+      ).map((container) => container.id),
     [packContainers, pemsDraft.recordType]
   );
   const stagedPemsIds = pemsDraft.stagedContainerIds || [];
@@ -2978,6 +2983,7 @@ function NewPackFormPageInner() {
     enabled: jobReferenceDuplicateCheckEnabled,
   });
   const containersLeftToPack = packContainers.filter((container) => {
+    if (isEcFailedContainer(container)) return false;
     const status = String(container.status || "").toLowerCase();
     return status !== "complete" && status !== "completed";
   }).length;
@@ -2994,7 +3000,7 @@ function NewPackFormPageInner() {
 
   // Actuals from the packed containers: total nett weight (MT) and the count of
   // containers completed with all packer + inspection checks passed.
-  const actualPackedMt = useMemo(() => totalNettWeight(packContainers), [packContainers]);
+  const actualPackedMt = useMemo(() => totalPackedNettWeight(packContainers), [packContainers]);
   const containersPacked = useMemo(() => countPackedContainers(packContainers), [packContainers]);
 
   const stickySummary = useMemo(() => {
@@ -4613,7 +4619,7 @@ function NewPackFormPageInner() {
               updatePemsDraft({
                 stagedContainerIds:
                   pemsDraft.recordType === GPPIR_RECORD_TYPE
-                    ? packContainers.filter((container) => container.ecrSubmitted).map((container) => container.id)
+                    ? packContainers.filter(isEligibleForPemsGppir).map((container) => container.id)
                     : packContainers.map((container) => container.id),
               })
             }

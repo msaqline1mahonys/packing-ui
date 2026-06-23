@@ -21,6 +21,7 @@ import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import {
   containerStage,
   isEcFailedContainer,
+  isEligibleForPemsGppir,
   loadWorkDrafts,
   saveWorkDrafts,
   syncWorkDrafts,
@@ -753,10 +754,15 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       return;
     }
     if (isGppir) {
-      const missingEcr = containersForBatch.filter((container) => !container.ecrSubmitted);
-      if (missingEcr.length) {
+      const ineligible = containersForBatch.filter((container) => !isEligibleForPemsGppir(container));
+      if (ineligible.length) {
+        const ecFailed = ineligible.filter(isEcFailedContainer);
+        if (ecFailed.length) {
+          setPemsSubmitError("EC failed containers cannot be included in grain and plant product inspections.");
+          return;
+        }
         setPemsSubmitError(
-          `Submit ECR first for: ${missingEcr.map((container) => container.containerNo || `#${container.order}`).join(", ")}.`
+          `Submit ECR first for: ${ineligible.map((container) => container.containerNo || `#${container.order}`).join(", ")}.`
         );
         return;
       }
@@ -1575,10 +1581,8 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
             updatePemsDraft({
               stagedContainerIds:
                 pemsDraft.recordType === GPPIR_RECORD_TYPE
-                  ? containerRows
-                      .filter((container) => container.ecrSubmitted && !isEcFailedContainer(container))
-                      .map((container) => container.id)
-                  : containerRows.filter((container) => !isEcFailedContainer(container)).map((container) => container.id),
+                  ? containerRows.filter(isEligibleForPemsGppir).map((container) => container.id)
+                  : containerRows.map((container) => container.id),
             })
           }
           onClearStage={() => updatePemsDraft({ stagedContainerIds: [] })}

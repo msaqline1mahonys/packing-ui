@@ -260,6 +260,8 @@ These are used for queue badges, save payloads, and PEMs/PRA integration. Backen
 
 EC-failed containers remain on the job. Use `POST /api/packing/packs/{packId}/containers/{containerId}/replacement` to append a replacement slot linked via `replaces_container_id` / `replaced_by_container_id`. `containers_required` is unchanged — the job still needs that many successful pack-outs.
 
+EC-failed containers are **included only in ECR (Empty Container Inspection Record) generation** so the failure can be submitted to PEMS. They are excluded from GPPIR staging, fumigation certificates/records, invoicing progress counts, out-loading, and **release capacity** (`container_count` on the release). The container still keeps `release_id` / `release_number` for traceability.
+
 Mandatory checks for **Complete** (also shown as missing-checks banner on the form):
 
 - `packerSignoff` set

@@ -22,6 +22,7 @@ import RemovePackContainersDialog from "@/components/packing-schedule/remove-pac
 import {
   countContainersForCombo,
   countContainersForReleaseLine,
+  prefillParkTransporterFromRelease,
 } from "@/lib/container-bulk-import";
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { commodityOptionLabel } from "@/lib/commodity-display";
@@ -449,8 +450,9 @@ function normalizePackLinkedRelease(raw) {
 }
 
 function createDraftContainer(pack, index, existing = {}) {
-  const order = index + 1;
+  const order = Number(existing?.order) > 0 ? Number(existing.order) : index + 1;
   const firstRelease = getLinkedReleases(pack)[0] ?? null;
+  const { parkId: releaseParkId, transporterId: releaseTransporterId } = prefillParkTransporterFromRelease(firstRelease);
   const hasExistingRelease = existing.releaseNumber || existing.releaseId || existing.emptyContainerParkId || existing.transporterId;
   return {
     id: existing.id || `container-${order}`,
@@ -469,8 +471,12 @@ function createDraftContainer(pack, index, existing = {}) {
     releaseNumber: existing.releaseNumber ?? (hasExistingRelease ? "" : (firstRelease?.releaseNumber ?? firstRelease?.releaseRef ?? "")),
     releasePark: existing.releasePark ?? "",
     transporter: existing.transporter ?? "",
-    emptyContainerParkId: existing.emptyContainerParkId ?? (hasExistingRelease ? "" : (firstRelease?.emptyContainerParkId ?? "")),
-    transporterId: existing.transporterId ?? (hasExistingRelease ? "" : (firstRelease?.transporterId ?? "")),
+    emptyContainerParkId:
+      existing.emptyContainerParkId ??
+      (hasExistingRelease ? "" : (releaseParkId || firstRelease?.emptyContainerParkId || "")),
+    transporterId:
+      existing.transporterId ??
+      (hasExistingRelease ? "" : (releaseTransporterId || firstRelease?.transporterId || "")),
     startDate: existing.startDate ?? existing.start_date ?? "",
     startHour: existing.startHour ?? existing.start_hour ?? "",
     startMinute: existing.startMinute ?? existing.start_minute ?? "",
@@ -481,8 +487,8 @@ function createDraftContainer(pack, index, existing = {}) {
     grossWeight: existing.grossWeight != null && existing.grossWeight !== "" ? existing.grossWeight : null,
     nettWeight: existing.nettWeight != null && existing.nettWeight !== "" ? existing.nettWeight : null,
     containerTareWeight: existing.containerTareWeight != null && existing.containerTareWeight !== "" ? existing.containerTareWeight : null,
-    emptyInspection: existing.emptyInspection ?? "Pending",
-    grainInspection: existing.grainInspection ?? "Pending",
+    emptyInspection: existing.emptyInspection ?? existing.empty_inspection ?? "Pending",
+    grainInspection: existing.grainInspection ?? existing.grain_inspection ?? "Pending",
     packerSignoff: existing.packerSignoff ?? "",
     outLoaded: existing.outLoaded ?? "No",
     praSignoff: existing.praSignoff ?? "",
@@ -501,6 +507,13 @@ function createDraftContainer(pack, index, existing = {}) {
     gppirLastBatchId: existing.gppirLastBatchId ?? "",
     tests: existing.tests && typeof existing.tests === "object" ? existing.tests : {},
     status: existing.status || "Draft",
+    onSite: Boolean(existing.onSite ?? existing.on_site),
+    replacesContainerId: existing.replacesContainerId ?? existing.replaces_container_id ?? null,
+    replacedByContainerId: existing.replacedByContainerId ?? existing.replaced_by_container_id ?? null,
+    replacesContainerNumber:
+      existing.replacesContainerNumber ??
+      existing.replaces_container?.container_number ??
+      "",
   };
 }
 
@@ -512,16 +525,35 @@ function buildPackContainers(pack, existingRow) {
       ? existingRow.containers
       : [];
   const containersByOrder = new Map();
+  const extraContainers = [];
+
   for (const container of existingContainers) {
+    if (!container || typeof container !== "object") continue;
     const order = Number(container?.order);
     if (Number.isFinite(order) && order > 0) {
-      containersByOrder.set(order, container);
+      if (containersByOrder.has(order)) {
+        extraContainers.push(container);
+      } else {
+        containersByOrder.set(order, container);
+      }
+    } else {
+      extraContainers.push(container);
     }
   }
-  return Array.from({ length: requiredCount }, (_, index) => {
+
+  const maxPersistedOrder = containersByOrder.size ? Math.max(...containersByOrder.keys()) : 0;
+  const slotCount = Math.max(requiredCount, maxPersistedOrder);
+
+  const slots = Array.from({ length: slotCount }, (_, index) => {
     const order = index + 1;
-    return createDraftContainer(pack, index, containersByOrder.get(order) || existingContainers[index] || {});
+    return createDraftContainer(pack, index, containersByOrder.get(order) || {});
   });
+
+  for (const container of extraContainers) {
+    slots.push(createDraftContainer(pack, slots.length, container));
+  }
+
+  return slots;
 }
 
 const blankPack = (siteId) => ({

@@ -10,7 +10,6 @@ import {
   buildContainerGridColumns,
   decoratePackScopedContainerRow,
   displayContainerStage,
-  hasCollectedContainerRow,
 } from "@/lib/packing-containers-grid";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +33,6 @@ export default function PackCollectedContainersTable({
 
   const rows = useMemo(() => {
     return containers
-      .filter(hasCollectedContainerRow)
       .map((container) => {
         const decorated = decoratePackScopedContainerRow(container, {
           pack: { ...pack, id: resolvedPackId },
@@ -100,7 +98,7 @@ export default function PackCollectedContainersTable({
         className={cn("min-w-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm", className)}
         aria-label="Collected containers"
       >
-        <p className="px-3 py-8 text-center text-xs text-slate-400">No containers collected yet.</p>
+        <p className="px-3 py-8 text-center text-xs text-slate-400">No containers on this pack yet.</p>
       </section>
     );
   }

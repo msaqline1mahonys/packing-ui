@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   FolderOpen,
   Import,
+  Pause,
   Sun,
 } from "lucide-react";
 
@@ -25,6 +26,13 @@ export const SCHEDULE_VIEW_TABS = [
     label: "Pending",
     icon: FolderOpen,
     statuses: ["Pending"],
+    importExport: "all",
+  },
+  {
+    id: "onhold",
+    label: "On Hold",
+    icon: Pause,
+    statuses: ["On Hold"],
     importExport: "all",
   },
   {

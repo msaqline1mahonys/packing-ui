@@ -32,7 +32,7 @@ function MainPanel({ children, compactTop = false, tightPadding = false, content
         compactTop
           ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3"
           : tightPadding
-            ? "pb-6 ps-6 pt-2 pe-2 md:pb-10 md:ps-10 md:pt-3 md:pe-4"
+            ? "pb-6 px-6 pt-2 md:pb-10 md:px-10 md:pt-3"
             : "p-6 md:p-10"
       )}
     >

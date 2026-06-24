@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -239,9 +239,13 @@ export default function ContainerFormSections({
   packContainers = [],
   containerCodes = [],
   isImportPack = false,
+  readOnly = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
-  const setField = (key, value) => onChange?.({ [names[key] || key]: value });
+  const setField = (key, value) => {
+    if (readOnly) return;
+    onChange?.({ [names[key] || key]: value });
+  };
   const containerNoValue = getValue(container, names, "containerNo");
   const sealNoValue = getValue(container, names, "sealNo");
   const grossWeightValue = getValue(container, names, "grossWeight");
@@ -255,6 +259,7 @@ export default function ContainerFormSections({
     [container, containerCodes]
   );
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
+  const signoffDisabled = sealRequiredForSignoff || readOnly;
   const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
   const resolvedContainerId = resolveEntityId(containerId, container?.id);
   const [baselineContainerNo, setBaselineContainerNo] = useState("");
@@ -390,6 +395,7 @@ export default function ContainerFormSections({
   }, [selectedRelease, container?.emptyContainerParkId, transporterOptions]);
 
   function handleReleaseSelect(releaseKey) {
+    if (readOnly) return;
     const release = packReleases.find(
       (r) => String(r.releaseId ?? r.id ?? r.releaseRef) === String(releaseKey)
     );
@@ -425,6 +431,7 @@ export default function ContainerFormSections({
   }
 
   function handleParkSelect(parkId) {
+    if (readOnly) return;
     const parkName = containerParkOptions.find((p) => String(p.id) === String(parkId))?.name || "";
     onChange?.({
       emptyContainerParkId: parkId || null,
@@ -433,6 +440,7 @@ export default function ContainerFormSections({
   }
 
   function handleTransporterSelect(transId) {
+    if (readOnly) return;
     const transName = transporterOptions.find((t) => String(t.id) === String(transId))?.name || "";
     onChange?.({
       transporterId: transId || null,
@@ -446,10 +454,12 @@ export default function ContainerFormSections({
   const grainFailed = isInspectionFailed(getValue(container, names, "grainInspection"));
 
   function applyRemarkPatch(patch) {
+    if (readOnly) return;
     onChange?.(patch);
   }
 
   function handleRemarkCodeSelect(type, option) {
+    if (readOnly) return;
     const codeField = type === "goods" ? names.grainInspectionRemarkCode : names.ecInspectionRemarkCode;
     const remarkField = type === "goods" ? names.grainInspectionRemark : names.ecInspectionRemark;
     if (!option) {
@@ -481,6 +491,7 @@ export default function ContainerFormSections({
             placeholder="e.g. MSKU1234567"
             error={containerNoError}
             inputClass={inputClass}
+            readOnly={readOnly}
           />
           {duplicateLoading && duplicateCheckEnabled ? (
             <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
@@ -498,6 +509,7 @@ export default function ContainerFormSections({
             placeholder="e.g. SL12345"
             error={sealNoError}
             inputClass={inputClass}
+            readOnly={readOnly}
           />
           {sealDuplicateLoading && sealDuplicateCheckEnabled ? (
             <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
@@ -506,7 +518,7 @@ export default function ContainerFormSections({
           ) : null}
           <SamePackDuplicateWarning fieldLabel="seal number" matches={samePackSealDuplicates} />
           <CrossPackDuplicateWarning fieldLabel="seal number" matches={sealDuplicateMatches} />
-          <PemsSelect label="Container ISO" value={getValue(container, names, "isoCode")} options={isoOptions} onChange={(value) => setField("isoCode", value)} inputClass={inputClass} />
+          <PemsSelect label="Container ISO" value={getValue(container, names, "isoCode")} options={isoOptions} onChange={(value) => setField("isoCode", value)} inputClass={inputClass} disabled={readOnly} />
           <div className="space-y-1 md:col-span-2 xl:col-span-1">
             <label className="text-xs font-medium text-slate-600">Start Date &amp; Time</label>
             {(() => {
@@ -517,10 +529,14 @@ export default function ContainerFormSections({
                 <div className="relative">
                   <input
                     suppressHydrationWarning
-                    className={cn(inputClass, "block w-full", isDefault ? "text-slate-400" : "")}
+                    className={cn(inputClass, "block w-full", isDefault ? "text-slate-400" : "", readOnly ? "cursor-default bg-slate-50 text-slate-700" : "")}
                     type="datetime-local"
                     value={displayValue}
-                    onChange={(event) => onChange?.(splitDatetimeValue(event.target.value, names))}
+                    readOnly={readOnly}
+                    onChange={(event) => {
+                      if (readOnly) return;
+                      onChange?.(splitDatetimeValue(event.target.value, names));
+                    }}
                   />
                   {isDefault ? (
                     <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400">
@@ -531,15 +547,15 @@ export default function ContainerFormSections({
               );
             })()}
           </div>
-          <PemsSelect label="Stock/Bay ID" value={getValue(container, names, "stockBayId")} options={stockBayOptions} onChange={(value) => setField("stockBayId", value)} inputClass={inputClass} />
-          <PemsSelect label="Packer" value={getValue(container, names, "packer")} options={packerOptions} onChange={(value) => setField("packer", value)} inputClass={inputClass} />
+          <PemsSelect label="Stock/Bay ID" value={getValue(container, names, "stockBayId")} options={stockBayOptions} onChange={(value) => setField("stockBayId", value)} inputClass={inputClass} disabled={readOnly} />
+          <PemsSelect label="Packer" value={getValue(container, names, "packer")} options={packerOptions} onChange={(value) => setField("packer", value)} inputClass={inputClass} disabled={readOnly} />
         </div>
       </div>
 
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Weights</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
-          <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} />
+          <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
           <PemsInput
             label="Gross Weight"
             value={grossWeightValue}
@@ -549,6 +565,7 @@ export default function ContainerFormSections({
             max={MAX_CONTAINER_GROSS_WEIGHT_MT}
             inputClass={inputClass}
             error={grossWeightError}
+            readOnly={readOnly}
           />
           <PemsInput label="Nett Weight" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
           <PemsInput
@@ -558,6 +575,7 @@ export default function ContainerFormSections({
             type="number"
             step="0.01"
             inputClass={inputClass}
+            readOnly={readOnly}
           />
           <IsoWeightLimitWarnings warnings={isoWeightLimitWarnings} />
         </div>
@@ -580,10 +598,11 @@ export default function ContainerFormSections({
                 }
                 onChange={(option) => handleReleaseSelect(option ? option.value : "")}
                 placeholder="- Select release -"
+                isDisabled={readOnly}
               />
             </div>
           ) : (
-            <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} />
+            <PemsInput label="Release Number" value={getValue(container, names, "releaseNumber")} onChange={(value) => setField("releaseNumber", value)} inputClass={inputClass} readOnly={readOnly} />
           )}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
@@ -592,6 +611,7 @@ export default function ContainerFormSections({
               value={parkSelectOptions.find((o) => String(o.value) === String(container?.emptyContainerParkId ?? "")) ?? null}
               onChange={(option) => handleParkSelect(option ? option.value : "")}
               placeholder="- Select park -"
+              isDisabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -601,6 +621,7 @@ export default function ContainerFormSections({
               value={transporterSelectOptions.find((o) => String(o.value) === String(container?.transporterId ?? "")) ?? null}
               onChange={(option) => handleTransporterSelect(option ? option.value : "")}
               placeholder="- Select transporter -"
+              isDisabled={readOnly}
             />
           </div>
         </div>
@@ -614,40 +635,42 @@ export default function ContainerFormSections({
             value={getValue(container, names, "packerSignoff")}
             options={packerNames}
             onChange={(value) => setField("packerSignoff", value)}
-            disabled={sealRequiredForSignoff}
-            hint={sealRequiredForSignoff ? "Enter a seal number first" : ""}
+            disabled={signoffDisabled}
+            hint={sealRequiredForSignoff ? "Enter a seal number first" : readOnly ? "Locked after packer signoff" : ""}
           />
           <PemsSelect
             label={isImportPack ? "In-loaded?" : "Out-loaded?"}
             value={getValue(container, names, "outLoaded", "No")}
             options={yesNoOptions}
             onChange={(value) => setField("outLoaded", value)}
-            disabled={sealRequiredForSignoff || (!isImportPack && emptyFailed)}
+            disabled={signoffDisabled || (!isImportPack && emptyFailed)}
             hint={
               !isImportPack && emptyFailed
                 ? "EC failed — cannot pack out this container"
                 : sealRequiredForSignoff
                   ? "Enter a seal number first"
-                  : ""
+                  : readOnly
+                    ? "Locked after packer signoff"
+                    : ""
             }
           />
           {!isImportPack ? (
             <>
-              <PemsSelect label="PRA signoff" value={getValue(container, names, "praSignoff")} options={packerNames} onChange={(value) => setField("praSignoff", value)} inputClass={inputClass} />
-              <PemsSelect label="PRA template" value={getValue(container, names, "praTemplate")} options={praTemplateOptions} onChange={(value) => setField("praTemplate", value)} inputClass={inputClass} />
+              <PemsSelect label="PRA signoff" value={getValue(container, names, "praSignoff")} options={packerNames} onChange={(value) => setField("praSignoff", value)} inputClass={inputClass} disabled={readOnly} />
+              <PemsSelect label="PRA template" value={getValue(container, names, "praTemplate")} options={praTemplateOptions} onChange={(value) => setField("praTemplate", value)} inputClass={inputClass} disabled={readOnly} />
             </>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-3">
-          <Button type="button" variant="secondary" size="sm" onClick={onResetContainer}>
+          <Button type="button" variant="secondary" size="sm" onClick={onResetContainer} disabled={readOnly}>
             Reset container
           </Button>
-          <Button type="button" size="sm" onClick={onMarkPacked} disabled={!isImportPack && emptyFailed}>
+          <Button type="button" size="sm" onClick={onMarkPacked} disabled={readOnly || (!isImportPack && emptyFailed)}>
             {isImportPack ? "Mark in-loaded" : "Mark packed"}
           </Button>
           {!isImportPack ? (
             <>
-              <Button type="button" size="sm" onClick={onSubmitPra}>
+              <Button type="button" size="sm" onClick={onSubmitPra} disabled={readOnly}>
                 Submit PRA
               </Button>
               <span className="ms-auto text-sm font-semibold text-rose-600">{submitted ? "PRA Submitted" : "PRA Pending"}</span>
@@ -661,21 +684,21 @@ export default function ContainerFormSections({
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>1-Stop PRA Info</div>
         <div className="grid gap-3 p-3 md:grid-cols-3">
-          <PemsSelect label="PRA last status" value={getValue(container, names, "praLastStatus")} options={praStatusOptions} onChange={(value) => setField("praLastStatus", value)} inputClass={inputClass} />
-          <PemsInput label="PRA last submitted time" value={getValue(container, names, "praLastSubmittedTime")} onChange={(value) => setField("praLastSubmittedTime", value)} inputClass={inputClass} />
-          <PemsInput label="PRA last error" value={getValue(container, names, "praLastError")} onChange={(value) => setField("praLastError", value)} inputClass={inputClass} />
+          <PemsSelect label="PRA last status" value={getValue(container, names, "praLastStatus")} options={praStatusOptions} onChange={(value) => setField("praLastStatus", value)} inputClass={inputClass} disabled={readOnly} />
+          <PemsInput label="PRA last submitted time" value={getValue(container, names, "praLastSubmittedTime")} onChange={(value) => setField("praLastSubmittedTime", value)} inputClass={inputClass} readOnly={readOnly} />
+          <PemsInput label="PRA last error" value={getValue(container, names, "praLastError")} onChange={(value) => setField("praLastError", value)} inputClass={inputClass} readOnly={readOnly} />
         </div>
       </div>
 
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Authorised Officer Inspection</div>
         <div className="grid gap-3 p-3 md:grid-cols-3">
-          <PemsSelect label="Empty container inspection" value={getValue(container, names, "emptyInspection")} options={inspectionOptions} onChange={(value) => setField("emptyInspection", value)} inputClass={inputClass} />
-          <PemsSelect label="Grain inspection" value={getValue(container, names, "grainInspection")} options={inspectionOptions} onChange={(value) => setField("grainInspection", value)} inputClass={inputClass} />
-          <PemsSelect label="Inspection level (PEMS)" value={getValue(container, names, "inspectionLevelCode", "Consumable")} options={inspectionLevelOptions} onChange={(value) => setField("inspectionLevelCode", value)} inputClass={inputClass} />
-          <PemsSelect label="Passed after rectification" value={getValue(container, names, "passedAfterRectification", "N")} options={rectificationOptions} onChange={(value) => setField("passedAfterRectification", value)} inputClass={inputClass} />
+          <PemsSelect label="Empty container inspection" value={getValue(container, names, "emptyInspection")} options={inspectionOptions} onChange={(value) => setField("emptyInspection", value)} inputClass={inputClass} disabled={readOnly} />
+          <PemsSelect label="Grain inspection" value={getValue(container, names, "grainInspection")} options={inspectionOptions} onChange={(value) => setField("grainInspection", value)} inputClass={inputClass} disabled={readOnly} />
+          <PemsSelect label="Inspection level (PEMS)" value={getValue(container, names, "inspectionLevelCode", "Consumable")} options={inspectionLevelOptions} onChange={(value) => setField("inspectionLevelCode", value)} inputClass={inputClass} disabled={readOnly} />
+          <PemsSelect label="Passed after rectification" value={getValue(container, names, "passedAfterRectification", "N")} options={rectificationOptions} onChange={(value) => setField("passedAfterRectification", value)} inputClass={inputClass} disabled={readOnly} />
           {canAoSignoff ? (
-            <PemsSelect label="AO signoff" value={getValue(container, names, "aoSignoff")} options={packerNames} onChange={(value) => setField("aoSignoff", value)} inputClass={inputClass} />
+            <PemsSelect label="AO signoff" value={getValue(container, names, "aoSignoff")} options={packerNames} onChange={(value) => setField("aoSignoff", value)} inputClass={inputClass} disabled={readOnly} />
           ) : (
             <div className="space-y-1">
               <p className="text-xs font-medium text-slate-600">AO signoff</p>
@@ -692,6 +715,7 @@ export default function ContainerFormSections({
               options={remarkCodeOptions}
               onChange={(value) => setField("inspectionRemarkCode", value)}
               inputClass={inputClass}
+              disabled={readOnly}
             />
           ) : null}
         </div>
@@ -705,6 +729,7 @@ export default function ContainerFormSections({
                 onChange={(option) => handleRemarkCodeSelect("ec", option)}
                 placeholder="Select fail reason…"
                 isClearable
+                isDisabled={readOnly}
               />
             ) : (
               <p className="text-[11px] text-amber-700">
@@ -723,6 +748,7 @@ export default function ContainerFormSections({
                 onChange={(option) => handleRemarkCodeSelect("goods", option)}
                 placeholder="Select fail reason…"
                 isClearable
+                isDisabled={readOnly}
               />
             ) : (
               <p className="text-[11px] text-amber-700">
@@ -739,6 +765,7 @@ export default function ContainerFormSections({
                 className={`${inputClass} min-h-[82px] w-full resize-y`}
                 value={getValue(container, names, "ecInspectionRemark") || getValue(container, names, "aoInspectionRemark")}
                 onChange={(event) => setField("ecInspectionRemark", event.target.value)}
+                readOnly={readOnly}
               />
             </div>
           ) : null}
@@ -749,13 +776,14 @@ export default function ContainerFormSections({
                 className={`${inputClass} min-h-[82px] w-full resize-y`}
                 value={getValue(container, names, "grainInspectionRemark") || getValue(container, names, "aoInspectionRemark")}
                 onChange={(event) => setField("grainInspectionRemark", event.target.value)}
+                readOnly={readOnly}
               />
             </div>
           ) : null}
           {!emptyFailed && !grainFailed ? (
             <>
               <label className="mb-1 block text-xs font-medium text-slate-600">Container inspection remark (notes)</label>
-              <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} />
+              <textarea className={`${inputClass} min-h-[82px] w-full resize-y`} value={getValue(container, names, "aoInspectionRemark")} onChange={(event) => setField("aoInspectionRemark", event.target.value)} readOnly={readOnly} />
             </>
           ) : null}
         </div>
@@ -773,6 +801,7 @@ export default function ContainerFormSections({
               value={getValue(container, names, "packerNotes")}
               onChange={(event) => setField("packerNotes", event.target.value)}
               placeholder="Notes for this container"
+              readOnly={readOnly}
             />
           </div>
         </div>

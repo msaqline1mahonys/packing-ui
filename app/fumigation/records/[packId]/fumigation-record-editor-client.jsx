@@ -18,8 +18,9 @@ import {
   saveRecordIssue as issueRecord,
 } from "@/lib/fumigation-record-storage";
 import { resolveFumigationRecord, resolveFumigationRecordAsync } from "@/lib/fumigation-record-print";
-import { mergeCertDraftFromPack } from "@/lib/fumigation-detail";
-import { getPack } from "@/lib/api/packing";
+import { mergeCertDraftFromPack, normalizeFumigationDetail, sectionDFieldsFromRecord } from "@/lib/fumigation-detail";
+import { getPack, updatePack } from "@/lib/api/packing";
+import ConcentrationReadingsEditor from "@/components/fumigation/concentration-readings-editor";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
 import { filterAuthorisedOfficers } from "@/lib/user-classifications";
@@ -30,9 +31,7 @@ import {
 import { SignatureDisplay } from "@/components/fumigation/fumigation-signoff-display";
 import {
   defaultContainerReadings,
-  emptyContainerReadingRow,
   migrateLegacyReadings,
-  calcEquilibriumPercent,
 } from "@/lib/fumigation-concentration-readings";
 
 // ─── Default concentration readings grid ─────────────────────────────────────
@@ -223,31 +222,8 @@ export default function FumigationRecordEditorClient({ packId }) {
   }, [packId, packRow, rec]);
 
   // Concentration reading helpers
-  const updateReading = useCallback((rowId, col, value) => {
-    setRec((prev) => ({
-      ...prev,
-      concentrationReadings: (prev.concentrationReadings ?? []).map((r) =>
-        r.id === rowId ? { ...r, [col]: value } : r
-      ),
-    }));
-  }, []);
-
-  const addReadingRow = useCallback(() => {
-    setRec((prev) => {
-      const rows = prev.concentrationReadings ?? [];
-      const newId = Math.max(0, ...rows.map((r) => r.id)) + 1;
-      return {
-        ...prev,
-        concentrationReadings: [...rows, emptyContainerReadingRow(newId)],
-      };
-    });
-  }, []);
-
-  const removeReadingRow = useCallback((rowId) => {
-    setRec((prev) => ({
-      ...prev,
-      concentrationReadings: (prev.concentrationReadings ?? []).filter((r) => r.id !== rowId),
-    }));
+  const setConcentrationReadings = useCallback((readings) => {
+    setRec((prev) => ({ ...prev, concentrationReadings: readings }));
   }, []);
 
   // Top-up entry helpers
@@ -273,12 +249,28 @@ export default function FumigationRecordEditorClient({ packId }) {
     }));
   }, []);
 
-  const handleSaveAndPrint = useCallback(() => {
+  const handleSaveAndPrint = useCallback(async () => {
     const final = { ...rec, issuedDate: rec.issuedDate || new Date().toLocaleDateString("en-AU") };
     setRec(final);
+
+    if (packRow) {
+      try {
+        const existingDetail =
+          normalizeFumigationDetail(packRow.fumigationDetail ?? packRow.fumigation_detail) ?? {};
+        await updatePack(packId, {
+          fumigationDetail: {
+            ...existingDetail,
+            ...sectionDFieldsFromRecord(final),
+          },
+        });
+      } catch {
+        // Issue/print still proceeds if pack save fails (e.g. offline)
+      }
+    }
+
     issueRecord(packId, final);
     router.push(`/fumigation/records/${packId}/print`);
-  }, [rec, packId, router]);
+  }, [rec, packId, packRow, router]);
 
   const handleDiscard = useCallback(async () => {
     if (!packRow) return;
@@ -542,71 +534,13 @@ export default function FumigationRecordEditorClient({ packId }) {
               </FormField>
             </div>
 
-            <div className="overflow-x-auto">
-              <p className="text-[10px] text-slate-500 mb-2">
-                Equilibrium: (Highest − Lowest) / Lowest × 100 = % — target below 15%
-              </p>
-              <table className="w-full text-[10px] border-collapse border border-slate-200 mb-2">
-                <thead>
-                  <tr>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Container</th>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Date</th>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-sky-100 text-center" colSpan={4}>Start</th>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-emerald-100 text-center" colSpan={4}>End</th>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-amber-100 text-center" colSpan={2}>TVL</th>
-                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Eq.%</th>
-                    <th className="border border-slate-200 px-1 py-1" rowSpan={2} />
-                  </tr>
-                  <tr>
-                    {["Time", "Top", "Mid", "Base", "Time", "Top", "Mid", "Base", "Time", "PPM"].map((h) => (
-                      <th key={h} className="border border-slate-200 px-1 py-1 font-medium text-slate-500 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(rec.concentrationReadings ?? []).map((row) => {
-                    const eqPct = calcEquilibriumPercent(row.startTopGm3, row.startMiddleGm3, row.startBaseGm3);
-                    const datetimeCols = new Set(["startAt", "endAt", "tvlAt"]);
-                    const cols = [
-                      "containerNumber", "date",
-                      "startAt", "startTopGm3", "startMiddleGm3", "startBaseGm3",
-                      "endAt", "endTopGm3", "endMiddleGm3", "endBaseGm3",
-                      "tvlAt", "tvlPpm",
-                    ];
-                    return (
-                      <tr key={row.id}>
-                        {cols.map((col) => (
-                          <td key={col} className="border border-slate-200 px-0.5 py-0.5">
-                            <input
-                              className={`${smallInput} w-full min-w-0`}
-                              style={{ border: "none", boxShadow: "none" }}
-                              type={datetimeCols.has(col) ? "datetime-local" : "text"}
-                              value={row[col] ?? ""}
-                              onChange={(e) => updateReading(row.id, col, e.target.value)}
-                            />
-                          </td>
-                        ))}
-                        <td className="border border-slate-200 px-1 py-1 text-center text-slate-500">
-                          {eqPct ? `${eqPct}%` : ""}
-                        </td>
-                        <td className="border border-slate-200 px-1 py-1 text-center">
-                          <button type="button" onClick={() => removeReadingRow(row.id)} className="text-slate-400 hover:text-red-500">
-                            <Trash2 className="size-3" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <button
-                type="button"
-                onClick={addReadingRow}
-                className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 font-medium mb-4"
-              >
-                <Plus className="size-3" /> Add container row
-              </button>
-            </div>
+            <ConcentrationReadingsEditor
+              readings={rec.concentrationReadings ?? []}
+              onChange={setConcentrationReadings}
+              inputClass={`${smallInput} py-1 px-1.5`}
+              containerNumbers={rec.containerNumbers ?? []}
+              showSyncButton
+            />
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
               <FormField label="Enclosure ventilation start">

@@ -39,6 +39,9 @@ import {
   fetchMethodologiesNormalized,
   fetchRecordTemplatesNormalized,
 } from "@/lib/api/fumigation";
+import ConcentrationReadingsEditor from "@/components/fumigation/concentration-readings-editor";
+import { prefillReadingsFromPack } from "@/lib/fumigation-concentration-readings";
+import { filterOperationalContainers, getContainerNumberFromRecord } from "@/lib/packers-work-store";
 import { findDosageBandForTemp } from "@/lib/fumigation-dosage-bands";
 import { defaultEnclosureTypeForTiming, ENCLOSURE_TYPES, FUMIGATION_TARGETS } from "@/lib/fumigation-fields";
 import { loadContactUsers } from "@/lib/contact-users-store";
@@ -399,6 +402,7 @@ function blankFumigationDetail() {
     finalTlvPpm2: "",
     finalTlvPpm3: "",
     clearanceValue: "",
+    concentrationReadings: [],
     topUpEntries: [],
     fumigatorName: "",
     fumigatorSignature: "",
@@ -2239,6 +2243,13 @@ function NewPackFormPageInner() {
     pack.fumigationDetail && typeof pack.fumigationDetail === "object"
       ? pack.fumigationDetail
       : blankFumigationDetail();
+  const packContainerNumbers = useMemo(
+    () =>
+      filterOperationalContainers(pack.containers)
+        .map((c) => getContainerNumberFromRecord(c))
+        .filter(Boolean),
+    [pack.containers],
+  );
   const fumigationMethodologyOptions = useMemo(() => {
     if (!pack.fumigantId) return [];
     return methodologies.filter((item) => String(item.fumigantId) === String(pack.fumigantId));
@@ -2894,6 +2905,35 @@ function NewPackFormPageInner() {
       },
     }));
   }, [pack.fumigationRequired, pack.fumigationTiming, pack.fumigationDetail?.enclosureType]);
+
+  useEffect(() => {
+    if (!pack.fumigationRequired || pack.fumigationTiming !== "post-pack") return;
+    if (packContainerNumbers.length === 0) return;
+
+    const detail =
+      pack.fumigationDetail && typeof pack.fumigationDetail === "object"
+        ? pack.fumigationDetail
+        : blankFumigationDetail();
+    const current = detail.concentrationReadings ?? [];
+    const prefilled = prefillReadingsFromPack(current, packContainerNumbers);
+    if (JSON.stringify(prefilled) === JSON.stringify(current)) return;
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPack((prev) => ({
+      ...prev,
+      fumigationDetail: {
+        ...(prev.fumigationDetail && typeof prev.fumigationDetail === "object"
+          ? prev.fumigationDetail
+          : blankFumigationDetail()),
+        concentrationReadings: prefilled,
+      },
+    }));
+  }, [
+    pack.fumigationRequired,
+    pack.fumigationTiming,
+    pack.fumigationDetail,
+    packContainerNumbers,
+  ]);
 
   useEffect(() => {
     if (!pack.fumigationRequired || pack.fumigantId) return;
@@ -4750,12 +4790,25 @@ function NewPackFormPageInner() {
                                     ? prev.fumigationDetail
                                     : blankFumigationDetail();
                                 const defaultEnclosure = defaultEnclosureTypeForTiming(timing);
+                                const containerNumbers = filterOperationalContainers(prev.containers)
+                                  .map((c) => getContainerNumberFromRecord(c))
+                                  .filter(Boolean);
+                                const nextDetail = {
+                                  ...detail,
+                                  ...(defaultEnclosure ? { enclosureType: defaultEnclosure } : {}),
+                                  ...(timing === "post-pack"
+                                    ? {
+                                        concentrationReadings: prefillReadingsFromPack(
+                                          detail.concentrationReadings,
+                                          containerNumbers,
+                                        ),
+                                      }
+                                    : {}),
+                                };
                                 return {
                                   ...prev,
                                   fumigationTiming: timing,
-                                  fumigationDetail: defaultEnclosure
-                                    ? { ...detail, enclosureType: defaultEnclosure }
-                                    : detail,
+                                  fumigationDetail: nextDetail,
                                 };
                               });
                             }}
@@ -5374,6 +5427,20 @@ function NewPackFormPageInner() {
                           />
                         </FormRow>
                       </div>
+
+                      <div className="mt-3">
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Concentration readings (per container)
+                        </p>
+                        <ConcentrationReadingsEditor
+                          readings={fd.concentrationReadings ?? []}
+                          onChange={(nextReadings) => updateFumigationDetail({ concentrationReadings: nextReadings })}
+                          inputClass={inputClass}
+                          containerNumbers={packContainerNumbers}
+                          showSyncButton
+                        />
+                      </div>
+
                       <div className={cn("mt-2", fumigationGridClass)}>
                         <FormRow label="Final TLV reading 1 (ppm)">
                           <input

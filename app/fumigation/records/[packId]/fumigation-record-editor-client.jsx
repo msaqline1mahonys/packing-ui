@@ -28,18 +28,17 @@ import {
   resolveSignoffFields,
 } from "@/lib/fumigation-signatures";
 import { SignatureDisplay } from "@/components/fumigation/fumigation-signoff-display";
+import {
+  defaultContainerReadings,
+  emptyContainerReadingRow,
+  migrateLegacyReadings,
+  calcEquilibriumPercent,
+} from "@/lib/fumigation-concentration-readings";
 
 // ─── Default concentration readings grid ─────────────────────────────────────
 
-function defaultReadings() {
-  return [
-    { id: 1, phase: "start", phaseLabel: "Start", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-    { id: 2, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-    { id: 3, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-    { id: 4, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-    { id: 5, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-    { id: 6, phase: "end", phaseLabel: "End", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-  ];
+function defaultReadings(containerNumbers = []) {
+  return defaultContainerReadings(containerNumbers);
 }
 
 // ─── Normalize snapshot to handle older fields ────────────────────────────────
@@ -129,7 +128,10 @@ function normalizeRecord(m) {
     site: null,
     siteAddress: null,
     ...m,
-    concentrationReadings: m.concentrationReadings?.length ? m.concentrationReadings : defaultReadings(),
+    concentrationReadings: migrateLegacyReadings(
+      m.concentrationReadings?.length ? m.concentrationReadings : defaultReadings(m.containerNumbers),
+      m.containerNumbers,
+    ),
     topUpEntries: Array.isArray(m.topUpEntries) ? m.topUpEntries : [],
   };
 }
@@ -236,10 +238,7 @@ export default function FumigationRecordEditorClient({ packId }) {
       const newId = Math.max(0, ...rows.map((r) => r.id)) + 1;
       return {
         ...prev,
-        concentrationReadings: [
-          ...rows,
-          { id: newId, phase: "during", phaseLabel: "During", date: "", time: "", location1: "", location2: "", location3: "", location4: "", location5: "", equilibriumPercent: "", standardGm3: "", fumigatorInitials: "" },
-        ],
+        concentrationReadings: [...rows, emptyContainerReadingRow(newId)],
       };
     });
   }, []);
@@ -544,41 +543,60 @@ export default function FumigationRecordEditorClient({ packId }) {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-[11px] border-collapse border border-slate-200 mb-2">
-                <thead className="bg-slate-50">
+              <p className="text-[10px] text-slate-500 mb-2">
+                Equilibrium: (Highest − Lowest) / Lowest × 100 = % — target below 15%
+              </p>
+              <table className="w-full text-[10px] border-collapse border border-slate-200 mb-2">
+                <thead>
                   <tr>
-                    {["Phase", "Date (dd/mm)", "Time (hh:mm)", "Loc 1", "Loc 2", "Loc 3", "Loc 4", "Loc 5", "Eq%", "Std g/m3", "Initials", ""].map((h) => (
-                      <th key={h} className="border border-slate-200 px-1 py-1.5 text-left font-medium text-slate-500 whitespace-nowrap">{h}</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Container</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Date</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-sky-100 text-center" colSpan={4}>Start</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-emerald-100 text-center" colSpan={4}>End</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-amber-100 text-center" colSpan={2}>TVL</th>
+                    <th className="border border-slate-200 px-1 py-1 font-medium text-slate-600 bg-slate-50" rowSpan={2}>Eq.%</th>
+                    <th className="border border-slate-200 px-1 py-1" rowSpan={2} />
+                  </tr>
+                  <tr>
+                    {["Time", "Top", "Mid", "Base", "Time", "Top", "Mid", "Base", "Time", "PPM"].map((h) => (
+                      <th key={h} className="border border-slate-200 px-1 py-1 font-medium text-slate-500 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(rec.concentrationReadings ?? []).map((row) => (
-                    <tr key={row.id}>
-                      <td className="border border-slate-200 px-1 py-1">
-                        <select className="w-full text-[11px] bg-transparent outline-none" value={row.phase} onChange={(e) => updateReading(row.id, "phase", e.target.value)}>
-                          <option value="start">Start</option>
-                          <option value="during">During</option>
-                          <option value="end">End</option>
-                        </select>
-                      </td>
-                      {["date", "time", "location1", "location2", "location3", "location4", "location5", "equilibriumPercent", "standardGm3", "fumigatorInitials"].map((col) => (
-                        <td key={col} className="border border-slate-200 px-0.5 py-0.5">
-                          <input
-                            className={`${smallInput} w-full min-w-0`}
-                            style={{ border: "none", boxShadow: "none" }}
-                            value={row[col] ?? ""}
-                            onChange={(e) => updateReading(row.id, col, e.target.value)}
-                          />
+                  {(rec.concentrationReadings ?? []).map((row) => {
+                    const eqPct = calcEquilibriumPercent(row.startTopGm3, row.startMiddleGm3, row.startBaseGm3);
+                    const datetimeCols = new Set(["startAt", "endAt", "tvlAt"]);
+                    const cols = [
+                      "containerNumber", "date",
+                      "startAt", "startTopGm3", "startMiddleGm3", "startBaseGm3",
+                      "endAt", "endTopGm3", "endMiddleGm3", "endBaseGm3",
+                      "tvlAt", "tvlPpm",
+                    ];
+                    return (
+                      <tr key={row.id}>
+                        {cols.map((col) => (
+                          <td key={col} className="border border-slate-200 px-0.5 py-0.5">
+                            <input
+                              className={`${smallInput} w-full min-w-0`}
+                              style={{ border: "none", boxShadow: "none" }}
+                              type={datetimeCols.has(col) ? "datetime-local" : "text"}
+                              value={row[col] ?? ""}
+                              onChange={(e) => updateReading(row.id, col, e.target.value)}
+                            />
+                          </td>
+                        ))}
+                        <td className="border border-slate-200 px-1 py-1 text-center text-slate-500">
+                          {eqPct ? `${eqPct}%` : ""}
                         </td>
-                      ))}
-                      <td className="border border-slate-200 px-1 py-1 text-center">
-                        <button type="button" onClick={() => removeReadingRow(row.id)} className="text-slate-400 hover:text-red-500">
-                          <Trash2 className="size-3" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="border border-slate-200 px-1 py-1 text-center">
+                          <button type="button" onClick={() => removeReadingRow(row.id)} className="text-slate-400 hover:text-red-500">
+                            <Trash2 className="size-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <button
@@ -586,22 +604,13 @@ export default function FumigationRecordEditorClient({ packId }) {
                 onClick={addReadingRow}
                 className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 font-medium mb-4"
               >
-                <Plus className="size-3" /> Add reading row
+                <Plus className="size-3" /> Add container row
               </button>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
               <FormField label="Enclosure ventilation start">
                 <input className={inputClass} type="datetime-local" value={rec.ventilationStartAt ?? ""} onChange={(e) => set("ventilationStartAt", e.target.value)} />
-              </FormField>
-              <FormField label="Final TLV reading 1 (ppm)">
-                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm1 ?? ""} onChange={(e) => set("finalTlvPpm1", e.target.value)} />
-              </FormField>
-              <FormField label="Final TLV reading 2 (ppm)">
-                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm2 ?? ""} onChange={(e) => set("finalTlvPpm2", e.target.value)} />
-              </FormField>
-              <FormField label="Final TLV reading 3 (ppm)">
-                <input className={inputClass} type="number" step="0.1" value={rec.finalTlvPpm3 ?? ""} onChange={(e) => set("finalTlvPpm3", e.target.value)} />
               </FormField>
             </div>
 

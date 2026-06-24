@@ -26,20 +26,19 @@ test.describe("Fumigation Record — generate → edit → issue → print", () 
     await expect(fullNameInput).toHaveValue("Jane Fumigator");
   });
 
-  test("concentration readings grid has 6 default rows", async ({ page }) => {
+  test("concentration readings grid has one row per pack container", async ({ page }) => {
     await page.goto(`/fumigation/records/${PACK_ID}`);
     await expect(page.getByText(/Section D/i).first()).toBeVisible({ timeout: 10_000 });
-    // 6 rows (Start + 4 During + End)
-    const rows = page.locator("table").filter({ hasText: /Phase/ }).locator("tbody tr");
-    await expect(rows).toHaveCount(6);
+    const rows = page.locator("table").filter({ hasText: /Container/ }).locator("tbody tr");
+    await expect(rows).toHaveCount(1);
   });
 
   test("can add a concentration reading row", async ({ page }) => {
     await page.goto(`/fumigation/records/${PACK_ID}`);
     await expect(page.getByText(/Section D/i).first()).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: /Add reading row/i }).click();
-    const rows = page.locator("table").filter({ hasText: /Phase/ }).locator("tbody tr");
-    await expect(rows).toHaveCount(7);
+    await page.getByRole("button", { name: /Add container row/i }).click();
+    const rows = page.locator("table").filter({ hasText: /Container/ }).locator("tbody tr");
+    await expect(rows).toHaveCount(2);
   });
 
   test("can add a top-up row", async ({ page }) => {
@@ -70,8 +69,8 @@ test.describe("Fumigation Record — generate → edit → issue → print", () 
   test("record print page includes concentration readings table", async ({ page }) => {
     await page.goto(`/fumigation/records/${PACK_ID}/print`);
     await expect(page.getByText(/Section D/i).first()).toBeVisible({ timeout: 12_000 });
-    await expect(page.getByText(/Phase/i).first()).toBeVisible();
-    await expect(page.getByText(/Loc 1/i).first()).toBeVisible();
+    await expect(page.getByText(/Container number/i).first()).toBeVisible();
+    await expect(page.getByText(/TVL reading/i).first()).toBeVisible();
   });
 
   test("Refresh from pack button resets Section A fumigator name", async ({ page }) => {

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Pack-scoped slice of the packing schedule containers grid (same Grid + columns as /packing-schedule/containers).
+ * When `panelHeight` is set (xl layout), height matches the adjacent containers/releases panel.
  */
 export default function PackCollectedContainersTable({
   containers = [],
@@ -23,6 +24,7 @@ export default function PackCollectedContainersTable({
   containerParkOptions = [],
   transporterOptions = [],
   onContainerUpdated,
+  panelHeight = null,
   className,
 }) {
   const router = useRouter();
@@ -92,28 +94,37 @@ export default function PackCollectedContainersTable({
     [canOpenPackers, resolvedPackId, router],
   );
 
+  const panelStyle = panelHeight ? { height: panelHeight } : undefined;
+  const fillScrollArea = Boolean(panelHeight);
+  const panelClassName = cn(
+    "flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm",
+    fillScrollArea && "h-full",
+  );
+
   if (!rows.length) {
     return (
-      <section
-        className={cn("min-w-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm", className)}
-        aria-label="Collected containers"
-      >
-        <p className="px-3 py-8 text-center text-xs text-slate-400">No containers on this pack yet.</p>
+      <section className={cn("min-w-0", className)} aria-label="Collected containers">
+        <div className={cn(panelClassName, "items-center justify-center")} style={panelStyle}>
+          <p className="px-3 py-8 text-center text-xs text-slate-400">No containers on this pack yet.</p>
+        </div>
       </section>
     );
   }
 
   return (
     <section className={cn("min-w-0", className)} aria-label="Collected containers">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+      <div className={panelClassName} style={panelStyle}>
         <Grid
+          className="flex min-h-0 flex-1 flex-col"
+          fillScrollArea={fillScrollArea}
           columns={gridColumns}
           rows={rows}
           getRowId={(row) => row.id}
           theme="light"
           density="standard"
           fileName="Packing Schedule Containers"
-          visibleRows={Math.min(Math.max(rows.length, 5), 14)}
+          visibleRows={10}
+          enablePagination={false}
           persistKey={resolvedPackId ? `pack-form-containers-${resolvedPackId}` : false}
           onRowClick={canOpenPackers ? openPackers : undefined}
           getRowClassName={({ row }) => {

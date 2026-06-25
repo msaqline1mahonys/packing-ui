@@ -10,6 +10,6 @@ export default async function PackersPackDetailPage({ params, searchParams }) {
       : typeof resolvedSearch?.containerId === "string"
         ? resolvedSearch.containerId
         : null;
-  return <PackDetailClient packId={packId} initialContainerId={initialContainerId} />;
+  return <PackDetailClient key={packId} packId={packId} initialContainerId={initialContainerId} />;
 }
 

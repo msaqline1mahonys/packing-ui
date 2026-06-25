@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
+import { packFormQuickAdd } from "@/lib/pack-form-quick-add";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
@@ -557,7 +558,16 @@ export default function ContainerFormSections({
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
           <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
           <PemsInput
-            label="Gross Weight"
+            label="Container Tare"
+            value={getValue(container, names, "containerTareWeight")}
+            onChange={(value) => setField("containerTareWeight", value)}
+            type="number"
+            step="0.01"
+            inputClass={inputClass}
+            readOnly={readOnly}
+          />
+          <PemsInput
+            label="Gross"
             value={grossWeightValue}
             onChange={(value) => setField("grossWeight", sanitizeGrossWeightInput(value))}
             type="number"
@@ -567,16 +577,7 @@ export default function ContainerFormSections({
             error={grossWeightError}
             readOnly={readOnly}
           />
-          <PemsInput label="Nett Weight" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
-          <PemsInput
-            label="Container tare weight"
-            value={getValue(container, names, "containerTareWeight")}
-            onChange={(value) => setField("containerTareWeight", value)}
-            type="number"
-            step="0.01"
-            inputClass={inputClass}
-            readOnly={readOnly}
-          />
+          <PemsInput label="Nett" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
           <IsoWeightLimitWarnings warnings={isoWeightLimitWarnings} />
         </div>
       </div>
@@ -588,6 +589,7 @@ export default function ContainerFormSections({
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-600">Release Number</label>
               <ClutchSelect
+                {...packFormQuickAdd("release")}
                 options={releaseSelectOptions}
                 value={
                   releaseSelectOptions.find(
@@ -607,6 +609,7 @@ export default function ContainerFormSections({
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
             <ClutchSelect
+              {...packFormQuickAdd("containerPark")}
               options={parkSelectOptions}
               value={parkSelectOptions.find((o) => String(o.value) === String(container?.emptyContainerParkId ?? "")) ?? null}
               onChange={(option) => handleParkSelect(option ? option.value : "")}
@@ -617,6 +620,7 @@ export default function ContainerFormSections({
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Transporter</label>
             <ClutchSelect
+              {...packFormQuickAdd("transporter")}
               options={transporterSelectOptions}
               value={transporterSelectOptions.find((o) => String(o.value) === String(container?.transporterId ?? "")) ?? null}
               onChange={(option) => handleTransporterSelect(option ? option.value : "")}

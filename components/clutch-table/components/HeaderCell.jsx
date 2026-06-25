@@ -2,7 +2,6 @@
 
 import { useRef, useCallback, useState } from 'react'
 import { Box, IconButton, Tooltip } from '@mui/material'
-import { alpha } from '@mui/material/styles'
 import ArrowUpward from '@mui/icons-material/ArrowUpward'
 import ArrowDownward from '@mui/icons-material/ArrowDownward'
 import FilterAlt from '@mui/icons-material/FilterAlt'
@@ -42,8 +41,8 @@ export function HeaderCell({
   const showDragHandle = isDraggable && pin == null
   const showActions = !hideActionsUntilHover || isHovered || isDragging
   const showFilterAction = showActions || hasFilter
-  const headerBg = (theme) => (isLegacySkin ? '#1f4d2e' : alpha(theme.palette.primary.main, 0.06))
-  const headerHoverBg = (theme) => (isLegacySkin ? '#266038' : alpha(theme.palette.primary.main, 0.11))
+  const headerBg = (theme) => (isLegacySkin ? '#1f4d2e' : theme.palette.background.paper)
+  const headerHoverBg = (theme) => (isLegacySkin ? '#266038' : theme.palette.action.hover)
 
   const handleClick = useCallback((e) => {
     if (!sortable) return
@@ -91,7 +90,7 @@ export function HeaderCell({
         justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
         gap: 0.5, px: 1, py: 0.75, fontWeight: 600, fontSize: '0.82rem',
         color: isLegacySkin ? '#fff' : 'text.primary',
-        bgcolor: pin ? headerBg : 'transparent',
+        bgcolor: headerBg,
         borderRight: '1px solid',
         borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : 'divider',
         userSelect: 'none',

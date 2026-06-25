@@ -62,6 +62,8 @@ import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
+import PackerSelectModal from "@/components/packers-schedule/packer-select-modal";
+import { getSessionPackerForPack, setSessionPackerForPack } from "@/lib/packers-session-store";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { isImportPack } from "@/lib/pack-import";
 
@@ -340,6 +342,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   const [bulkImportProgress, setBulkImportProgress] = useState("");
   const [bulkImportError, setBulkImportError] = useState("");
   const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showPackerModal, setShowPackerModal] = useState(false);
   const [unlockReason, setUnlockReason] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
@@ -425,20 +428,62 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   }, [authorisedOfficers]);
   const aoNameOptions = useMemo(() => authorisedOfficers.map((u) => u.name).filter(Boolean), [authorisedOfficers]);
 
+  const resyncWorkDraftsForPack = useCallback(
+    (row) => {
+      if (!row) return;
+      setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, lookups));
+    },
+    [lookups]
+  );
+
+  function promptPackerSelectionIfNeeded(row) {
+    if (!row?.id) return;
+
+    const assigned = Array.isArray(row.assignedPackers) ? row.assignedPackers : [];
+    const activeAssigned = assigned.filter((packer) => String(packer.status ?? "active").toLowerCase() === "active");
+    if (!activeAssigned.length) return;
+
+    if (getSessionPackerForPack(row.id)) {
+      resyncWorkDraftsForPack(row);
+      return;
+    }
+
+    if (activeAssigned.length === 1) {
+      setSessionPackerForPack(row.id, {
+        packerId: activeAssigned[0].id,
+        packerName: activeAssigned[0].name,
+      });
+      resyncWorkDraftsForPack(row);
+      return;
+    }
+
+    setShowPackerModal(true);
+  }
+
   useEffect(() => {
     if (!packId) return;
     fetchPack(packId)
       .then((row) => {
         setPackRow(row || null);
-        if (row) setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, lookups));
+        if (!row) return;
+        setWorkByPack((prev) => syncWorkDrafts([row], { ...loadWorkDrafts(), ...prev }, lookups));
+        promptPackerSelectionIfNeeded(row);
       })
       .catch(() => {});
     // lookups intentionally excluded — we only want this to fire on packId change.
-    // The syncWorkDrafts call uses the latest lookups snapshot at mount time;
-    // subsequent lookup updates (e.g. new packers) are reflected reactively via
-    // the TanStack Query cache without re-fetching the pack.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId]);
+
+  function handlePackerModalConfirm({ packerId, packerName }) {
+    setSessionPackerForPack(packId, { packerId, packerName });
+    setShowPackerModal(false);
+    if (packRow) resyncWorkDraftsForPack(packRow);
+  }
+
+  function handlePackerModalClose() {
+    setShowPackerModal(false);
+    router.push("/packers-schedule");
+  }
 
   useEffect(() => {
     return () => {
@@ -584,7 +629,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
 
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
-    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer)) {
+    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer, { isDirty: dirtyContainerIds.has(selectedContainer.id) })) {
       showContainerValidationError("This container is locked after packer signoff. Use Unlock and enter a reason to edit.");
       return;
     }
@@ -949,7 +994,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
 
   async function saveSelectedContainer() {
     if (!packRow || !selectedContainer) return;
-    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer)) {
+    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer, { isDirty: dirtyContainerIds.has(selectedContainer.id) })) {
       showContainerValidationError("This container is locked after packer signoff. Use Unlock and enter a reason to edit.");
       return;
     }
@@ -1068,7 +1113,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   const missingChecks = selectedContainer ? getCompletionMissingChecks(selectedContainer, { isImport: isImportJob }) : [];
   const outloadBlockers = selectedContainer ? getOutloadBlockers(selectedContainer, { isImport: isImportJob }) : [];
   const containerFieldsLocked = selectedContainer
-    ? isPackersContainerLockedAfterSignoff(packRow?.status, selectedContainer)
+    ? isPackersContainerLockedAfterSignoff(packRow?.status, selectedContainer, { isDirty })
     : false;
   const packChecks = selectedPackDraft?.packChecks || {};
   const packChecksCompleteCount = packCheckFields.filter((field) => Boolean(packChecks[field.key])).length;
@@ -1801,6 +1846,15 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
           </div>
         </div>
       ) : null}
+
+      <PackerSelectModal
+        key={packId}
+        open={showPackerModal}
+        packLabel={packDisplayRef ? `#${packDisplayRef}` : ""}
+        packers={packRow.assignedPackers || []}
+        onConfirm={handlePackerModalConfirm}
+        onClose={handlePackerModalClose}
+      />
     </div>
   );
 }

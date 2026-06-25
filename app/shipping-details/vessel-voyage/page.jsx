@@ -7,6 +7,7 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { usePolling } from "@/lib/use-polling";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
@@ -335,6 +336,8 @@ export default function VesselVoyagePage() {
     setDraft(buildDraft());
     setModalMode("add");
   };
+
+  useAutoOpenAddModal(openAddModal);
 
   const openEditModal = () => {
     if (!selected) return;

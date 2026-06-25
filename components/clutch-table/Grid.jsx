@@ -110,7 +110,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
     searchValue: searchValueProp,
     onSearchChange,
     /** When true, column widths grow so the grid uses the full scroll-area width (slack split evenly). */
-    fillContainerWidth = true
+    fillContainerWidth = true,
+    /** When true, scroll body fills remaining Paper height (parent must constrain height). */
+    fillScrollArea = false
   } = props;
   const pathname = usePathname();
   const effectivePersistKey = useMemo(() => {
@@ -1289,6 +1291,11 @@ export const Grid = forwardRef(function Grid(props, ref) {
       borderRadius: isLegacySkin ? 0 : 2,
       fontFamily: t => t.typography.fontFamily,
       bgcolor: 'background.paper',
+      ...(fillScrollArea && {
+        height: '100%',
+        minHeight: 0,
+        flex: 1,
+      }),
       ...(isLegacySkin && {
         border: '1px solid #b8c9b8',
         borderRadius: 0,
@@ -1405,8 +1412,9 @@ export const Grid = forwardRef(function Grid(props, ref) {
         <Box ref={attachScrollContainer} sx={{
         position: 'relative',
         overflow: 'auto',
-        maxHeight: effectiveMaxBodyHeight,
-        minHeight: 160,
+        ...(fillScrollArea
+          ? { flex: 1, minHeight: 0 }
+          : { maxHeight: effectiveMaxBodyHeight, minHeight: 160 }),
         outline: 'none'
       }} tabIndex={focusedCell ? -1 : 0} onFocus={e => {
         // Tab into the grid: move focus to the first cell (or last focused cell)
@@ -1431,7 +1439,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
                 position: 'sticky',
                 top: 0,
                 zIndex: 4,
-                bgcolor: isLegacySkin ? '#1f4d2e' : (theme) => alpha(theme.palette.primary.main, 0.06),
+                bgcolor: isLegacySkin ? '#1f4d2e' : 'background.paper',
                 borderBottom: '2px solid',
                 borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : (theme) => alpha(theme.palette.primary.main, 0.18),
               }}>
@@ -1444,7 +1452,7 @@ export const Grid = forwardRef(function Grid(props, ref) {
                   position: 'sticky',
                   left: 0,
                   zIndex: 5,
-                  bgcolor: isLegacySkin ? '#1f4d2e' : (theme) => alpha(theme.palette.primary.main, 0.06),
+                  bgcolor: isLegacySkin ? '#1f4d2e' : 'background.paper',
                   borderRight: '1px solid',
                   borderColor: isLegacySkin ? 'rgba(255,255,255,0.14)' : 'divider'
                 }}>

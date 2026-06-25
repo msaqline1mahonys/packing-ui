@@ -6,6 +6,7 @@ import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -212,6 +213,8 @@ export default function PortPage() {
     setDraft(buildDraft());
     setModalMode("add");
   };
+
+  useAutoOpenAddModal(openAddModal);
 
   const openEditModal = () => {
     if (!selected) return;

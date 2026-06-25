@@ -1,5 +1,6 @@
 "use client";
 
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
@@ -186,6 +187,8 @@ export default function FumigantsPage() {
     setDraft(buildDraft());
     setModalMode("add");
   }
+
+  useAutoOpenAddModal(openAdd);
 
   function openEdit() {
     if (!selected) return;

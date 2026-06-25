@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { useCustomersQuery, useInvalidateCustomers } from "@/lib/hooks/use-customers-query";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -274,6 +275,8 @@ export default function ContactCustomersPage() {
     setFormData(buildFormData());
     setModalOpen(true);
   }
+
+  useAutoOpenAddModal(openCreateModal);
 
   function openEditModal() {
     if (!selected || selected.isShrink || selected.isWriteOff) return;

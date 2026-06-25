@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -27,6 +27,7 @@ import {
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
+import { openPackFormQuickAdd } from "@/lib/pack-form-quick-add";
 import {
   loadCertificateTemplates,
   loadFumigants,
@@ -87,7 +88,7 @@ import { readSiteRows } from "@/lib/site-data";
 import { AlertCircle, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import ClutchSelect from "@/components/custom/ClutchSelect";
+import ClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
 
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
@@ -579,6 +580,7 @@ const blankPack = (siteId) => ({
   emptyContainerParkIds: [],
   transporterIds: [],
   assignedPackerIds: [],
+  packingLocationId: null,
   importPermitFiles: [],
   additionalDeclarationFiles: [],
   rfpFiles: [],
@@ -859,6 +861,8 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     vesselDepartureId: resolvedVesselVoyageId,
     vesselName: row.vessel_voyage?.vessel?.vessel_name ?? row.vesselVoyage?.vessel?.vesselName ?? row.vessel ?? "",
     packingStartDate: toDateInputValue(row.packing_start_date ?? row.packingStartDate),
+    packingLocationId: row.packing_location_id ?? row.packingLocationId ?? row.packingLocation?.id ?? row.packing_location?.id ?? null,
+    packingLocationName: row.packing_location?.name ?? row.packingLocation?.name ?? row.packing_location_name ?? row.packingLocationName ?? "",
     packConfirmed: Boolean(row.pack_confirmed ?? row.packConfirmed),
     voyageNumber: (row.voyage_number ?? row.voyageNumber) || "",
     lloydId: (row.lloyd_id ?? row.lloydId) || "",
@@ -992,6 +996,7 @@ function packToScheduleRow(pack, existingRow, { includeContainers = true } = {})
     treatmentProviderId: pack.treatmentProviderId || "",
     fumigatorAccreditationNumber: pack.fumigatorAccreditationNumber || "",
     packingStartDate: pack.packingStartDate || "",
+    packingLocationId: pack.packingLocationId || null,
     packConfirmed: Boolean(pack.packConfirmed),
     voyageNumber: pack.voyageNumber || "",
     lloydId: pack.lloydId || "",
@@ -1337,6 +1342,7 @@ function BlendComponentEditor({
                 Source commodity grade
               </label>
               <ClutchSelect
+                quickAdd="commodity"
                 placeholder="- Select -"
                 options={commoditySelectOpts}
                 value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
@@ -1356,6 +1362,7 @@ function BlendComponentEditor({
                 Stock location
               </label>
               <ClutchSelect
+                quickAdd="stockLocation"
                 placeholder="- Select -"
                 options={locationSelectOpts}
                 value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
@@ -1412,6 +1419,7 @@ function BlendComponentEditor({
             Source commodity grade
           </label>
           <ClutchSelect
+            quickAdd="commodity"
             placeholder="- Select -"
             options={commoditySelectOpts}
             value={commoditySelectOpts.find((o) => String(o.value) === String(component.commodityId ?? "")) ?? null}
@@ -1431,6 +1439,7 @@ function BlendComponentEditor({
             Stock location
           </label>
           <ClutchSelect
+            quickAdd="stockLocation"
             placeholder="- Select -"
             options={locationSelectOpts}
             value={locationSelectOpts.find((o) => String(o.value) === String(component.locationId ?? "")) ?? null}
@@ -1956,6 +1965,14 @@ function NewPackFormPageInner() {
   const packerOptions = useMemo(
     () => (queryLookups.referencePackers.length ? queryLookups.referencePackers : queryLookups.packers),
     [queryLookups.referencePackers, queryLookups.packers]
+  );
+  const activePackerSelectOpts = useMemo(
+    () =>
+      (packerOptions || [])
+        .filter((p) => String(p.status ?? "active").toLowerCase() === "active")
+        .map((p) => ({ value: String(p.id), label: p.name ?? "" }))
+        .filter((o) => o.value && o.label),
+    [packerOptions]
   );
   const packerNames = queryLookups.packerNames;
   const testsCatalog = useTestsCatalog();
@@ -2857,6 +2874,44 @@ function NewPackFormPageInner() {
     return (country.warningItems ?? []).filter((warning) => warning.showOnPacks !== false);
   }, [pack.destinationCountry, countryOptions]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
+  const containersReleasesPanelRef = useRef(null);
+  const [containersReleasesPanelHeight, setContainersReleasesPanelHeight] = useState(null);
+  const [containersPanelSyncEnabled, setContainersPanelSyncEnabled] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const update = () => setContainersPanelSyncEnabled(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!containersPanelSyncEnabled) {
+      setContainersReleasesPanelHeight(null);
+      return;
+    }
+    const node = containersReleasesPanelRef.current;
+    if (!node) return;
+
+    const syncHeight = () => {
+      const height = node.offsetHeight;
+      setContainersReleasesPanelHeight(height > 0 ? height : null);
+    };
+
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    containersPanelSyncEnabled,
+    releaseRows.length,
+    packContainers.length,
+    containersRequiredWarning,
+    pack.containersRequired,
+    pack.containerCode,
+    pack.quantityPerContainer,
+  ]);
   const accountingPackId = String(pack.id || editingRow?.id || "").trim();
   const accountingRefreshKey = useMemo(() => {
     const packedSignature = packContainers
@@ -3368,8 +3423,7 @@ function NewPackFormPageInner() {
             <div className={topRowSectionsClass(showImportBulkSection)}>
               <section className={flushSectionClass} aria-label="Pack basics">
                 <div className={cn(flushSectionBodyClass, sectionStackClass)}>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <FormRow label="Pack type">
+                  <FormRow label="Pack type">
                       <ClutchSelect
                         isClearable={false}
                         options={PACK_TYPE_OPTIONS}
@@ -3377,15 +3431,6 @@ function NewPackFormPageInner() {
                         onChange={(option) => set("packType", option ? option.value : "")}
                       />
                     </FormRow>
-                    <FormRow label="Pack confirmed">
-                      <ClutchSelect
-                        isClearable={false}
-                        options={YES_NO_OPTIONS}
-                        value={YES_NO_OPTIONS.find((o) => o.value === (pack.packConfirmed ? "yes" : "no")) ?? null}
-                        onChange={(option) => set("packConfirmed", option?.value === "yes")}
-                      />
-                    </FormRow>
-                  </div>
                   <FormRow label="Import / Export">
                     <ClutchSelect
                       isClearable={false}
@@ -3549,6 +3594,7 @@ function NewPackFormPageInner() {
                     const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
                     return (
                       <ClutchSelect
+                        quickAdd="customer"
                         placeholder="- Select -"
                         options={customerSelectOpts}
                         value={customerSelectOpts.find((o) => String(o.value) === String(pack.customerId)) ?? null}
@@ -3562,6 +3608,7 @@ function NewPackFormPageInner() {
                     const customerSelectOpts = customerOptions.map((c) => ({ value: String(c.id), label: c.name }));
                     return (
                       <ClutchSelect
+                        quickAdd="customer"
                         placeholder="- Select -"
                         options={customerSelectOpts}
                         value={customerSelectOpts.find((o) => String(o.value) === String(pack.exporter)) ?? null}
@@ -3575,6 +3622,7 @@ function NewPackFormPageInner() {
                     const commoditySelectOpts = commodityOptions.map((c) => ({ value: String(c.id), label: commodityOptionLabel(c) }));
                     return (
                       <ClutchSelect
+                        quickAdd="commodity"
                         placeholder="- Select -"
                         options={commoditySelectOpts}
                         value={commoditySelectOpts.find((o) => String(o.value) === String(pack.commodityId)) ?? null}
@@ -3614,38 +3662,54 @@ function NewPackFormPageInner() {
                 <FormRow label="Packing start date">
                   <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
                 </FormRow>
-                <FormRow label="Assigned packers">
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
-                    {packerOptions.filter((p) => String(p.status ?? "active").toLowerCase() === "active").length === 0 ? (
-                      <span className="text-xs text-slate-400">No packers available</span>
-                    ) : (
-                      packerOptions
-                        .filter((p) => String(p.status ?? "active").toLowerCase() === "active")
-                        .map((p) => {
-                          const checked = Array.isArray(pack.assignedPackerIds) && pack.assignedPackerIds.includes(String(p.id));
-                          return (
-                            <label key={p.id} className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-700">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                className="size-3.5 border-slate-300 accent-brand"
-                                onChange={() => {
-                                  const currentIds = Array.isArray(pack.assignedPackerIds) ? pack.assignedPackerIds.map(String) : [];
-                                  const id = String(p.id);
-                                  const nextIds = currentIds.includes(id) ? currentIds.filter((x) => x !== id) : [...currentIds, id];
-                                  const nextAssigned = packerOptions
-                                    .filter((row) => nextIds.includes(String(row.id)))
-                                    .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
-                                  setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
-                                }}
-                              />
-                              {p.name}
-                            </label>
-                          );
-                        })
-                    )}
+                <div className={spanFullClass}>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-start">
+                    <FormRow label="Location" className="min-w-0">
+                      {(() => {
+                        const locationSelectOpts = (Array.isArray(queryLookups.stockLocations) ? queryLookups.stockLocations : []).map((s) => ({
+                          value: s.id,
+                          label: s.name ?? "",
+                        }));
+                        return (
+                          <ClutchSelect
+                            quickAdd="stockLocation"
+                            placeholder="- Select location -"
+                            options={locationSelectOpts}
+                            value={locationSelectOpts.find((o) => String(o.value) === String(pack.packingLocationId ?? "")) ?? null}
+                            onChange={(option) =>
+                              setPack((prev) => ({
+                                ...prev,
+                                packingLocationId: option ? option.value : null,
+                                packingLocationName: option ? option.label : "",
+                              }))
+                            }
+                          />
+                        );
+                      })()}
+                    </FormRow>
+                    <FormRow label="Assigned packers" className="min-w-0">
+                      <ClutchSelect
+                        quickAdd="packer"
+                        isMulti
+                        placeholder="- Select packers -"
+                        options={activePackerSelectOpts}
+                        value={activePackerSelectOpts.filter(
+                          (option) =>
+                            Array.isArray(pack.assignedPackerIds) &&
+                            pack.assignedPackerIds.map(String).includes(option.value)
+                        )}
+                        onChange={(selected) => {
+                          const rows = Array.isArray(selected) ? selected : [];
+                          const nextIds = rows.map((option) => option.value);
+                          const nextAssigned = packerOptions
+                            .filter((row) => nextIds.includes(String(row.id)))
+                            .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
+                          setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
+                        }}
+                      />
+                    </FormRow>
                   </div>
-                </FormRow>
+                </div>
                 <div className={spanFullClass}>
                   <div className={cn("grid gap-2", pack.fumigationRequired ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-1")}>
                     <FormRow label="Fumigation required">
@@ -3676,6 +3740,7 @@ function NewPackFormPageInner() {
                           }));
                           return (
                             <ClutchSelect
+                              quickAdd="fumigant"
                               placeholder="- Select fumigant -"
                               options={fumigantSelectOpts}
                               value={
@@ -3781,8 +3846,13 @@ function NewPackFormPageInner() {
             />
 
             <div className={containersShippingRowClass}>
-              <section className={sectionClass} aria-label="Containers and quantity">
-                <div className={innerPanelClass}>
+              <section
+                ref={containersReleasesPanelRef}
+                className={cn(sectionClass, "xl:order-1")}
+                aria-label="Containers and quantity"
+              >
+                <div className={cn(innerPanelClass, "flex flex-col")}>
+                  <div className="shrink-0 space-y-2">
                   <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
                     <FormRow label="Containers Required">
                       <div className="flex items-center gap-2">
@@ -3851,6 +3921,7 @@ function NewPackFormPageInner() {
                         });
                         return (
                           <ClutchSelect
+                            quickAdd="containerCode"
                             placeholder="- Select container code -"
                             options={containerCodeSelectOpts}
                             value={containerCodeSelectOpts.find((o) => o.value === (pack.containerCode || "")) ?? null}
@@ -3922,8 +3993,10 @@ function NewPackFormPageInner() {
                       />
                     </FormRow>
                   </div>
+                  </div>
 
-                  <div className="space-y-2 border-t border-slate-200/80 pt-2">
+                  <div className="mt-2 flex flex-col border-t border-slate-200/80 pt-2">
+                    <div className="space-y-2">
                     <p className="text-[10px] text-slate-500">
                       Link reference releases to this pack. Park and transporter are set per container or via bulk import.
                     </p>
@@ -4013,6 +4086,9 @@ function NewPackFormPageInner() {
                       </div>
                     ))}
 
+                    </div>
+
+                    <div className="shrink-0 pt-2">
                     <div className="flex flex-wrap items-end gap-2">
                       {(() => {
                         const linkedIds = new Set(releaseRows.map((r) => String(r.releaseId)));
@@ -4025,6 +4101,7 @@ function NewPackFormPageInner() {
                         return (
                           <div className="min-w-[220px] flex-1">
                             <ClutchSelect
+                              quickAdd="release"
                               placeholder="Link existing release…"
                               options={linkOpts}
                               value={null}
@@ -4057,12 +4134,14 @@ function NewPackFormPageInner() {
                         Bulk import containers
                       </Button>
                     </div>
+                    </div>
                   </div>
                 </div>
               </section>
 
               <PackCollectedContainersTable
-                className={cn(flushSectionClass, "flex h-full min-h-0 flex-col")}
+                className="xl:order-2"
+                panelHeight={containersPanelSyncEnabled ? containersReleasesPanelHeight : null}
                 containers={packContainers}
                 pack={pack}
                 packId={pack.id ?? editingRow?.id ?? editId ?? null}
@@ -4135,6 +4214,7 @@ function NewPackFormPageInner() {
                           ];
                           return (
                             <ClutchSelect
+                              quickAdd="terminal"
                               placeholder="- Select location -"
                               options={unloadingOpts}
                               value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
@@ -4220,6 +4300,7 @@ function NewPackFormPageInner() {
                             const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
                             return (
                               <ClutchSelect
+                                quickAdd="country"
                                 placeholder="- Select country -"
                                 options={countrySelectOpts}
                                 value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
@@ -4244,6 +4325,7 @@ function NewPackFormPageInner() {
                             ];
                             return (
                               <ClutchSelect
+                                quickAdd="port"
                                 placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
                                 options={destPortOpts}
                                 value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
@@ -4272,6 +4354,7 @@ function NewPackFormPageInner() {
                         const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
                         return (
                           <ClutchSelect
+                            quickAdd="shippingLine"
                             placeholder="- Select -"
                             options={shippingLineSelectOpts}
                             value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
@@ -4292,6 +4375,7 @@ function NewPackFormPageInner() {
                             ];
                             return (
                               <ClutchSelect
+                                quickAdd="port"
                                 placeholder="- Select port -"
                                 options={transshipmentPortOpts}
                                 value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
@@ -4336,6 +4420,7 @@ function NewPackFormPageInner() {
                           });
                           return (
                             <ClutchSelect
+                              quickAdd="vesselVoyage"
                               placeholder="- Select vessel -"
                               options={vesselSelectOpts}
                               value={vesselSelectOpts.find((o) => String(o.value) === String(pack.vesselDepartureId ?? "")) ?? null}
@@ -4381,6 +4466,7 @@ function NewPackFormPageInner() {
                         }));
                         return (
                           <ClutchSelect
+                            quickAdd="terminal"
                             placeholder="- Select -"
                             options={terminalSelectOpts}
                             value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
@@ -4728,6 +4814,7 @@ function NewPackFormPageInner() {
                             const fumigantOpts = fumigants.map((item) => ({ value: item.id, label: fumigantLabel(item) }));
                             return (
                               <ClutchSelect
+                                quickAdd="fumigant"
                                 placeholder="- Select -"
                                 options={fumigantOpts}
                                 value={
@@ -4766,6 +4853,7 @@ function NewPackFormPageInner() {
                             }));
                             return (
                               <ClutchSelect
+                                quickAdd="methodology"
                                 placeholder="- Select -"
                                 options={methodologyOpts}
                                 value={
@@ -4821,6 +4909,7 @@ function NewPackFormPageInner() {
                             const fumigatorSelectOpts = fumigatorOptions.map((u) => ({ value: u.name, label: u.name + (u.fumigatorLicence ? ` (${u.fumigatorLicence})` : "") }));
                             return (
                               <ClutchSelect
+                                quickAdd="user"
                                 placeholder="- Select fumigator -"
                                 options={fumigatorSelectOpts}
                                 value={fumigatorSelectOpts.find((o) => o.value === (fd.fumigatorName || "")) ?? null}
@@ -5566,6 +5655,7 @@ function NewPackFormPageInner() {
                             }));
                             return (
                               <ClutchSelect
+                                quickAdd="user"
                                 placeholder="- Select fumigator -"
                                 options={fumigatorSelectOpts}
                                 value={fumigatorSelectOpts.find((o) => o.value === (fd.fumigatorName ?? "")) ?? null}
@@ -5596,6 +5686,7 @@ function NewPackFormPageInner() {
                             const aoSelectOpts = aoOptions.map((u) => ({ value: u.name, label: u.name + (u.aoNumber ? ` (${u.aoNumber})` : "") }));
                             return (
                               <ClutchSelect
+                                quickAdd="user"
                                 placeholder="- Select AO -"
                                 options={aoSelectOpts}
                                 value={aoSelectOpts.find((o) => o.value === (fd.governmentOfficerName ?? "")) ?? null}
@@ -5645,6 +5736,7 @@ function NewPackFormPageInner() {
                           const certTemplateOpts = certificateTemplates.map((item) => ({ value: item.id, label: item.name }));
                           return (
                             <ClutchSelect
+                              quickAdd="certificateTemplate"
                               placeholder="- Select -"
                               options={certTemplateOpts}
                               value={certTemplateOpts.find((o) => o.value === (pack.certificateTemplateId ?? null)) ?? null}
@@ -5658,6 +5750,7 @@ function NewPackFormPageInner() {
                           const recTemplateOpts = recordTemplates.map((item) => ({ value: item.id, label: item.name }));
                           return (
                             <ClutchSelect
+                              quickAdd="recordTemplate"
                               placeholder="- Select -"
                               options={recTemplateOpts}
                               value={recTemplateOpts.find((o) => o.value === (pack.recordTemplateId ?? null)) ?? null}
@@ -6051,6 +6144,7 @@ function ReleaseModal({
                 });
                 return (
                   <ClutchSelect
+                    quickAdd="containerCode"
                     placeholder={lookupsLoading ? "Loading…" : "Select container type..."}
                     options={containerTypeOpts}
                     value={containerTypeOpts.find((o) => o.value === draft.containerCodeIsoCode) ?? null}
@@ -6088,6 +6182,7 @@ function ReleaseModal({
                       const parkOpts = containerParkOptions.map((cp) => ({ value: String(cp.id), label: cp.name }));
                       return (
                         <ClutchSelect
+                          quickAdd="containerPark"
                           placeholder={lookupsLoading ? "Loading…" : "Select empty container park..."}
                           options={parkOpts}
                           value={parkOpts.find((o) => o.value === (park.containerParkId === "" ? "" : String(park.containerParkId))) ?? null}
@@ -6098,6 +6193,13 @@ function ReleaseModal({
                     <div className="rounded-md border border-slate-200 bg-white p-2">
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Transporters
+                        <button
+                          type="button"
+                          className="ms-2 font-medium normal-case text-brand hover:underline"
+                          onClick={() => openPackFormQuickAdd("transporter")}
+                        >
+                          + Add transporter
+                        </button>
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {transporterOptions.length === 0 ? (

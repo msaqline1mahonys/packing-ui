@@ -43,7 +43,7 @@ const TABLE_COLUMNS = [
   { key: "importExport", label: "I/E" },
   // Pack basics
   { key: "packType", label: "Pack Type", hidden: true },
-  { key: "packConfirmed", label: "Pack Confirmed", hidden: true },
+  { key: "packingLocation", label: "Location", hidden: true },
   // Site & import
   { key: "testRequired", label: "Test Required", hidden: true },
   { key: "shrinkTaken", label: "Shrink Taken", hidden: true },
@@ -92,7 +92,7 @@ const TABLE_COLUMNS = [
 ];
 
 const BOOL_COLUMN_KEYS = new Set([
-  "packConfirmed", "testRequired", "shrinkTaken", "sampleRequired",
+  "testRequired", "shrinkTaken", "sampleRequired",
   "fumigationRequired", "packWarningRequired", "importPermitRequired",
   "rfpAdditionalDeclarationRequired",
 ]);
@@ -695,6 +695,17 @@ export default function PackingSchedulePage() {
             const ids = row.assignedPackerIds ?? row.assigned_packer_ids ?? [];
             return Array.isArray(ids) ? ids.join(", ") : String(ids || "");
           },
+        };
+      }
+      if (column.key === "packingLocation") {
+        return {
+          ...base,
+          valueGetter: (row) =>
+            row.packingLocation?.name ??
+            row.packing_location?.name ??
+            row.packingLocationName ??
+            row.packing_location_name ??
+            "",
         };
       }
       if (column.key === "fumigation") {

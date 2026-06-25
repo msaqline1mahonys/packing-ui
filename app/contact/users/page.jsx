@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { resolveLogoSrc } from "@/lib/in-ticket-print";
 import { cn } from "@/lib/utils";
 import {
@@ -283,6 +284,8 @@ export default function ContactUsersPage() {
     setFormData(base);
     setModalOpen(true);
   }
+
+  useAutoOpenAddModal(openCreateModal);
 
   function openEditModal() {
     if (!selected) return;

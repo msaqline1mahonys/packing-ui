@@ -1,5 +1,6 @@
 "use client";
 
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
@@ -205,6 +206,8 @@ export default function VesselPage() {
     setDraft(buildDraft());
     setModalMode("add");
   };
+
+  useAutoOpenAddModal(openAddModal);
 
   const openEditModal = () => {
     if (!selected) return;

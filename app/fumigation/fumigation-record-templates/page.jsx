@@ -1,5 +1,6 @@
 "use client";
 
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
@@ -250,6 +251,8 @@ export default function FumigationRecordTemplatesPage() {
     setDraft(buildDraft());
     setModalMode("add");
   }
+
+  useAutoOpenAddModal(openAdd);
 
   function openEdit() {
     if (!selected) return;

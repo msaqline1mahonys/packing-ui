@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -215,6 +216,8 @@ export default function TransporterPage() {
     setFormData(buildFormData());
     setModalOpen(true);
   }
+
+  useAutoOpenAddModal(openCreateModal);
 
   function openEditModal() {
     if (!selected) return;

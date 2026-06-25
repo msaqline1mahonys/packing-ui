@@ -14,6 +14,7 @@ import {
 } from "@/lib/releases-store";
 import { deleteRelease, fetchReleases, saveRelease } from "@/lib/releases-api";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -248,6 +249,8 @@ export default function ReleasesPage() {
     setDraft(blankRelease());
     setModalMode("add");
   }
+
+  useAutoOpenAddModal(openAddModal);
 
   function openEditModal() {
     if (!selected) return;

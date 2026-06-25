@@ -7,6 +7,7 @@ import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_CONTAINER_SIZES } from "@/lib/Data";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -220,6 +221,8 @@ export default function ContainerCodesPage() {
     setDraft(buildDraft());
     setModalMode("add");
   }
+
+  useAutoOpenAddModal(openAddModal);
 
   function openEditModal() {
     if (!selected) return;

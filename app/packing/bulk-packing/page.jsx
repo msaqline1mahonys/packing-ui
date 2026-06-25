@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import FormRow from "@/components/form/form-row";
+import FormInput, { FormTextarea } from "@/components/form/form-input";
+import { buildRequiredFieldErrorsFromRules, clearFieldError, hasFieldErrors } from "@/lib/form-validation";
+import { inputClassName, formLabelClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
-/* â”€â”€â”€ Shared input class â”€â”€â”€ */
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+const TICKET_FIELD_RULES = [{ key: "date", required: true }];
 
 /* â”€â”€â”€ Mock data â”€â”€â”€ */
 const MOCK_CUSTOMERS = [
@@ -126,6 +128,7 @@ export default function BulkPackingPage() {
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState(null);
   const [ticketForm, setTicketForm] = useState(() => blankTicket());
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const bulkPacks = useMemo(
     () => packs.filter((p) => ["Pending", "Inprogress"].includes(p.status)),
@@ -140,18 +143,26 @@ export default function BulkPackingPage() {
   /* â”€â”€ Ticket CRUD â”€â”€ */
   function openNewTicket() {
     setEditingTicketId(null);
+    setFieldErrors({});
     setTicketForm(blankTicket());
     setTicketModalOpen(true);
   }
 
   function openEditTicket(bt) {
     setEditingTicketId(bt.id);
+    setFieldErrors({});
     setTicketForm({ ...bt, truckId: bt.truckId ?? "", locationId: bt.locationId ?? "" });
     setTicketModalOpen(true);
   }
 
   function saveTicket() {
     if (!selectedPackId) return;
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(TICKET_FIELD_RULES, ticketForm);
+    if (hasFieldErrors(nextFieldErrors)) {
+      setFieldErrors(nextFieldErrors);
+      return;
+    }
+    setFieldErrors({});
     const payload = {
       ...ticketForm,
       truckId: ticketForm.truckId ? Number(ticketForm.truckId) : null,
@@ -382,48 +393,84 @@ export default function BulkPackingPage() {
       <Modal
         open={ticketModalOpen}
         title={editingTicketId ? "Edit bulk ticket" : "Add bulk ticket"}
-        onClose={() => setTicketModalOpen(false)}
+        onClose={() => {
+          setFieldErrors({});
+          setTicketModalOpen(false);
+        }}
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Date" required>
-            <input suppressHydrationWarning type="date" className={inputClass} value={ticketForm.date || ""} onChange={(e) => set("date", e.target.value)} />
-          </FormField>
-          <FormField label="Truck">
-            <select suppressHydrationWarning className={inputClass} value={ticketForm.truckId ?? ""} onChange={(e) => set("truckId", e.target.value)}>
+          <FormRow label="Date" required hasError={Boolean(fieldErrors.date)}>
+            <FormInput
+              type="date"
+              hasError={Boolean(fieldErrors.date)}
+              value={ticketForm.date || ""}
+              onChange={(e) => {
+                setFieldErrors((prev) => clearFieldError(prev, "date"));
+                set("date", e.target.value);
+              }}
+            />
+          </FormRow>
+          <FormRow label="Truck">
+            <select
+              suppressHydrationWarning
+              className={inputClassName(false)}
+              value={ticketForm.truckId ?? ""}
+              onChange={(e) => set("truckId", e.target.value)}
+            >
               <option value=""> Select </option>
               {MOCK_TRUCKS.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Gross weight (kg)">
-            <input suppressHydrationWarning type="number" className={inputClass} value={ticketForm.grossWeight ?? ""} onChange={(e) => set("grossWeight", e.target.value)} placeholder="kg" />
-          </FormField>
-          <FormField label="Tare weight (kg)">
-            <input suppressHydrationWarning type="number" className={inputClass} value={ticketForm.tareWeight ?? ""} onChange={(e) => set("tareWeight", e.target.value)} placeholder="kg" />
-          </FormField>
-          <FormField label="Location">
-            <select suppressHydrationWarning className={inputClass} value={ticketForm.locationId ?? ""} onChange={(e) => set("locationId", e.target.value)}>
+          </FormRow>
+          <FormRow label="Gross weight (kg)">
+            <FormInput
+              type="number"
+              value={ticketForm.grossWeight ?? ""}
+              onChange={(e) => set("grossWeight", e.target.value)}
+              placeholder="kg"
+            />
+          </FormRow>
+          <FormRow label="Tare weight (kg)">
+            <FormInput
+              type="number"
+              value={ticketForm.tareWeight ?? ""}
+              onChange={(e) => set("tareWeight", e.target.value)}
+              placeholder="kg"
+            />
+          </FormRow>
+          <FormRow label="Location">
+            <select
+              suppressHydrationWarning
+              className={inputClassName(false)}
+              value={ticketForm.locationId ?? ""}
+              onChange={(e) => set("locationId", e.target.value)}
+            >
               <option value=""> Select </option>
               {MOCK_STOCK_LOCATIONS.map((l) => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Signoff">
-            <input suppressHydrationWarning className={inputClass} value={ticketForm.signoff || ""} onChange={(e) => set("signoff", e.target.value)} placeholder="Name" />
-          </FormField>
+          </FormRow>
+          <FormRow label="Signoff">
+            <FormInput
+              value={ticketForm.signoff || ""}
+              onChange={(e) => set("signoff", e.target.value)}
+              placeholder="Name"
+            />
+          </FormRow>
         </div>
         <div className="mt-3">
-          <FormField label="Notes" wide>
-            <textarea
-              className={cn(inputClass, "min-h-16 resize-y")}
+          <div className={cn("space-y-1", "sm:col-span-2")}>
+            <label className={formLabelClass}>Notes</label>
+            <FormTextarea
+              className="min-h-16 resize-y"
               value={ticketForm.notes || ""}
               onChange={(e) => set("notes", e.target.value)}
               placeholder="Notes"
               rows={2}
             />
-          </FormField>
+          </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           {editingTicketId && (
@@ -431,7 +478,15 @@ export default function BulkPackingPage() {
               Remove
             </Button>
           )}
-          <Button type="button" variant="ghost" size="sm" onClick={() => setTicketModalOpen(false)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFieldErrors({});
+              setTicketModalOpen(false);
+            }}
+          >
             Cancel
           </Button>
           <Button type="button" size="sm" onClick={saveTicket}>
@@ -444,18 +499,6 @@ export default function BulkPackingPage() {
 }
 
 /* â”€â”€â”€ Sub components â”€â”€â”€ */
-
-function FormField({ label, required, wide, children }) {
-  return (
-    <div className={cn("space-y-1", wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
 
 function Modal({ open, title, onClose, children }) {
   if (!open) return null;

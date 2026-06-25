@@ -1,13 +1,23 @@
 import { commodityOptionLabel } from "@/lib/commodity-display";
+import { formInputErrorClass, formLabelErrorClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
 export const inputClass =
   "w-full rounded-md border border-slate-200/95 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
-export function Field({ label, required, hint, children }) {
+export function controlClassName(baseClass, hasError) {
+  return cn(baseClass, hasError && formInputErrorClass);
+}
+
+export function Field({ label, required, hint, hasError = false, children }) {
   return (
     <div className="space-y-0.5">
-      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+      <label
+        className={cn(
+          "text-[10px] font-semibold uppercase tracking-wide",
+          hasError ? formLabelErrorClass : "text-slate-600"
+        )}
+      >
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
         {hint ? <span className="ml-1 font-normal normal-case text-slate-400">({hint})</span> : null}

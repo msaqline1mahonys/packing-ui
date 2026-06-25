@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import FumigationCertificateDocument from "@/components/fumigation/fumigation-certificate-document";
+import LabeledField from "@/components/form/labeled-field";
 import { CERTIFICATE_SECTIONS } from "@/lib/fumigation-fields";
 import {
   getTenantPayload,
@@ -14,10 +15,11 @@ import {
   updateCertificateTemplate,
   deleteCertificateTemplate,
 } from "@/lib/api/fumigation";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
+import { inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+const REQUIRED_FIELD_RULES = [{ key: "name", required: true }];
 
 const ALL_SECTION_KEYS = CERTIFICATE_SECTIONS.map((s) => s.key);
 
@@ -168,6 +170,7 @@ export default function FumigationTemplatesPage() {
   const [draft, setDraft] = useState(() => buildDraft());
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -236,6 +239,7 @@ export default function FumigationTemplatesPage() {
   function openAdd() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   }
@@ -246,6 +250,7 @@ export default function FumigationTemplatesPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
@@ -254,6 +259,7 @@ export default function FumigationTemplatesPage() {
     if (isSaving) return;
     setModalMode(null);
     setError("");
+    setFieldErrors({});
   }
 
   function toggleSection(key) {
@@ -290,7 +296,9 @@ export default function FumigationTemplatesPage() {
   }
 
   async function saveModal() {
-    if (!draft.name.trim()) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Template name is required.");
       return;
     }
@@ -380,7 +388,7 @@ export default function FumigationTemplatesPage() {
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
-            className={cn(inputClass, "max-w-md")}
+            className={inputClassName(false, "max-w-md")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search template..."
@@ -482,37 +490,40 @@ export default function FumigationTemplatesPage() {
           {/* ─── EDITOR ─── */}
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="Template name *" wide>
+              <LabeledField label="Template name" required wide hasError={fieldErrors.name}>
                 <input
-                  className={inputClass}
+                  className={inputClassName(fieldErrors.name)}
                   value={draft.name}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+                  onChange={(event) => {
+                    setFieldErrors((prev) => clearFieldError(prev, "name"));
+                    setDraft((prev) => ({ ...prev, name: event.target.value }));
+                  }}
                 />
-              </FormField>
-              <FormField label="Header text">
+              </LabeledField>
+              <LabeledField label="Header text">
                 <textarea
-                  className={cn(inputClass, "min-h-16 resize-y")}
+                  className={inputClassName(false, "min-h-16 resize-y")}
                   rows={2}
                   value={draft.headerText}
                   onChange={(event) => setDraft((prev) => ({ ...prev, headerText: event.target.value }))}
                 />
-              </FormField>
-              <FormField label="Footer text">
+              </LabeledField>
+              <LabeledField label="Footer text">
                 <textarea
-                  className={cn(inputClass, "min-h-16 resize-y")}
+                  className={inputClassName(false, "min-h-16 resize-y")}
                   rows={2}
                   value={draft.footerText}
                   onChange={(event) => setDraft((prev) => ({ ...prev, footerText: event.target.value }))}
                 />
-              </FormField>
-              <FormField label="Internal description (not printed)" wide>
+              </LabeledField>
+              <LabeledField label="Internal description (not printed)" wide>
                 <textarea
-                  className={cn(inputClass, "min-h-16 resize-y")}
+                  className={inputClassName(false, "min-h-16 resize-y")}
                   rows={2}
                   value={draft.body}
                   onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
                 />
-              </FormField>
+              </LabeledField>
             </div>
 
             <div>
@@ -537,15 +548,15 @@ export default function FumigationTemplatesPage() {
               </div>
             </div>
 
-            <FormField label="Boilerplate declaration text">
+            <LabeledField label="Boilerplate declaration text">
               <textarea
-                className={cn(inputClass, "min-h-20 resize-y")}
+                className={inputClassName(false, "min-h-20 resize-y")}
                 rows={3}
                 placeholder="Pre-fills the 'Additional declarations' field on every certificate generated from this template. Fumigators can still override per pack."
                 value={draft.additionalDeclarationsText}
                 onChange={(event) => setDraft((prev) => ({ ...prev, additionalDeclarationsText: event.target.value }))}
               />
-            </FormField>
+            </LabeledField>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <LogoUploader
@@ -627,15 +638,6 @@ function LogoUploader({ label, value, inputRef, onPick, onClear }) {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function FormField({ label, wide = false, children }) {
-  return (
-    <div className={cn("space-y-1", wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
-      {children}
     </div>
   );
 }

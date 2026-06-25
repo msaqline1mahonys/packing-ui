@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createWriteOff } from "@/lib/write-offs-api";
+import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import {
   exceedsWriteOffLimit,
   fetchCommodities,
@@ -236,10 +237,10 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
                 </Field>
               ) : null}
 
-              <Field label="Transaction Date" required>
+              <Field label="Transaction Date" required hasError={Boolean(touched.transactionDate && errors.transactionDate)}>
                 <input
                   type="date"
-                  className={inputClass}
+                  className={inputClassName(Boolean(touched.transactionDate && errors.transactionDate))}
                   value={form.transactionDate}
                   disabled={submitting}
                   onChange={(e) => set("transactionDate", e.target.value)}
@@ -248,7 +249,7 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
                 {touched.transactionDate && errors.transactionDate ? <ErrorText>{errors.transactionDate}</ErrorText> : null}
               </Field>
 
-              <Field label="Customer" required>
+              <Field label="Customer" required hasError={Boolean(touched.customerId && errors.customerId)}>
                 <ClutchSelect
                   options={customerOptions}
                   value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
@@ -259,11 +260,12 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
                   onBlur={() => touch("customerId")}
                   isDisabled={submitting}
                   placeholder="Select customer..."
+                  error={touched.customerId && errors.customerId ? errors.customerId : undefined}
                 />
                 {touched.customerId && errors.customerId ? <ErrorText>{errors.customerId}</ErrorText> : null}
               </Field>
 
-              <Field label="Commodity Grade" required>
+              <Field label="Commodity Grade" required hasError={Boolean(touched.commodityId && errors.commodityId)}>
                 {(() => {
                   const commodityOptions = commodities.map((c) => ({ value: c.id, label: commodityLabel(c) }));
                   return (
@@ -277,13 +279,14 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
                       onBlur={() => touch("commodityId")}
                       isDisabled={submitting}
                       placeholder="Select commodity..."
+                      error={touched.commodityId && errors.commodityId ? errors.commodityId : undefined}
                     />
                   );
                 })()}
                 {touched.commodityId && errors.commodityId ? <ErrorText>{errors.commodityId}</ErrorText> : null}
               </Field>
 
-              <Field label="Stock Location" required>
+              <Field label="Stock Location" required hasError={Boolean(touched.locationId && errors.locationId)}>
                 {(() => {
                   const locationOptions = siteLocations.map((l) => ({ value: l.id, label: l.name }));
                   return (
@@ -297,17 +300,18 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
                       onBlur={() => touch("locationId")}
                       isDisabled={submitting}
                       placeholder="Select location..."
+                      error={touched.locationId && errors.locationId ? errors.locationId : undefined}
                     />
                   );
                 })()}
                 {touched.locationId && errors.locationId ? <ErrorText>{errors.locationId}</ErrorText> : null}
               </Field>
 
-              <Field label="Amount (MT)" required hint="signed">
+              <Field label="Amount (MT)" required hint="signed" hasError={Boolean(touched.quantity && errors.quantity)}>
                 <input
                   type="number"
                   step="0.0001"
-                  className={inputClass}
+                  className={inputClassName(Boolean(touched.quantity && errors.quantity))}
                   value={form.quantity}
                   disabled={submitting}
                   placeholder="e.g. 10 or -5"
@@ -323,9 +327,9 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
               </Field>
 
               <div className="sm:col-span-2">
-                <Field label="Reason" required>
+                <Field label="Reason" required hasError={Boolean(touched.notes && errors.notes)}>
                   <textarea
-                    className={cn(inputClass, "min-h-24 resize-y")}
+                    className={cn(inputClassName(Boolean(touched.notes && errors.notes)), "min-h-24 resize-y")}
                     value={form.notes}
                     disabled={submitting}
                     placeholder="Why is this stock being written off?"
@@ -354,12 +358,13 @@ export default function WriteOffModal({ open, onClose, onSaved }) {
   );
 }
 
-function Field({ label, required, children }) {
+function Field({ label, required, hint, hasError = false, children }) {
   return (
     <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn("text-[11px] font-semibold uppercase tracking-wide", hasError ? formLabelErrorClass : "text-slate-600")}>
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
+        {hint ? <span className="ml-1 font-normal normal-case text-slate-400">({hint})</span> : null}
       </label>
       {children}
     </div>

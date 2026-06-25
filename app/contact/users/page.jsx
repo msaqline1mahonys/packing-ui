@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
 import { saveContactUsers, loadDomainData, saveDomainData } from "@/lib/contact-users-store";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { resolveLogoSrc } from "@/lib/in-ticket-print";
+import { formFieldErrorTextClass } from "@/lib/form-styles";
+import { clearFieldError } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
 import {
   ALL_CLASSIFICATIONS,
@@ -178,6 +182,7 @@ export default function ContactUsersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [orgSites, setOrgSites] = useState([]);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState("");
 
@@ -275,6 +280,8 @@ export default function ContactUsersPage() {
 
   function openCreateModal() {
     setEditMode(false);
+    setFieldErrors({});
+    setApiError("");
     const base = buildFormData();
     // Default new users to the caller's current site for convenience.
     const currentSiteId = readAuthPayload()?.current_site?.id;
@@ -290,13 +297,14 @@ export default function ContactUsersPage() {
   function openEditModal() {
     if (!selected) return;
     setEditMode(true);
+    setFieldErrors({});
+    setApiError("");
     const rawUser = rawApiUsers.find((u) => u.id === selected.id) || null;
     setFormData(buildFormData(selected, rawUser));
     setModalOpen(true);
   }
 
   async function handleSubmit() {
-    if (!formData.name.trim() || !formData.email.trim()) return;
     const nextPassword = (formData.newPassword || "").trim();
     const confirmPassword = (formData.confirmPassword || "").trim();
     const aoPemsUsername = (formData.aoPemsUsername || "").trim();
@@ -306,79 +314,52 @@ export default function ContactUsersPage() {
     const signature = (formData.signature || "").trim();
     const fumigatorLicence = (formData.fumigatorLicence || "").trim();
 
-    if (editMode) {
-      if (nextPassword || confirmPassword) {
-        if (nextPassword.length < 8) {
-          window.alert("Password must be at least 8 characters.");
-          return;
-        }
-        if (nextPassword !== confirmPassword) {
-          window.alert("Password confirmation does not match.");
-          return;
-        }
-      }
-    } else {
-      if (!nextPassword) {
-        window.alert("Password is required for new users.");
-        return;
-      }
-      if (nextPassword.length < 8) {
-        window.alert("Password must be at least 8 characters.");
-        return;
-      }
-      if (nextPassword !== confirmPassword) {
-        window.alert("Password confirmation does not match.");
-        return;
-      }
-    }
-
     const userClassifications = normalizeClassifications(formData.userClassifications);
     const legacy = legacyFlagsFromClassifications(userClassifications);
     const isAo = legacy.aoActive;
     const isFumigator = legacy.isFumigator;
 
-    // Classifications are sent as backend role display_names; the server resolves
-    // the matching site-scoped role for EACH selected site.
     const classificationNames = userClassifications
       .map((c) => CLASSIFICATION_ROLE_NAME[c])
       .filter(Boolean);
 
-    // Any role explicitly picked in the dropdown (applies to its own site).
     const dropdownRoleIds = (formData.roleIds || []).filter((id) => UUID_RE.test(id));
-
-    // Sites this user gets access to (multi-site).
     const siteIds = (formData.siteIds || []).map((id) => String(id)).filter(Boolean);
-    // Org Admin is org-wide — the backend grants every site, so no site pick needed.
     const isOrgAdmin = classificationNames.includes("Org Admin");
-
-    if (!isOrgAdmin && siteIds.length === 0) {
-      window.alert("Select at least one site for the user.");
-      return;
-    }
-    if (classificationNames.length === 0 && dropdownRoleIds.length === 0) {
-      window.alert("Please select at least one classification or role for the user.");
-      return;
-    }
-
     const isActivatingAo = isAo && (!editMode || !selected || !selected.aoActive);
 
-    if (isAo && !aoPemsUsername) {
-      window.alert("AO PEMS Username is required for Authorised Officer classification.");
-      return;
+    const errors = {};
+
+    if (!formData.name.trim()) errors.name = true;
+    if (!formData.email.trim()) errors.email = true;
+
+    if (!editMode && !nextPassword) {
+      errors.newPassword = "Password is required for new users.";
+    } else if (nextPassword || confirmPassword || !editMode) {
+      if (nextPassword.length < 8) {
+        errors.newPassword = "Password must be at least 8 characters.";
+      }
+      if (nextPassword !== confirmPassword) {
+        errors.confirmPassword = "Password confirmation does not match.";
+      }
     }
 
-    if (isActivatingAo && !aoToken) {
-      window.alert("AO Token is required when enabling Authorised Officer.");
-      return;
-    }
+    if (!isOrgAdmin && siteIds.length === 0) errors.siteIds = true;
+    if (classificationNames.length === 0 && dropdownRoleIds.length === 0) errors.classifications = true;
 
-    if (isFumigator && !fumigatorLicence) {
-      window.alert("Fumigator Licence is required for Fumigator classification.");
+    if (isAo && !aoPemsUsername) errors.aoPemsUsername = true;
+    if (isActivatingAo && !aoToken) errors.aoToken = true;
+    if (isFumigator && !fumigatorLicence) errors.fumigatorLicence = true;
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setApiError("Please fill all required fields.");
       return;
     }
 
     setSaving(true);
     setApiError("");
+    setFieldErrors({});
 
     // Profile data block (snake_case) for the backend
     const profileData = {
@@ -630,27 +611,42 @@ export default function ContactUsersPage() {
       </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit User" : "Add New User"} width={760}>
+      <Modal open={modalOpen} onClose={() => { setFieldErrors({}); setApiError(""); setModalOpen(false); }} title={editMode ? "Edit User" : "Add New User"} width={760}>
+        {apiError ? (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{apiError}</div>
+        ) : null}
         <div className="space-y-5">
           <SectionTitle title="Basic Details" />
           <div className="grid gap-4">
-            <FormRow label="Name" required>
-              <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., J. Mitchell" />
+            <FormRow label="Name" required hasError={Boolean(fieldErrors.name)}>
+              <FormInput
+                hasError={Boolean(fieldErrors.name)}
+                value={formData.name}
+                onChange={(event) => {
+                  setFieldErrors((prev) => clearFieldError(prev, "name"));
+                  setFormData({ ...formData, name: event.target.value });
+                }}
+                placeholder="e.g., J. Mitchell"
+              />
             </FormRow>
 
-            <FormRow label="Email" required>
-              <Input
+            <FormRow label="Email" required hasError={Boolean(fieldErrors.email)}>
+              <FormInput
                 type="email"
+                hasError={Boolean(fieldErrors.email)}
                 value={formData.email}
-                onChange={(event) => setFormData({ ...formData, email: event.target.value })}
+                onChange={(event) => {
+                  setFieldErrors((prev) => clearFieldError(prev, "email"));
+                  setFormData({ ...formData, email: event.target.value });
+                }}
                 placeholder="e.g., j.mitchell@mahonys.com.au"
               />
             </FormRow>
           </div>
 
           <div className="grid gap-4">
-            <FormRow label="Sites (access)">
-              <div className="flex flex-wrap gap-2">
+            <FormRow label="Sites (access)" hasError={Boolean(fieldErrors.siteIds)}>
+              <div className={cn("flex flex-wrap gap-2 rounded-lg p-1", fieldErrors.siteIds && "ring-1 ring-red-300")}>
                 {orgSites.length === 0 ? (
                   <span className="text-xs text-slate-400">No sites available</span>
                 ) : (
@@ -666,6 +662,7 @@ export default function ContactUsersPage() {
                           const set = new Set(selected);
                           if (set.has(siteId)) set.delete(siteId);
                           else set.add(siteId);
+                          setFieldErrors((prev) => clearFieldError(prev, "siteIds"));
                           setFormData({ ...formData, siteIds: Array.from(set) });
                         }}
                         className={cn(
@@ -696,7 +693,7 @@ export default function ContactUsersPage() {
 
             <FormRow label="Signature">
               <div className="space-y-3">
-                <Input
+                <FormInput
                   value={formData.signature}
                   onChange={(event) => setFormData({ ...formData, signature: event.target.value })}
                   placeholder="Type user signature or signing name"
@@ -728,46 +725,67 @@ export default function ContactUsersPage() {
           <div className="border-t border-slate-200 pt-4">
             <SectionTitle title="User Classifications" />
             <p className="mb-3 text-xs text-slate-500">Select all roles that apply. Classification toggles map directly to site roles on save.</p>
-            <ClassificationPicker
-              value={formData.userClassifications}
-              onChange={(userClassifications) => setFormData({ ...formData, userClassifications })}
-            />
+            <div className={cn(fieldErrors.classifications && "rounded-lg p-1 ring-1 ring-red-300")}>
+              <ClassificationPicker
+                value={formData.userClassifications}
+                onChange={(userClassifications) => {
+                  setFieldErrors((prev) => clearFieldError(prev, "classifications"));
+                  setFormData({ ...formData, userClassifications });
+                }}
+              />
+            </div>
           </div>
 
           <div className="border-t border-slate-200 pt-4">
             <SectionTitle title="Authorised Officer (PEMS)" />
             {hasClassification(formData, USER_CLASSIFICATIONS.AUTHORISED_OFFICER) ? (
               <div className="mt-3 grid gap-4">
-                <FormRow label="AO PEMs Username" required>
-                  <Input
+                <FormRow label="AO PEMs Username" required hasError={Boolean(fieldErrors.aoPemsUsername)}>
+                  <FormInput
+                    hasError={Boolean(fieldErrors.aoPemsUsername)}
                     value={formData.aoPemsUsername}
-                    onChange={(event) => setFormData({ ...formData, aoPemsUsername: event.target.value })}
+                    onChange={(event) => {
+                      setFieldErrors((prev) => clearFieldError(prev, "aoPemsUsername"));
+                      setFormData({ ...formData, aoPemsUsername: event.target.value });
+                    }}
                     placeholder="AO PEMs Username"
                   />
                 </FormRow>
                 <FormRow label="AO PEMs Password">
-                  <Input
+                  <FormInput
                     type="password"
                     value={formData.aoPemsPassword}
                     onChange={(event) => setFormData({ ...formData, aoPemsPassword: event.target.value })}
                     placeholder="AO PEMs Password"
                   />
                 </FormRow>
-                <FormRow label="AO Token" required>
-                  <Input value={formData.aoToken} onChange={(event) => setFormData({ ...formData, aoToken: event.target.value })} placeholder="AO Token" />
+                <FormRow label="AO Token" required hasError={Boolean(fieldErrors.aoToken)}>
+                  <FormInput
+                    hasError={Boolean(fieldErrors.aoToken)}
+                    value={formData.aoToken}
+                    onChange={(event) => {
+                      setFieldErrors((prev) => clearFieldError(prev, "aoToken"));
+                      setFormData({ ...formData, aoToken: event.target.value });
+                    }}
+                    placeholder="AO Token"
+                  />
                 </FormRow>
                 <FormRow label="AO Expiry">
-                  <Input type="date" value={formData.aoExpiry} onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })} />
+                  <FormInput
+                    type="date"
+                    value={formData.aoExpiry}
+                    onChange={(event) => setFormData({ ...formData, aoExpiry: event.target.value })}
+                  />
                 </FormRow>
                 <FormRow label="AO Number">
-                  <Input
+                  <FormInput
                     value={formData.aoNumber}
                     onChange={(event) => setFormData({ ...formData, aoNumber: event.target.value })}
                     placeholder="AO Number"
                   />
                 </FormRow>
                 <FormRow label="AO License Number">
-                  <Input
+                  <FormInput
                     value={formData.aoLicenseNumber}
                     onChange={(event) => setFormData({ ...formData, aoLicenseNumber: event.target.value })}
                     placeholder="AO License Number"
@@ -783,15 +801,19 @@ export default function ContactUsersPage() {
             <SectionTitle title="Fumigator" />
             {hasClassification(formData, USER_CLASSIFICATIONS.FUMIGATOR) ? (
               <div className="mt-3 grid gap-4">
-                <FormRow label="Fumigator Licence" required>
-                  <Input
+                <FormRow label="Fumigator Licence" required hasError={Boolean(fieldErrors.fumigatorLicence)}>
+                  <FormInput
+                    hasError={Boolean(fieldErrors.fumigatorLicence)}
                     value={formData.fumigatorLicence}
-                    onChange={(event) => setFormData({ ...formData, fumigatorLicence: event.target.value })}
+                    onChange={(event) => {
+                      setFieldErrors((prev) => clearFieldError(prev, "fumigatorLicence"));
+                      setFormData({ ...formData, fumigatorLicence: event.target.value });
+                    }}
                     placeholder="Fumigator Licence"
                   />
                 </FormRow>
                 <FormRow label="Fumigation Expiry">
-                  <Input
+                  <FormInput
                     type="date"
                     value={formData.fumigationExpiry}
                     onChange={(event) => setFormData({ ...formData, fumigationExpiry: event.target.value })}
@@ -806,21 +828,35 @@ export default function ContactUsersPage() {
           <div className="border-t border-slate-200 pt-4">
             <SectionTitle title="Security" />
             <div className="grid gap-4">
-              <FormRow label={editMode ? "New Password" : "Password"} required={!editMode}>
-                <Input
+              <FormRow label={editMode ? "New Password" : "Password"} required={!editMode} hasError={fieldErrors.newPassword === true}>
+                <FormInput
                   type="password"
+                  hasError={Boolean(fieldErrors.newPassword)}
                   value={formData.newPassword}
-                  onChange={(event) => setFormData({ ...formData, newPassword: event.target.value })}
+                  onChange={(event) => {
+                    setFieldErrors((prev) => clearFieldError(prev, "newPassword"));
+                    setFormData({ ...formData, newPassword: event.target.value });
+                  }}
                   placeholder={editMode ? "Leave blank to keep current password" : "Enter password (min 8 characters)"}
                 />
+                {fieldErrors.newPassword && typeof fieldErrors.newPassword === "string" ? (
+                  <p className={formFieldErrorTextClass}>{fieldErrors.newPassword}</p>
+                ) : null}
               </FormRow>
-              <FormRow label="Confirm Password" required={!editMode}>
-                <Input
+              <FormRow label="Confirm Password" required={!editMode} hasError={fieldErrors.confirmPassword === true}>
+                <FormInput
                   type="password"
+                  hasError={Boolean(fieldErrors.confirmPassword)}
                   value={formData.confirmPassword}
-                  onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
+                  onChange={(event) => {
+                    setFieldErrors((prev) => clearFieldError(prev, "confirmPassword"));
+                    setFormData({ ...formData, confirmPassword: event.target.value });
+                  }}
                   placeholder="Re-enter password"
                 />
+                {fieldErrors.confirmPassword && typeof fieldErrors.confirmPassword === "string" ? (
+                  <p className={formFieldErrorTextClass}>{fieldErrors.confirmPassword}</p>
+                ) : null}
               </FormRow>
             </div>
           </div>
@@ -830,7 +866,7 @@ export default function ContactUsersPage() {
           <BtnPrimary type="button" className="flex-1 justify-center" disabled={saving} onClick={handleSubmit}>
             {saving ? "Saving..." : editMode ? "Update User" : "Add User"}
           </BtnPrimary>
-          <BtnSecondary type="button" className="flex-1 justify-center" disabled={saving} onClick={() => setModalOpen(false)}>
+          <BtnSecondary type="button" className="flex-1 justify-center" disabled={saving} onClick={() => { setFieldErrors({}); setApiError(""); setModalOpen(false); }}>
             Cancel
           </BtnSecondary>
         </div>
@@ -966,18 +1002,6 @@ function Modal({ open, title, onClose, children, width = 640 }) {
   );
 }
 
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 function SectionTitle({ title }) {
   return <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">{title}</h3>;
 }
@@ -1010,10 +1034,6 @@ function ClassificationPicker({ value, onChange }) {
       })}
     </div>
   );
-}
-
-function Input({ className, ...props }) {
-  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

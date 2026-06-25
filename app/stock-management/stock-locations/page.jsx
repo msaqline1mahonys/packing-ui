@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Grid } from "@/components/clutch-table";
+import ClutchFormField from "@/components/form/clutch-form-field";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
+import {
+  buildRequiredFieldErrors,
+  clearFieldError,
+  hasFieldErrors,
+} from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -15,9 +19,6 @@ const API_BASE_URL = (
 ).replace(/\/+$/, "");
 const STOCK_LOCATIONS_ENDPOINT = `${API_BASE_URL}/reference-data/stock-locations`;
 const LOCATION_UTILIZATION_ENDPOINT = `${API_BASE_URL}/transactions/location-utilization`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const FORM_FIELDS = [
   { key: "name", label: "Location Name", required: true, placeholder: "e.g. Bay 12" },
@@ -264,6 +265,7 @@ export default function StockLocationsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const commodityTypeMap = useMemo(
     () => new Map(commodityTypeOptions.map((item) => [item.id, item.name])),
@@ -399,6 +401,7 @@ export default function StockLocationsPage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
     loadSites();
@@ -410,6 +413,7 @@ export default function StockLocationsPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
     loadSites();
@@ -417,14 +421,17 @@ export default function StockLocationsPage() {
 
   const closeModal = () => {
     if (isSaving) return;
+    setFieldErrors({});
     setModalMode(null);
   };
 
   const saveModal = async () => {
-    const requiredMissing = FORM_FIELDS.some(
-      (field) => field.required && !String(draft[field.key] ?? "").trim()
-    );
-    if (requiredMissing) { setError("Please fill all required fields."); return; }
+    const errors = buildRequiredFieldErrors(FORM_FIELDS, draft);
+    if (hasFieldErrors(errors)) {
+      setFieldErrors(errors);
+      setError("Please fill all required fields.");
+      return;
+    }
 
     const tenant = getTenantPayload();
     if (!tenant.organization_id) {
@@ -526,6 +533,10 @@ export default function StockLocationsPage() {
   };
 
   const modalError = modalMode ? error : "";
+
+  const formFields = FORM_FIELDS.map((field) =>
+    field.key === "siteId" ? { ...field, type: "select", options: siteOptions } : field
+  );
 
   /* ─── Render ───────────────────────────────────────────────────────────── */
 
@@ -685,14 +696,17 @@ export default function StockLocationsPage() {
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {FORM_FIELDS.map((field) => (
-            <FormField
+          {formFields.map((field) => (
+            <ClutchFormField
               key={field.key}
               field={field}
               value={draft[field.key] ?? ""}
               disabled={isSaving}
-              siteOptions={field.key === "siteId" ? siteOptions : undefined}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+              hasError={Boolean(fieldErrors[field.key])}
+              onChange={(value) => {
+                setFieldErrors((prev) => clearFieldError(prev, field.key));
+                setDraft((prev) => ({ ...prev, [field.key]: value }));
+              }}
             />
           ))}
         </div>
@@ -918,54 +932,6 @@ function DetailItem({ label, value, highlight }) {
       <dd className={cn("mt-0.5 text-slate-800", highlight && "font-semibold text-brand")}>
         {value || "—"}
       </dd>
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled, siteOptions }) {
-  if (field.key === "siteId" && siteOptions) {
-    return (
-      <div className="space-y-1">
-        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-          {field.label}
-          {field.required ? <span className="text-red-500"> *</span> : null}
-        </label>
-        <ClutchSelect
-          options={toOptions(siteOptions)}
-          value={toOptions(siteOptions).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select site…"
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className={cn("space-y-1", field.type === "textarea" && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(field.options ?? [])}
-          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select…"
-        />
-      ) : (
-        <input
-          type={field.type || "text"}
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder}
-          {...numberInputProps(field.type)}
-        />
-      )}
     </div>
   );
 }

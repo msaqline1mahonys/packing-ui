@@ -2,7 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
 import { commodityOptionLabel } from "@/lib/commodity-display";
+import { buildRequiredFieldErrorsFromRules, clearFieldError, hasFieldErrors } from "@/lib/form-validation";
+import { inputClassName } from "@/lib/form-styles";
+
+const TYPE_MODAL_FIELD_RULES = [
+    { key: "commodityType", required: true },
+    { key: "shrinkPct", required: true },
+];
+const COMMODITY_MODAL_FIELD_RULES = [
+    { key: "commodity", required: true },
+    { key: "shrinkPct", required: true },
+];
+const CC_MODAL_FIELD_RULES = [
+    { key: "customer", required: true },
+    { key: "commodity", required: true },
+    { key: "shrinkPct", required: true },
+];
 
 const API_BASE_URL = (
     process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -86,6 +104,10 @@ export default function ShrinkSettingsPage() {
     const [commodityType, setCommodityType] = useState("");
     const [shrinkPct, setShrinkPct] = useState("");
 
+    const [typeFieldErrors, setTypeFieldErrors] = useState({});
+    const [commodityFieldErrors, setCommodityFieldErrors] = useState({});
+    const [ccFieldErrors, setCcFieldErrors] = useState({});
+
     const commodityTypeById = useMemo(
         () => new Map(formCommodityTypes.map((item) => [item.id, item])),
         [formCommodityTypes]
@@ -158,10 +180,19 @@ export default function ShrinkSettingsPage() {
         setCommodity("");
         setCommodityType("");
         setShrinkPct("");
+        setTypeFieldErrors({});
+        setCommodityFieldErrors({});
+        setCcFieldErrors({});
     };
 
     const handleAddTypeShrink = async () => {
-        if (!commodityType || !shrinkPct.trim()) return;
+        const values = { commodityType, shrinkPct };
+        const nextFieldErrors = buildRequiredFieldErrorsFromRules(TYPE_MODAL_FIELD_RULES, values);
+        if (hasFieldErrors(nextFieldErrors)) {
+            setTypeFieldErrors(nextFieldErrors);
+            return;
+        }
+        setTypeFieldErrors({});
         const parsed = Number.parseFloat(shrinkPct);
         if (!Number.isFinite(parsed) || parsed < 0) return;
 
@@ -183,7 +214,13 @@ export default function ShrinkSettingsPage() {
     };
 
     const handleAddCommodityShrink = async () => {
-        if (!commodity || !shrinkPct.trim()) return;
+        const values = { commodity, shrinkPct };
+        const nextFieldErrors = buildRequiredFieldErrorsFromRules(COMMODITY_MODAL_FIELD_RULES, values);
+        if (hasFieldErrors(nextFieldErrors)) {
+            setCommodityFieldErrors(nextFieldErrors);
+            return;
+        }
+        setCommodityFieldErrors({});
         const parsed = Number.parseFloat(shrinkPct);
         if (!Number.isFinite(parsed) || parsed < 0) return;
 
@@ -205,7 +242,13 @@ export default function ShrinkSettingsPage() {
     };
 
     const handleAddCustomerCommodityShrink = async () => {
-        if (!customer || !commodity || !shrinkPct.trim()) return;
+        const values = { customer, commodity, shrinkPct };
+        const nextFieldErrors = buildRequiredFieldErrorsFromRules(CC_MODAL_FIELD_RULES, values);
+        if (hasFieldErrors(nextFieldErrors)) {
+            setCcFieldErrors(nextFieldErrors);
+            return;
+        }
+        setCcFieldErrors({});
         const parsed = Number.parseFloat(shrinkPct);
         if (!Number.isFinite(parsed) || parsed < 0) return;
 
@@ -423,16 +466,16 @@ export default function ShrinkSettingsPage() {
                 </div>
             </div>
 
-            <Modal open={typeModalOpen} title="Set commodity type shrink" onClose={() => setTypeModalOpen(false)}>
+            <Modal open={typeModalOpen} title="Set commodity type shrink" onClose={() => { setTypeFieldErrors({}); setTypeModalOpen(false); }}>
                 <div className="space-y-4">
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            COMMODITY TYPE <span className="text-red-400">*</span>
-                        </label>
+                    <FormRow label="Commodity type" required hasError={Boolean(typeFieldErrors.commodityType)}>
                         <select
-                            className="w-full rounded-md border border-blue-500/40 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            className={inputClassName(Boolean(typeFieldErrors.commodityType))}
                             value={commodityType}
-                            onChange={(e) => setCommodityType(e.target.value)}
+                            onChange={(e) => {
+                                setTypeFieldErrors((prev) => clearFieldError(prev, "commodityType"));
+                                setCommodityType(e.target.value);
+                            }}
                         >
                             <option value="">Select commodity type</option>
                             {formCommodityTypes.map((item) => (
@@ -442,25 +485,26 @@ export default function ShrinkSettingsPage() {
                                 </option>
                             ))}
                         </select>
-                    </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            SHRINK % <span className="text-red-400">*</span>
-                        </label>
+                    </FormRow>
+                    <FormRow label="Shrink %" required hasError={Boolean(typeFieldErrors.shrinkPct)}>
                         <div className="flex items-center gap-3">
-                            <input
+                            <FormInput
                                 type="number"
                                 placeholder="0"
-                                className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="flex-1"
+                                hasError={Boolean(typeFieldErrors.shrinkPct)}
                                 value={shrinkPct}
-                                onChange={(e) => setShrinkPct(e.target.value)}
+                                onChange={(e) => {
+                                    setTypeFieldErrors((prev) => clearFieldError(prev, "shrinkPct"));
+                                    setShrinkPct(e.target.value);
+                                }}
                             />
                             <span className="text-sm font-medium text-slate-500">%</span>
                         </div>
-                    </div>
+                    </FormRow>
                 </div>
                 <div className="mt-8 flex justify-end gap-3">
-                    <Button type="button" variant="outline" className="border-blue-100 text-blue-700 hover:bg-blue-50" onClick={() => setTypeModalOpen(false)}>
+                    <Button type="button" variant="outline" className="border-blue-100 text-blue-700 hover:bg-blue-50" onClick={() => { setTypeFieldErrors({}); setTypeModalOpen(false); }}>
                         Cancel
                     </Button>
                     <Button type="button" className="bg-[#3b82f6] hover:bg-blue-600 text-white px-6 font-semibold" onClick={handleAddTypeShrink} disabled={savingRule}>
@@ -469,16 +513,16 @@ export default function ShrinkSettingsPage() {
                 </div>
             </Modal>
 
-            <Modal open={commodityModalOpen} title="Set commodity grade shrink" onClose={() => setCommodityModalOpen(false)}>
+            <Modal open={commodityModalOpen} title="Set commodity grade shrink" onClose={() => { setCommodityFieldErrors({}); setCommodityModalOpen(false); }}>
                 <div className="space-y-4">
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            COMMODITY GRADE <span className="text-red-400">*</span>
-                        </label>
+                    <FormRow label="Commodity grade" required hasError={Boolean(commodityFieldErrors.commodity)}>
                         <select
-                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            className={inputClassName(Boolean(commodityFieldErrors.commodity))}
                             value={commodity}
-                            onChange={(e) => setCommodity(e.target.value)}
+                            onChange={(e) => {
+                                setCommodityFieldErrors((prev) => clearFieldError(prev, "commodity"));
+                                setCommodity(e.target.value);
+                            }}
                         >
                             <option value="">Select commodity grade</option>
                             {formCommodities.map((item) => (
@@ -488,25 +532,26 @@ export default function ShrinkSettingsPage() {
                                 </option>
                             ))}
                         </select>
-                    </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            SHRINK % <span className="text-red-400">*</span>
-                        </label>
+                    </FormRow>
+                    <FormRow label="Shrink %" required hasError={Boolean(commodityFieldErrors.shrinkPct)}>
                         <div className="flex items-center gap-3">
-                            <input
+                            <FormInput
                                 type="number"
                                 placeholder="0"
-                                className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="flex-1"
+                                hasError={Boolean(commodityFieldErrors.shrinkPct)}
                                 value={shrinkPct}
-                                onChange={(e) => setShrinkPct(e.target.value)}
+                                onChange={(e) => {
+                                    setCommodityFieldErrors((prev) => clearFieldError(prev, "shrinkPct"));
+                                    setShrinkPct(e.target.value);
+                                }}
                             />
                             <span className="text-sm font-medium text-slate-500">%</span>
                         </div>
-                    </div>
+                    </FormRow>
                 </div>
                 <div className="mt-8 flex justify-end gap-3">
-                    <Button type="button" variant="outline" className="border-blue-100 text-blue-700 hover:bg-blue-50" onClick={() => setCommodityModalOpen(false)}>
+                    <Button type="button" variant="outline" className="border-blue-100 text-blue-700 hover:bg-blue-50" onClick={() => { setCommodityFieldErrors({}); setCommodityModalOpen(false); }}>
                         Cancel
                     </Button>
                     <Button type="button" className="bg-[#3b82f6] hover:bg-blue-600 text-white px-6 font-semibold" onClick={handleAddCommodityShrink} disabled={savingRule}>
@@ -515,16 +560,16 @@ export default function ShrinkSettingsPage() {
                 </div>
             </Modal>
 
-            <Modal open={ccModalOpen} title="Add customer-commodity grade shrink" onClose={() => setCcModalOpen(false)}>
+            <Modal open={ccModalOpen} title="Add customer-commodity grade shrink" onClose={() => { setCcFieldErrors({}); setCcModalOpen(false); }}>
                 <div className="space-y-4">
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            CUSTOMER <span className="text-red-400">*</span>
-                        </label>
+                    <FormRow label="Customer" required hasError={Boolean(ccFieldErrors.customer)}>
                         <select
-                            className="w-full rounded-md border border-blue-500/40 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            className={inputClassName(Boolean(ccFieldErrors.customer))}
                             value={customer}
-                            onChange={(e) => setCustomer(e.target.value)}
+                            onChange={(e) => {
+                                setCcFieldErrors((prev) => clearFieldError(prev, "customer"));
+                                setCustomer(e.target.value);
+                            }}
                         >
                             <option value="">Select customer</option>
                             {formCustomers.map((item) => (
@@ -533,16 +578,16 @@ export default function ShrinkSettingsPage() {
                                 </option>
                             ))}
                         </select>
-                    </div>
+                    </FormRow>
 
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            COMMODITY GRADE <span className="text-red-400">*</span>
-                        </label>
+                    <FormRow label="Commodity grade" required hasError={Boolean(ccFieldErrors.commodity)}>
                         <select
-                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            className={inputClassName(Boolean(ccFieldErrors.commodity))}
                             value={commodity}
-                            onChange={(e) => setCommodity(e.target.value)}
+                            onChange={(e) => {
+                                setCcFieldErrors((prev) => clearFieldError(prev, "commodity"));
+                                setCommodity(e.target.value);
+                            }}
                         >
                             <option value="">Select commodity grade</option>
                             {formCommodities.map((item) => (
@@ -551,23 +596,24 @@ export default function ShrinkSettingsPage() {
                                 </option>
                             ))}
                         </select>
-                    </div>
+                    </FormRow>
 
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            SHRINK % <span className="text-red-400">*</span>
-                        </label>
+                    <FormRow label="Shrink %" required hasError={Boolean(ccFieldErrors.shrinkPct)}>
                         <div className="flex items-center gap-3">
-                            <input
+                            <FormInput
                                 type="number"
                                 placeholder="0"
-                                className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="flex-1"
+                                hasError={Boolean(ccFieldErrors.shrinkPct)}
                                 value={shrinkPct}
-                                onChange={(e) => setShrinkPct(e.target.value)}
+                                onChange={(e) => {
+                                    setCcFieldErrors((prev) => clearFieldError(prev, "shrinkPct"));
+                                    setShrinkPct(e.target.value);
+                                }}
                             />
                             <span className="text-sm font-medium text-slate-500">%</span>
                         </div>
-                    </div>
+                    </FormRow>
                 </div>
 
                 <div className="mt-8 flex justify-end gap-3">
@@ -575,7 +621,7 @@ export default function ShrinkSettingsPage() {
                         type="button"
                         variant="outline"
                         className="border-blue-100 text-blue-700 hover:bg-blue-50"
-                        onClick={() => setCcModalOpen(false)}
+                        onClick={() => { setCcFieldErrors({}); setCcModalOpen(false); }}
                     >
                         Cancel
                     </Button>

@@ -3,19 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import ClutchFormField from "@/components/form/clutch-form-field";
+import LabeledField from "@/components/form/labeled-field";
 import { Button } from "@/components/ui/button";
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
+import {
+  buildRequiredFieldErrors,
+  clearFieldError,
+  hasFieldErrors,
+} from "@/lib/form-validation";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 ).replace(/\/+$/, "");
 const TESTS_ENDPOINT = `${API_BASE_URL}/product-settings/tests`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const APPLIES_TO_OPTIONS = ["Incoming Tickets", "Outgoing Tickets", "Outgoing Containers"];
 const TEST_TYPES = ["Percentage", "Count", "Group"];
@@ -204,6 +206,7 @@ export default function TestPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadTests = useCallback(async () => {
     setIsLoading(true);
@@ -249,6 +252,7 @@ export default function TestPage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -257,24 +261,21 @@ export default function TestPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
 
   const closeModal = () => {
     if (isSaving) return;
+    setFieldErrors({});
     setModalMode(null);
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some((field) => {
-      if (!field.required) return false;
-      if (field.showWhen && !field.showWhen(draft)) return false;
-      const value = draft[field.key];
-      if (Array.isArray(value)) return value.length === 0;
-      return !String(value ?? "").trim();
-    });
-    if (requiredMissing) {
+    const errors = buildRequiredFieldErrors(config.formFields, draft);
+    if (hasFieldErrors(errors)) {
+      setFieldErrors(errors);
       setError("Please fill all required fields.");
       return;
     }
@@ -445,32 +446,111 @@ export default function TestPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields
             .filter((field) => !field.showWhen || field.showWhen(draft))
-            .map((field) => (
-              <FormField
-                key={field.key}
-                field={field}
-                value={draft[field.key] ?? (field.type === "checkboxes" || field.type === "test-members" ? [] : "")}
-                disabled={isSaving}
-                onChange={(value) => {
-                  setDraft((prev) => {
-                    const next = { ...prev, [field.key]: value };
-                    if (field.key === "type") {
-                      next.unit = defaultUnitForTestType(value);
-                    }
-                    return next;
-                  });
-                }}
-                memberCandidates={
-                  field.type === "test-members"
-                    ? rows.filter((r) => {
-                        const isCount = String(r.type ?? "").trim().toLowerCase() === "count";
-                        const isSelf = modalMode === "edit" && selected && r.id === selected.id;
-                        return isCount && !isSelf;
-                      })
-                    : undefined
-                }
-              />
-            ))}
+            .map((field) => {
+              if (field.type === "checkboxes") {
+                return (
+                  <LabeledField key={field.key} label={field.label} wide={field.wide}>
+                    <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200/95 bg-white px-3 py-2.5">
+                      {field.options?.map((option) => {
+                        const value = draft[field.key] ?? [];
+                        const selected = Array.isArray(value) ? value.includes(option) : false;
+                        return (
+                          <label key={option} className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                              checked={selected}
+                              onChange={(event) => {
+                                const arr = Array.isArray(value) ? value : [];
+                                const next = event.target.checked
+                                  ? [...arr, option]
+                                  : arr.filter((v) => v !== option);
+                                setDraft((prev) => ({ ...prev, [field.key]: next }));
+                              }}
+                            />
+                            {option}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </LabeledField>
+                );
+              }
+
+              if (field.type === "test-members") {
+                const value = draft[field.key] ?? [];
+                const memberCandidates = rows.filter((r) => {
+                  const isCount = String(r.type ?? "").trim().toLowerCase() === "count";
+                  const isSelf = modalMode === "edit" && selected && r.id === selected.id;
+                  return isCount && !isSelf;
+                });
+                return (
+                  <LabeledField key={field.key} label={field.label} wide={field.wide}>
+                    <div className="rounded-lg border border-slate-200/95 bg-white p-2.5">
+                      {memberCandidates.length === 0 ? (
+                        <p className="px-1 py-2 text-xs text-slate-400">
+                          No Count-type tests available. Add Count tests first.
+                        </p>
+                      ) : (
+                        <div className="max-h-44 overflow-y-auto space-y-1">
+                          {memberCandidates.map((test) => {
+                            const selectedMember = Array.isArray(value) ? value.includes(test.id) : false;
+                            return (
+                              <label
+                                key={test.id}
+                                className={cn(
+                                  "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                                  selectedMember ? "bg-blue-50" : "hover:bg-slate-50"
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                                  checked={selectedMember}
+                                  onChange={(event) => {
+                                    const arr = Array.isArray(value) ? value : [];
+                                    const next = event.target.checked
+                                      ? [...arr, test.id]
+                                      : arr.filter((v) => v !== test.id);
+                                    setDraft((prev) => ({ ...prev, [field.key]: next }));
+                                  }}
+                                />
+                                <span className={cn(selectedMember && "font-medium text-slate-900")}>
+                                  {test.testName}
+                                </span>
+                                {test.unit ? (
+                                  <span className="ml-auto text-[11px] text-slate-400">{test.unit}</span>
+                                ) : null}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </LabeledField>
+                );
+              }
+
+              return (
+                <ClutchFormField
+                  key={field.key}
+                  field={field}
+                  value={draft[field.key] ?? ""}
+                  disabled={isSaving}
+                  hasError={Boolean(fieldErrors[field.key])}
+                  onChange={(value) => {
+                    setFieldErrors((prev) => clearFieldError(prev, field.key));
+                    setDraft((prev) => {
+                      const next = { ...prev, [field.key]: value };
+                      if (field.key === "type") {
+                        next.unit = defaultUnitForTestType(value);
+                      }
+                      return next;
+                    });
+                  }}
+                />
+              );
+            })}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>Cancel</Button>
@@ -490,102 +570,6 @@ export default function TestPage() {
           ↑
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled, memberCandidates = [] }) {
-  return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(field.options ?? [])}
-          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select..."
-        />
-      ) : field.type === "checkboxes" ? (
-        <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200/95 bg-white px-3 py-2.5">
-          {field.options?.map((option) => {
-            const selected = Array.isArray(value) ? value.includes(option) : false;
-            return (
-              <label key={option} className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-slate-300 accent-blue-600"
-                  checked={selected}
-                  onChange={(event) => {
-                    const arr = Array.isArray(value) ? value : [];
-                    onChange(event.target.checked ? [...arr, option] : arr.filter((v) => v !== option));
-                  }}
-                />
-                {option}
-              </label>
-            );
-          })}
-        </div>
-      ) : field.type === "test-members" ? (
-        <div className="rounded-lg border border-slate-200/95 bg-white p-2.5">
-          {(memberCandidates ?? []).length === 0 ? (
-            <p className="px-1 py-2 text-xs text-slate-400">
-              No Count-type tests available. Add Count tests first.
-            </p>
-          ) : (
-            <div className="max-h-44 overflow-y-auto space-y-1">
-              {memberCandidates.map((test) => {
-                const selected = Array.isArray(value) ? value.includes(test.id) : false;
-                return (
-                  <label
-                    key={test.id}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                      selected ? "bg-blue-50" : "hover:bg-slate-50"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 accent-blue-600"
-                      checked={selected}
-                      onChange={(event) => {
-                        const arr = Array.isArray(value) ? value : [];
-                        onChange(event.target.checked ? [...arr, test.id] : arr.filter((v) => v !== test.id));
-                      }}
-                    />
-                    <span className={cn(selected && "font-medium text-slate-900")}>{test.testName}</span>
-                    {test.unit ? <span className="ml-auto text-[11px] text-slate-400">{test.unit}</span> : null}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : field.type === "textarea" ? (
-        <textarea
-          suppressHydrationWarning
-          className={cn(inputClass, "min-h-20 resize-y")}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          rows={3}
-        />
-      ) : (
-        <input
-          suppressHydrationWarning
-          type={field.type || "text"}
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          {...numberInputProps(field.type)}
-        />
-      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { DocPrintToolbar } from "@/components/fumigation/fumigation-shared-print
 import { formatDateTime } from "@/lib/fumigation-cert-print";
 import { ENCLOSURE_TYPES, FUMIGATION_TARGETS, RECORD_SECTIONS } from "@/lib/fumigation-fields";
 import { CertificateSignoffGrid } from "@/components/fumigation/fumigation-signoff-display";
-import { calcEquilibriumPercent } from "@/lib/fumigation-concentration-readings";
+import { calcEquilibriumDetails } from "@/lib/fumigation-concentration-readings";
 
 const ALL_RECORD_SECTION_KEYS = RECORD_SECTIONS.map((s) => s.key);
 
@@ -305,32 +305,30 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
                 <thead>
                   <tr>
                     <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-gray-50" rowSpan={2}>Container number</th>
-                    <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-gray-50" rowSpan={2}>Date</th>
                     <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-sky-100 text-center" colSpan={4}>Start concentration reading</th>
                     <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-emerald-100 text-center" colSpan={4}>End concentration reading</th>
                     <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-amber-100 text-center" colSpan={2}>TVL reading</th>
                     <th className="border border-gray-300 px-1 py-1 font-semibold text-gray-700 bg-sky-50 text-center" rowSpan={2}>Eq.%</th>
                   </tr>
                   <tr>
-                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-sky-100">Time</th>
+                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-sky-100">Date &amp; time</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-sky-100">Top (g/m³)</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-sky-100">Middle (g/m³)</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-sky-100">Base (g/m³)</th>
-                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-emerald-100">Time</th>
+                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-emerald-100">Date &amp; time</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-emerald-100">Top (g/m³)</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-emerald-100">Middle (g/m³)</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-emerald-100">Base (g/m³)</th>
-                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-amber-100">Time</th>
+                    <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-amber-100">Date &amp; time</th>
                     <th className="border border-gray-300 px-1 py-1 font-medium text-gray-600 bg-amber-100">PPM</th>
                   </tr>
                 </thead>
                 <tbody>
                   {readings.map((row) => {
-                    const eqPct = calcEquilibriumPercent(row.startTopGm3, row.startMiddleGm3, row.startBaseGm3);
+                    const eq = calcEquilibriumDetails(row.startTopGm3, row.startMiddleGm3, row.startBaseGm3);
                     return (
                       <tr key={row.id} className="border-b border-gray-200">
                         <td className="border border-gray-300 px-1 py-1 font-medium text-gray-800">{row.containerNumber || ""}</td>
-                        <td className="border border-gray-300 px-1 py-1">{row.date || ""}</td>
                         <td className="border border-gray-300 px-1 py-1 bg-sky-50/50">{formatDateTime(row.startAt) || row.startAt || ""}</td>
                         <td className="border border-gray-300 px-1 py-1 text-center bg-sky-50/50">{row.startTopGm3 || ""}</td>
                         <td className="border border-gray-300 px-1 py-1 text-center bg-sky-50/50">{row.startMiddleGm3 || ""}</td>
@@ -341,7 +339,9 @@ export default function FumigationRecordDocument({ model, backHref, hideToolbar 
                         <td className="border border-gray-300 px-1 py-1 text-center bg-emerald-50/50">{row.endBaseGm3 || ""}</td>
                         <td className="border border-gray-300 px-1 py-1 bg-amber-50/50">{formatDateTime(row.tvlAt) || row.tvlAt || ""}</td>
                         <td className="border border-gray-300 px-1 py-1 text-center bg-amber-50/50">{row.tvlPpm || ""}</td>
-                        <td className="border border-gray-300 px-1 py-1 text-center text-gray-700">{eqPct ? `${eqPct}%` : ""}</td>
+                        <td className="border border-gray-300 px-1 py-1 text-center text-gray-700">
+                          {eq.percent !== "" ? `${eq.percent}%` : ""}
+                        </td>
                       </tr>
                     );
                   })}

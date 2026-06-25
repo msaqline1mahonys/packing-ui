@@ -16,6 +16,7 @@ import { deleteRelease, fetchReleases, saveRelease } from "@/lib/releases-api";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { usePolling } from "@/lib/use-polling";
+import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
 const MOBILE_BREAKPOINT = 900;
@@ -158,6 +159,7 @@ export default function ReleasesPage() {
   const [lookupsError, setLookupsError] = useState("");
   const [dateField, setDateField] = useState("releaseAvailableAt");
   const [dateRange, setDateRange] = useState([null, null]);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +248,7 @@ export default function ReleasesPage() {
   function openAddModal() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(blankRelease());
     setModalMode("add");
   }
@@ -256,6 +259,7 @@ export default function ReleasesPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     const original = rows.find((r) => r.id === selected.id);
     setDraft(normalizeRelease(original));
     setModalMode("edit");
@@ -264,14 +268,17 @@ export default function ReleasesPage() {
   function closeModal() {
     setModalMode(null);
     setError("");
+    setFieldErrors({});
   }
 
   async function saveModal() {
     if (isSaving) return;
     if (!String(draft.releaseNumber || "").trim()) {
+      setFieldErrors({ releaseNumber: true });
       setError("Release Number is required.");
       return;
     }
+    setFieldErrors({});
 
     const cleanedParks = (draft.parks || [])
       .map((park) => ({
@@ -524,11 +531,14 @@ export default function ReleasesPage() {
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Release Number" required>
+          <Field label="Release Number" required hasError={Boolean(fieldErrors.releaseNumber)}>
             <input
-              className={inputClass}
+              className={inputClassName(Boolean(fieldErrors.releaseNumber))}
               value={draft.releaseNumber}
-              onChange={(e) => setField("releaseNumber", e.target.value)}
+              onChange={(e) => {
+                setFieldErrors((prev) => (prev.releaseNumber ? { ...prev, releaseNumber: false } : prev));
+                setField("releaseNumber", e.target.value);
+              }}
               placeholder="e.g. REL-2026-001"
             />
           </Field>
@@ -769,10 +779,10 @@ export default function ReleasesPage() {
   );
 }
 
-function Field({ label, required, children }) {
+function Field({ label, required, hasError = false, children }) {
   return (
     <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn("text-[11px] font-semibold uppercase tracking-wide", hasError ? formLabelErrorClass : "text-slate-600")}>
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
       </label>

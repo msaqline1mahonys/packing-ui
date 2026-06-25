@@ -296,7 +296,7 @@ export default function FumigationRecordEditorClient({ packId }) {
   const smallInput = `${inputClass} text-[11px] py-1 px-1.5`;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="-mx-6 min-h-screen bg-slate-50 md:-mx-10">
       <EditorToolbar
         title={`Record editor — ${rec.packRef || packId}`}
         subtitle={rec.fumigant?.name ? `Fumigant: ${rec.fumigant.name}` : undefined}
@@ -308,10 +308,10 @@ export default function FumigationRecordEditorClient({ packId }) {
         }
       />
 
-      <div className="mx-auto grid max-w-screen-xl grid-cols-1 gap-6 px-4 py-6 xl:grid-cols-[1fr_480px]">
+      <div className="grid w-full grid-cols-1 gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,34%)] xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_440px]">
 
         {/* ── FORM ── */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
 
           {/* Section A — Fumigator */}
           <SectionCard>
@@ -523,7 +523,7 @@ export default function FumigationRecordEditorClient({ packId }) {
           </SectionCard>
 
           {/* Section D — Concentration readings */}
-          <SectionCard>
+          <SectionCard className="overflow-hidden">
             <SectionHeading>Section D — Concentration readings</SectionHeading>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-4">
               <FormField label="Monitoring device serial(s)" wide>

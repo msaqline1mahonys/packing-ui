@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import LabeledField from "@/components/form/labeled-field";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
+import { inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
 const API_BASE_URL = (
@@ -13,8 +16,10 @@ const API_BASE_URL = (
 const FUMIGANTS_ENDPOINT = `${API_BASE_URL}/fumigation/fumigants`;
 const METHODOLOGIES_ENDPOINT = `${API_BASE_URL}/fumigation/methodologies`;
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+const REQUIRED_FIELD_RULES = [
+  { key: "name", required: true },
+  { key: "fumigantId", required: true },
+];
 
 const APPLICATION_METHODS = ["Chamber", "In-container", "Sheeted stack", "Silo", "Vacuum chamber"];
 const MIN_EXPOSURE_UNITS = ["hours", "days"];
@@ -249,6 +254,7 @@ export default function FumigationMethodologiesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadPageData = useCallback(async () => {
     setIsLoading(true);
@@ -327,6 +333,7 @@ export default function FumigationMethodologiesPage() {
   function openAdd() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   }
@@ -337,6 +344,7 @@ export default function FumigationMethodologiesPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
@@ -345,6 +353,7 @@ export default function FumigationMethodologiesPage() {
     if (isSaving) return;
     setModalMode(null);
     setError("");
+    setFieldErrors({});
   }
 
   function toggleApplicationMethod(value) {
@@ -390,7 +399,9 @@ export default function FumigationMethodologiesPage() {
 
   async function saveModal() {
     setError("");
-    if (!draft.name.trim() || !draft.fumigantId) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Name and fumigant are required.");
       return;
     }
@@ -491,7 +502,7 @@ export default function FumigationMethodologiesPage() {
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
-            className={cn(inputClass, "max-w-md")}
+            className={inputClassName(false, "max-w-md")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search methodology..."
@@ -579,33 +590,39 @@ export default function FumigationMethodologiesPage() {
           }}
         >
         <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Name *">
+          <LabeledField label="Name" required hasError={fieldErrors.name}>
             <input
-              className={inputClass}
+              className={inputClassName(fieldErrors.name)}
               value={draft.name}
-              onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "name"));
+                setDraft((prev) => ({ ...prev, name: event.target.value }));
+              }}
             />
-          </FormField>
-          <FormField label="Version">
+          </LabeledField>
+          <LabeledField label="Version">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.version}
               onChange={(event) => setDraft((prev) => ({ ...prev, version: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Effective date">
+          </LabeledField>
+          <LabeledField label="Effective date">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="date"
               value={draft.effectiveDate}
               onChange={(event) => setDraft((prev) => ({ ...prev, effectiveDate: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Fumigant *">
+          </LabeledField>
+          <LabeledField label="Fumigant" required hasError={fieldErrors.fumigantId}>
             <select
-              className={inputClass}
+              className={inputClassName(fieldErrors.fumigantId)}
               value={draft.fumigantId}
-              onChange={(event) => setDraft((prev) => ({ ...prev, fumigantId: event.target.value }))}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "fumigantId"));
+                setDraft((prev) => ({ ...prev, fumigantId: event.target.value }));
+              }}
             >
               <option value="">Select...</option>
               {fumigants.map((item) => (
@@ -614,9 +631,9 @@ export default function FumigationMethodologiesPage() {
                 </option>
               ))}
             </select>
-          </FormField>
+          </LabeledField>
 
-          <FormField label="Application methods" wide>
+          <LabeledField label="Application methods" wide>
             <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200/95 bg-white p-3">
               {APPLICATION_METHODS.map((value) => (
                 <label key={value} className="inline-flex items-center gap-2 text-sm text-slate-700">
@@ -629,29 +646,29 @@ export default function FumigationMethodologiesPage() {
                 </label>
               ))}
             </div>
-          </FormField>
+          </LabeledField>
 
-          <FormField label="Min temperature">
+          <LabeledField label="Min temperature">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.minTemperature}
               onChange={(event) => setDraft((prev) => ({ ...prev, minTemperature: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Max temperature">
+          </LabeledField>
+          <LabeledField label="Max temperature">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.maxTemperature}
               onChange={(event) => setDraft((prev) => ({ ...prev, maxTemperature: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Min exposure unit">
+          </LabeledField>
+          <LabeledField label="Min exposure unit">
             <select
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.minExposureUnit}
               onChange={(event) => setDraft((prev) => ({ ...prev, minExposureUnit: event.target.value }))}
             >
@@ -661,19 +678,19 @@ export default function FumigationMethodologiesPage() {
                 </option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Min exposure">
+          </LabeledField>
+          <LabeledField label="Min exposure">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.minExposure}
               onChange={(event) => setDraft((prev) => ({ ...prev, minExposure: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Dosage unit">
+          </LabeledField>
+          <LabeledField label="Dosage unit">
             <select
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.dosageUnit}
               onChange={(event) => setDraft((prev) => ({ ...prev, dosageUnit: event.target.value }))}
             >
@@ -683,58 +700,58 @@ export default function FumigationMethodologiesPage() {
                 </option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Re-entry PPM">
+          </LabeledField>
+          <LabeledField label="Re-entry PPM">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.reEntryPpm}
               onChange={(event) => setDraft((prev) => ({ ...prev, reEntryPpm: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Dosage guide" wide>
+          </LabeledField>
+          <LabeledField label="Dosage guide" wide>
             <textarea
-              className={cn(inputClass, "min-h-16 resize-y")}
+              className={inputClassName(false, "min-h-16 resize-y")}
               value={draft.dosageGuide}
               rows={2}
               onChange={(event) => setDraft((prev) => ({ ...prev, dosageGuide: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Restraint" wide>
+          </LabeledField>
+          <LabeledField label="Restraint" wide>
             <textarea
-              className={cn(inputClass, "min-h-16 resize-y")}
+              className={inputClassName(false, "min-h-16 resize-y")}
               value={draft.restraint}
               rows={2}
               onChange={(event) => setDraft((prev) => ({ ...prev, restraint: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Ventilation period">
+          </LabeledField>
+          <LabeledField label="Ventilation period">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.ventilationPeriod}
               onChange={(event) => setDraft((prev) => ({ ...prev, ventilationPeriod: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Withholding period">
+          </LabeledField>
+          <LabeledField label="Withholding period">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.withholdingPeriod}
               onChange={(event) => setDraft((prev) => ({ ...prev, withholdingPeriod: event.target.value }))}
             />
-          </FormField>
-          <FormField label="General safety / venting notes" wide>
+          </LabeledField>
+          <LabeledField label="General safety / venting notes" wide>
             <textarea
-              className={cn(inputClass, "min-h-20 resize-y")}
+              className={inputClassName(false, "min-h-20 resize-y")}
               rows={3}
               value={draft.safetyNotes}
               onChange={(event) => setDraft((prev) => ({ ...prev, safetyNotes: event.target.value }))}
             />
-          </FormField>
+          </LabeledField>
 
           <div className="col-span-2 space-y-2">
             <div className="flex items-center justify-between">
@@ -857,15 +874,6 @@ export default function FumigationMethodologiesPage() {
         </div>
         </form>
       </Modal>
-    </div>
-  );
-}
-
-function FormField({ label, wide = false, children }) {
-  return (
-    <div className={cn("space-y-1", wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
-      {children}
     </div>
   );
 }

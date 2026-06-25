@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import LabeledField from "@/components/form/labeled-field";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
+import { inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
 const API_BASE_URL = (
@@ -12,8 +15,10 @@ const API_BASE_URL = (
 ).replace(/\/+$/, "");
 const FUMIGANTS_ENDPOINT = `${API_BASE_URL}/fumigation/fumigants`;
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
+const REQUIRED_FIELD_RULES = [
+  { key: "code", required: true },
+  { key: "name", required: true },
+];
 
 const PRODUCT_FORMS = ["Cylinder", "Tablet", "Liquid", "Gas", "Granule"];
 const DOSAGE_UNITS = ["ppm", "g/m3", "mg/L", "%"];
@@ -123,6 +128,7 @@ export default function FumigantsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadFumigants = useCallback(async () => {
     setIsLoading(true);
@@ -184,6 +190,7 @@ export default function FumigantsPage() {
   function openAdd() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   }
@@ -194,6 +201,7 @@ export default function FumigantsPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   }
@@ -202,10 +210,13 @@ export default function FumigantsPage() {
     if (isSaving) return;
     setModalMode(null);
     setError("");
+    setFieldErrors({});
   }
 
   async function saveModal() {
-    if (!draft.code.trim() || !draft.name.trim()) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Code and name are required.");
       return;
     }
@@ -301,7 +312,7 @@ export default function FumigantsPage() {
       <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input
-            className={cn(inputClass, "max-w-md")}
+            className={inputClassName(false, "max-w-md")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search code, name, or family..."
@@ -377,30 +388,36 @@ export default function FumigantsPage() {
           <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{modalError}</div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Code *">
+          <LabeledField label="Code" required hasError={fieldErrors.code}>
             <input
-              className={inputClass}
+              className={inputClassName(fieldErrors.code)}
               value={draft.code}
-              onChange={(event) => setDraft((prev) => ({ ...prev, code: event.target.value }))}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "code"));
+                setDraft((prev) => ({ ...prev, code: event.target.value }));
+              }}
             />
-          </FormField>
-          <FormField label="Name *">
+          </LabeledField>
+          <LabeledField label="Name" required hasError={fieldErrors.name}>
             <input
-              className={inputClass}
+              className={inputClassName(fieldErrors.name)}
               value={draft.name}
-              onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "name"));
+                setDraft((prev) => ({ ...prev, name: event.target.value }));
+              }}
             />
-          </FormField>
-          <FormField label="Chemical family">
+          </LabeledField>
+          <LabeledField label="Chemical family">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.chemicalFamily}
               onChange={(event) => setDraft((prev) => ({ ...prev, chemicalFamily: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Product form">
+          </LabeledField>
+          <LabeledField label="Product form">
             <select
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.productForm}
               onChange={(event) => setDraft((prev) => ({ ...prev, productForm: event.target.value }))}
             >
@@ -410,10 +427,10 @@ export default function FumigantsPage() {
                 </option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Default unit">
+          </LabeledField>
+          <LabeledField label="Default unit">
             <select
-              className={inputClass}
+              className={inputClassName(false)}
               value={draft.defaultUnit}
               onChange={(event) => setDraft((prev) => ({ ...prev, defaultUnit: event.target.value }))}
             >
@@ -423,24 +440,24 @@ export default function FumigantsPage() {
                 </option>
               ))}
             </select>
-          </FormField>
-          <FormField label="Re-entry PPM">
+          </LabeledField>
+          <LabeledField label="Re-entry PPM">
             <input
-              className={inputClass}
+              className={inputClassName(false)}
               type="number"
               step="any"
               value={draft.reEntryPpm}
               onChange={(event) => setDraft((prev) => ({ ...prev, reEntryPpm: event.target.value }))}
             />
-          </FormField>
-          <FormField label="Active constituent" wide>
+          </LabeledField>
+          <LabeledField label="Active constituent" wide>
             <textarea
-              className={cn(inputClass, "min-h-20 resize-y")}
+              className={inputClassName(false, "min-h-20 resize-y")}
               rows={3}
               value={draft.activeConstituent}
               onChange={(event) => setDraft((prev) => ({ ...prev, activeConstituent: event.target.value }))}
             />
-          </FormField>
+          </LabeledField>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={closeModal} disabled={isSaving}>
@@ -451,15 +468,6 @@ export default function FumigantsPage() {
           </Button>
         </div>
       </Modal>
-    </div>
-  );
-}
-
-function FormField({ label, wide = false, children }) {
-  return (
-    <div className={cn("space-y-1", wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
-      {children}
     </div>
   );
 }

@@ -379,6 +379,29 @@ export default function PackingScheduleContainersPage() {
                   {displayContainerStage(selected)}
                 </span>
               </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Link
+                  href={`/packing-schedule/new-pack-form?mode=edit&id=${selected.packId}`}
+                  className="inline-flex h-7 items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80"
+                >
+                  Open pack
+                </Link>
+                {PACKERS_SCHEDULE_STATUSES.includes(selected.packStatus) ? (
+                  <Link
+                    href={`/packers-schedule/${selected.packId}`}
+                    className="inline-flex h-7 items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80"
+                  >
+                    Open in Packers
+                  </Link>
+                ) : (
+                  <span
+                    title="Packers schedule only shows Pending, On Hold, and Inprogress packs"
+                    className="inline-flex h-7 cursor-not-allowed items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground opacity-50"
+                  >
+                    Open in Packers
+                  </span>
+                )}
+              </div>
             </div>
             <div className="max-h-[calc(100vh-12rem)] space-y-4 overflow-auto p-3 text-xs">
               <SidebarSection title="Container">
@@ -467,30 +490,6 @@ export default function PackingScheduleContainersPage() {
                 <Field label="GPPIR submitted" value={selected.gppirSubmitted ? "Yes" : "No"} />
                 <Field label="GPPIR submitted at" value={formatCutoffOrEtdDisplay(selected.gppirLastSubmittedAt)} />
               </SidebarSection>
-
-              <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                <Link
-                  href={`/packing-schedule/new-pack-form?mode=edit&id=${selected.packId}`}
-                  className="inline-flex h-7 items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80"
-                >
-                  Open pack
-                </Link>
-                {PACKERS_SCHEDULE_STATUSES.includes(selected.packStatus) ? (
-                  <Link
-                    href={`/packers-schedule/${selected.packId}`}
-                    className="inline-flex h-7 items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80"
-                  >
-                    Open in Packers
-                  </Link>
-                ) : (
-                  <span
-                    title="Packers schedule only shows Pending, On Hold, and Inprogress packs"
-                    className="inline-flex h-7 cursor-not-allowed items-center rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground opacity-50"
-                  >
-                    Open in Packers
-                  </span>
-                )}
-              </div>
             </div>
           </div>
         ) : null}

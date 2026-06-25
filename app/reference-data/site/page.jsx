@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
+import ClutchFormField from "@/components/form/clutch-form-field";
+import { buildRequiredFieldErrors, clearFieldError } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -239,6 +239,7 @@ export default function SitePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadSites = useCallback(async () => {
     setIsLoading(true);
@@ -306,6 +307,7 @@ export default function SitePage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -314,6 +316,7 @@ export default function SitePage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
@@ -321,16 +324,17 @@ export default function SitePage() {
   const closeModal = () => {
     if (isSaving) return;
     setModalMode(null);
+    setFieldErrors({});
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some(
-      (field) => field.required && !String(draft[field.key] ?? "").trim()
-    );
-    if (requiredMissing) {
+    const nextFieldErrors = buildRequiredFieldErrors(config.formFields, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Please fill all required fields.");
       return;
     }
+    setFieldErrors({});
 
     const tenant = getTenantPayload();
     if (modalMode === "add" && !tenant.organization_id) {
@@ -589,12 +593,16 @@ export default function SitePage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields.map((field) => (
-            <FormField
+            <ClutchFormField
               key={field.key}
               field={field}
               value={draft[field.key] ?? ""}
               disabled={isSaving}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+              hasError={Boolean(fieldErrors[field.key])}
+              onChange={(value) => {
+                setDraft((prev) => ({ ...prev, [field.key]: value }));
+                setFieldErrors((prev) => clearFieldError(prev, field.key));
+              }}
             />
           ))}
         </div>
@@ -618,59 +626,6 @@ export default function SitePage() {
           ↑
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled }) {
-  if (field.type === "section") {
-    return (
-      <div className="sm:col-span-2 border-t border-slate-200 pt-3 mt-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">{field.label}</p>
-      </div>
-    );
-  }
-  const options = field.options ?? [];
-  return (
-    <div
-      className={cn(
-        "space-y-1",
-        field.wide && "sm:col-span-2",
-        field.type === "textarea" && "sm:col-span-2"
-      )}
-    >
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(options)}
-          value={toOptions(options).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select..."
-        />
-      ) : field.type === "textarea" ? (
-        <textarea
-          className={cn(inputClass, "min-h-20 resize-y")}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          rows={3}
-        />
-      ) : (
-        <input
-          type={field.type || "text"}
-          className={inputClass}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          {...numberInputProps(field.type)}
-        />
-      )}
     </div>
   );
 }

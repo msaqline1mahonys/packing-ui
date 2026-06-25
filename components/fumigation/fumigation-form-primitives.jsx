@@ -43,8 +43,8 @@ export function EditorToolbar({
   onBackToPack,
 }) {
   return (
-    <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-screen-xl flex-wrap items-center justify-between gap-3">
+    <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
         <div>
           <p className="text-sm font-semibold text-slate-900">{title}</p>
           {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
@@ -105,16 +105,15 @@ export function EditorToolbar({
 /** Scaled preview pane used in both editors' right-hand live preview */
 export function DocumentPreview({ children }) {
   return (
-    <div className="sticky top-20 rounded-xl border border-slate-200 bg-white overflow-auto shadow-sm max-h-[calc(100vh-6rem)]">
-      <div className="border-b border-slate-100 px-4 py-2 text-xs font-medium text-slate-500">
+    <aside className="sticky top-20 flex max-h-[calc(100vh-6rem)] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="shrink-0 border-b border-slate-100 px-4 py-2 text-xs font-medium text-slate-500">
         Live preview
       </div>
-      <div
-        className="origin-top-left"
-        style={{ transform: "scale(0.82)", width: "122%", transformOrigin: "top left" }}
-      >
-        {children}
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div className="w-full min-w-0 text-[10px] leading-tight [&_table]:text-[9px]">
+          {children}
+        </div>
       </div>
-    </div>
+    </aside>
   );
 }

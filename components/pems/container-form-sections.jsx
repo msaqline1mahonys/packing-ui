@@ -30,6 +30,7 @@ import {
   sanitizeGrossWeightInput,
   validateGrossWeight,
 } from "@/lib/packers-container-validation";
+import { isPackersPackerSignoffBlocked } from "@/lib/packing-container-ui";
 
 /** Combine stored date + hour + minute into a datetime-local value string. */
 function buildDatetimeValue(container, names) {
@@ -240,6 +241,7 @@ export default function ContainerFormSections({
   packContainers = [],
   containerCodes = [],
   isImportPack = false,
+  packStatus = "",
   readOnly = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
@@ -259,9 +261,12 @@ export default function ContainerFormSections({
     () => getContainerWeightLimitWarnings(container, containerCodes),
     [container, containerCodes]
   );
+  const emptyFailed = isInspectionFailed(getValue(container, names, "emptyInspection"));
+  const grainFailed = isInspectionFailed(getValue(container, names, "grainInspection"));
+  const signoffBlockedByPackStatus = isPackersPackerSignoffBlocked(packStatus);
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
   const signoffDisabled =
-    sealRequiredForSignoff || readOnly || (!isImportPack && emptyFailed);
+    sealRequiredForSignoff || readOnly || signoffBlockedByPackStatus || (!isImportPack && emptyFailed);
   const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
   const resolvedContainerId = resolveEntityId(containerId, container?.id);
   const [baselineContainerNo, setBaselineContainerNo] = useState("");
@@ -452,8 +457,6 @@ export default function ContainerFormSections({
 
   const ecRemarkOptions = buildRemarkSelectOptions(ecInspectionRemarks);
   const goodsRemarkOptions = buildRemarkSelectOptions(goodsInspectionRemarks);
-  const emptyFailed = isInspectionFailed(getValue(container, names, "emptyInspection"));
-  const grainFailed = isInspectionFailed(getValue(container, names, "grainInspection"));
 
   function applyRemarkPatch(patch) {
     if (readOnly) return;
@@ -461,7 +464,7 @@ export default function ContainerFormSections({
   }
 
   function handlePackerSignoffChange(value) {
-    if (readOnly) return;
+    if (readOnly || signoffBlockedByPackStatus) return;
     const signoff = String(value ?? "").trim();
     onChange?.({
       [names.packerSignoff]: value,
@@ -682,13 +685,15 @@ export default function ContainerFormSections({
             hint={
               !isImportPack && emptyFailed
                 ? "EC failed — cannot pack out this container"
-                : sealRequiredForSignoff
-                  ? "Enter a seal number first"
-                  : readOnly
-                    ? "Locked after packer signoff"
-                    : isImportPack
-                      ? "Signing off confirms the container is in-loaded"
-                      : "Signing off confirms the container is out-loaded"
+                : signoffBlockedByPackStatus
+                  ? "Pack must be In progress before packer signoff"
+                  : sealRequiredForSignoff
+                    ? "Enter a seal number first"
+                    : readOnly
+                      ? "Locked after packer signoff"
+                      : isImportPack
+                        ? "Signing off confirms the container is in-loaded"
+                        : "Signing off confirms the container is out-loaded"
             }
           />
           {!isImportPack ? (
@@ -702,7 +707,7 @@ export default function ContainerFormSections({
           <Button type="button" variant="secondary" size="sm" onClick={onResetContainer} disabled={readOnly}>
             Reset container
           </Button>
-          <Button type="button" size="sm" onClick={onMarkPacked} disabled={readOnly || (!isImportPack && emptyFailed)}>
+          <Button type="button" size="sm" onClick={onMarkPacked} disabled={readOnly || signoffBlockedByPackStatus || (!isImportPack && emptyFailed)}>
             {isImportPack ? "Mark in-loaded" : "Mark packed"}
           </Button>
           {!isImportPack ? (

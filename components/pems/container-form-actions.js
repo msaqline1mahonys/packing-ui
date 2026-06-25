@@ -1,6 +1,16 @@
-import { formatOutloadError, getOutloadBlockers } from "@/lib/packers-container-validation";
+import { formatOutloadError, getOutloadBlockers, getPackerSignoffStatusBlocker } from "@/lib/packers-container-validation";
+import { isPackersPackerSignoffBlocked } from "@/lib/packing-container-ui";
 
-export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "", onBlocked, isImport = false }) {
+function trimField(value) {
+  return String(value ?? "").trim();
+}
+
+export function createPraActionHandlers({ container, applyPatch, fallbackPacker = "", onBlocked, isImport = false, packStatus }) {
+  function blockIfSignoffNotAllowed() {
+    if (!isPackersPackerSignoffBlocked(packStatus)) return false;
+    onBlocked?.(getPackerSignoffStatusBlocker(packStatus));
+    return true;
+  }
   function blockIfOutloadInvalid(patch) {
     const next = { ...container, ...patch };
     const blockers = getOutloadBlockers(next, { isImport });
@@ -12,7 +22,8 @@ export function createPraActionHandlers({ container, applyPatch, fallbackPacker 
   }
 
   return {
-    onResetContainer: () =>
+    onResetContainer: () => {
+      if (blockIfSignoffNotAllowed() && trimField(container?.packerSignoff)) return;
       applyPatch({
         packerSignoff: "",
         outLoaded: "No",
@@ -21,8 +32,10 @@ export function createPraActionHandlers({ container, applyPatch, fallbackPacker 
         praLastStatus: "Pending",
         praLastSubmittedTime: "",
         praLastError: "",
-      }),
+      });
+    },
     onMarkPacked: () => {
+      if (blockIfSignoffNotAllowed()) return;
       const signoff = String(container?.packerSignoff || fallbackPacker || "").trim();
       const patch = {
         packerSignoff: signoff,

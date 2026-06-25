@@ -2703,7 +2703,7 @@ function NewPackFormPageInner() {
       return;
     }
 
-    const validationError = validateContainerForSave(selectedEditContainer);
+    const validationError = validateContainerForSave(selectedEditContainer, { packStatus: pack.status });
     if (validationError) {
       setContainerSaveError(validationError);
       return;
@@ -3107,6 +3107,7 @@ function NewPackFormPageInner() {
       container: selectedEditContainer,
       applyPatch: (patch) => updatePackContainer(selectedEditContainer.id, patch),
       fallbackPacker: packerNames[0] || "",
+      packStatus: pack.status,
     });
   }, [selectedEditContainer, packerNames]);
   const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));
@@ -6003,6 +6004,7 @@ function NewPackFormPageInner() {
                     onResetContainer={selectedEditContainerActions?.onResetContainer}
                     onMarkPacked={selectedEditContainerActions?.onMarkPacked}
                     onSubmitPra={selectedEditContainerActions?.onSubmitPra}
+                    packStatus={pack.status}
                   />
 
                   {pack.commodityTypeId ? (

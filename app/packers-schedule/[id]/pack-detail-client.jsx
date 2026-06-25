@@ -698,7 +698,11 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       return;
     }
     const isImport = isImportPack(packRow);
-    const result = applyContainerPatch(selectedContainer, patch, { isImport, allContainers: containerRows });
+    const result = applyContainerPatch(selectedContainer, patch, {
+      isImport,
+      allContainers: containerRows,
+      packStatus: packRow.status,
+    });
     if (!result.ok) {
       showContainerValidationError(result.error);
       return;
@@ -745,6 +749,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       fallbackPacker: packerNames[0] || "",
       onBlocked: showContainerValidationError,
       isImport: isImportPack(packRow),
+      packStatus: packRow?.status,
     });
   }, [selectedContainer, packRow, packerNames, showContainerValidationError]);
 
@@ -1073,7 +1078,10 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       return null;
     }
 
-    const saveError = validateContainerForSave(container, { isImport: isImportPack(packRow) });
+    const saveError = validateContainerForSave(container, {
+      isImport: isImportPack(packRow),
+      packStatus: packRow.status,
+    });
     if (saveError) {
       showContainerValidationError(saveError);
       return null;
@@ -1723,6 +1731,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
               onMarkPacked={selectedContainerActions?.onMarkPacked}
               onSubmitPra={selectedContainerActions?.onSubmitPra}
               isImportPack={isImportJob}
+              packStatus={packRow?.status}
               readOnly={containerFieldsLocked}
             />
 

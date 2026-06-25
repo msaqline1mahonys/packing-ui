@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
-import { packFormQuickAdd } from "@/lib/pack-form-quick-add";
+import PackFormClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
@@ -260,7 +260,8 @@ export default function ContainerFormSections({
     [container, containerCodes]
   );
   const sealRequiredForSignoff = showPackersNote && !String(sealNoValue ?? "").trim();
-  const signoffDisabled = sealRequiredForSignoff || readOnly;
+  const signoffDisabled =
+    sealRequiredForSignoff || readOnly || (!isImportPack && emptyFailed);
   const resolvedPackId = resolveEntityId(packId, container?.packId, container?.pack_id);
   const resolvedContainerId = resolveEntityId(containerId, container?.id);
   const [baselineContainerNo, setBaselineContainerNo] = useState("");
@@ -459,6 +460,15 @@ export default function ContainerFormSections({
     onChange?.(patch);
   }
 
+  function handlePackerSignoffChange(value) {
+    if (readOnly) return;
+    const signoff = String(value ?? "").trim();
+    onChange?.({
+      [names.packerSignoff]: value,
+      [names.outLoaded]: signoff ? "Yes" : "No",
+    });
+  }
+
   function handleRemarkCodeSelect(type, option) {
     if (readOnly) return;
     const codeField = type === "goods" ? names.grainInspectionRemarkCode : names.ecInspectionRemarkCode;
@@ -556,28 +566,57 @@ export default function ContainerFormSections({
       <div className={cn(sectionCardClass, "border-slate-200/90 bg-slate-50/30")}>
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Weights</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
-          <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
-          <PemsInput
-            label="Container Tare"
-            value={getValue(container, names, "containerTareWeight")}
-            onChange={(value) => setField("containerTareWeight", value)}
-            type="number"
-            step="0.01"
-            inputClass={inputClass}
-            readOnly={readOnly}
-          />
-          <PemsInput
-            label="Gross"
-            value={grossWeightValue}
-            onChange={(value) => setField("grossWeight", sanitizeGrossWeightInput(value))}
-            type="number"
-            step="0.01"
-            max={MAX_CONTAINER_GROSS_WEIGHT_MT}
-            inputClass={inputClass}
-            error={grossWeightError}
-            readOnly={readOnly}
-          />
-          <PemsInput label="Nett" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
+          {isImportPack ? (
+            <>
+              <PemsInput label="Nett" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
+              <PemsInput
+                label="Gross"
+                value={grossWeightValue}
+                onChange={(value) => setField("grossWeight", sanitizeGrossWeightInput(value))}
+                type="number"
+                step="0.01"
+                max={MAX_CONTAINER_GROSS_WEIGHT_MT}
+                inputClass={inputClass}
+                error={grossWeightError}
+                readOnly={readOnly}
+              />
+              <PemsInput
+                label="Container Tare"
+                value={getValue(container, names, "containerTareWeight")}
+                onChange={(value) => setField("containerTareWeight", value)}
+                type="number"
+                step="0.01"
+                inputClass={inputClass}
+                readOnly={readOnly}
+              />
+              <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
+            </>
+          ) : (
+            <>
+              <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
+              <PemsInput
+                label="Container Tare"
+                value={getValue(container, names, "containerTareWeight")}
+                onChange={(value) => setField("containerTareWeight", value)}
+                type="number"
+                step="0.01"
+                inputClass={inputClass}
+                readOnly={readOnly}
+              />
+              <PemsInput
+                label="Gross"
+                value={grossWeightValue}
+                onChange={(value) => setField("grossWeight", sanitizeGrossWeightInput(value))}
+                type="number"
+                step="0.01"
+                max={MAX_CONTAINER_GROSS_WEIGHT_MT}
+                inputClass={inputClass}
+                error={grossWeightError}
+                readOnly={readOnly}
+              />
+              <PemsInput label="Nett" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
+            </>
+          )}
           <IsoWeightLimitWarnings warnings={isoWeightLimitWarnings} />
         </div>
       </div>
@@ -588,8 +627,8 @@ export default function ContainerFormSections({
           {packReleases.length > 0 ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-600">Release Number</label>
-              <ClutchSelect
-                {...packFormQuickAdd("release")}
+              <PackFormClutchSelect
+                quickAdd="release"
                 options={releaseSelectOptions}
                 value={
                   releaseSelectOptions.find(
@@ -608,8 +647,8 @@ export default function ContainerFormSections({
           )}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
-            <ClutchSelect
-              {...packFormQuickAdd("containerPark")}
+            <PackFormClutchSelect
+              quickAdd="containerPark"
               options={parkSelectOptions}
               value={parkSelectOptions.find((o) => String(o.value) === String(container?.emptyContainerParkId ?? "")) ?? null}
               onChange={(option) => handleParkSelect(option ? option.value : "")}
@@ -619,8 +658,8 @@ export default function ContainerFormSections({
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Transporter</label>
-            <ClutchSelect
-              {...packFormQuickAdd("transporter")}
+            <PackFormClutchSelect
+              quickAdd="transporter"
               options={transporterSelectOptions}
               value={transporterSelectOptions.find((o) => String(o.value) === String(container?.transporterId ?? "")) ?? null}
               onChange={(option) => handleTransporterSelect(option ? option.value : "")}
@@ -635,19 +674,11 @@ export default function ContainerFormSections({
         <div className={cn(sectionHeaderClass, "border-slate-200 bg-slate-100 text-slate-800")}>Signoff</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
           <PemsSelect
-            label="Packer signoff"
+            label={isImportPack ? "Packer signoff (in-load)" : "Packer signoff"}
             value={getValue(container, names, "packerSignoff")}
             options={packerNames}
-            onChange={(value) => setField("packerSignoff", value)}
+            onChange={handlePackerSignoffChange}
             disabled={signoffDisabled}
-            hint={sealRequiredForSignoff ? "Enter a seal number first" : readOnly ? "Locked after packer signoff" : ""}
-          />
-          <PemsSelect
-            label={isImportPack ? "In-loaded?" : "Out-loaded?"}
-            value={getValue(container, names, "outLoaded", "No")}
-            options={yesNoOptions}
-            onChange={(value) => setField("outLoaded", value)}
-            disabled={signoffDisabled || (!isImportPack && emptyFailed)}
             hint={
               !isImportPack && emptyFailed
                 ? "EC failed — cannot pack out this container"
@@ -655,7 +686,9 @@ export default function ContainerFormSections({
                   ? "Enter a seal number first"
                   : readOnly
                     ? "Locked after packer signoff"
-                    : ""
+                    : isImportPack
+                      ? "Signing off confirms the container is in-loaded"
+                      : "Signing off confirms the container is out-loaded"
             }
           />
           {!isImportPack ? (

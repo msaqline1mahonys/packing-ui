@@ -19,7 +19,9 @@ import {
 } from "@/lib/pems";
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import {
+  containerNeedsEcReplacement,
   containerStage,
+  getReplacedByContainerId,
   isEcFailedContainer,
   isEligibleForPemsGppir,
   loadWorkDrafts,
@@ -45,6 +47,7 @@ import {
   applyContainerPatch,
   getCompletionMissingChecks,
   getOutloadBlockers,
+  isContainerLoaded,
   isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
@@ -63,6 +66,7 @@ import { numberInputProps } from "@/lib/number-input";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
 import ContainerFormSections from "@/components/pems/container-form-sections";
 import PackerSelectModal from "@/components/packers-schedule/packer-select-modal";
+import { PackSamplesFormStrip } from "@/components/packers-schedule/pack-samples-compact";
 import { getSessionPackerForPack, setSessionPackerForPack } from "@/lib/packers-session-store";
 import { hasPermission } from "@/lib/use-user-permissions";
 import { isImportPack } from "@/lib/pack-import";
@@ -287,6 +291,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   const [containerSaveStatus, setContainerSaveStatus] = useState(null);
   const [containerSaveError, setContainerSaveError] = useState("");
   const containerValidationTimerRef = useRef(null);
+  const replacementInFlightRef = useRef(new Set());
 
   const showContainerValidationError = useCallback((message) => {
     if (containerValidationTimerRef.current) {
@@ -541,6 +546,49 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   );
   const isDirty = selectedContainerId != null && dirtyContainerIds.has(selectedContainerId);
 
+  const ensureReplacementContainer = useCallback(
+    async (containerId, { containerRecord = null } = {}) => {
+      if (!packRow || isImportPack(packRow) || !containerId) return;
+
+      const id = String(containerId);
+      if (replacementInFlightRef.current.has(id)) return;
+
+      const container =
+        containerRecord ?? (packRow.containers || []).find((row) => String(row.id) === id);
+      if (!containerNeedsEcReplacement(container)) return;
+
+      replacementInFlightRef.current.add(id);
+      setIsAddingReplacement(true);
+      try {
+        const updatedPack = await createContainerReplacement(packRow.id, containerId);
+        setPackRow(updatedPack);
+        setWorkByPack((prev) => syncWorkDrafts([updatedPack], prev, lookups));
+        const replacement = (updatedPack.containers || []).find(
+          (row) => String(row.replacesContainerId ?? row.replaces_container_id) === id,
+        );
+        if (replacement?.id) {
+          setSelectedContainerId((current) => (String(current) === id ? replacement.id : current));
+        }
+      } catch (err) {
+        showContainerValidationError(err?.message || "Failed to create replacement container.");
+      } finally {
+        replacementInFlightRef.current.delete(id);
+        setIsAddingReplacement(replacementInFlightRef.current.size > 0);
+      }
+    },
+    [packRow, lookups, showContainerValidationError],
+  );
+
+  useEffect(() => {
+    if (!packRow || isImportPack(packRow)) return;
+    const pending = (packRow.containers || []).filter((container) => containerNeedsEcReplacement(container));
+    if (!pending.length) return;
+    const containerId = pending[0].id;
+    queueMicrotask(() => {
+      void ensureReplacementContainer(containerId);
+    });
+  }, [packRow, ensureReplacementContainer]);
+
   const packCommodity = useMemo(() => {
     if (!packRow?.commodityId) return null;
     return (lookups.commodities || []).find((c) => String(c.id) === String(packRow.commodityId)) ?? null;
@@ -566,7 +614,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     const isImport = isImportPack(packRow);
     const total = selectedPackDraft.containers.length;
     const submitted = isImport
-      ? selectedPackDraft.containers.filter((container) => container.outLoaded === "Yes").length
+      ? selectedPackDraft.containers.filter((container) => isContainerLoaded(container)).length
       : selectedPackDraft.containers.filter((container) => container.praSubmitted).length;
     const complete = selectedPackDraft.containers.filter((container) => isContainerOutloadComplete(container, { isImport })).length;
     const progress = complete;
@@ -627,6 +675,22 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     }));
   }
 
+  function removeContainerFromPackState(containerId) {
+    if (!packRow || !containerId) return;
+    updateSelectedPack((current) => ({
+      ...current,
+      containers: current.containers.filter((row) => row.id !== containerId),
+    }));
+    setPackRow((prev) =>
+      prev
+        ? {
+            ...prev,
+            containers: (prev.containers || []).filter((row) => row.id !== containerId),
+          }
+        : prev,
+    );
+  }
+
   function updateSelectedContainer(patch) {
     if (!packRow || !selectedContainer) return;
     if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer, { isDirty: dirtyContainerIds.has(selectedContainer.id) })) {
@@ -634,14 +698,43 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       return;
     }
     const isImport = isImportPack(packRow);
-    const result = applyContainerPatch(selectedContainer, patch, { isImport });
+    const result = applyContainerPatch(selectedContainer, patch, { isImport, allContainers: containerRows });
     if (!result.ok) {
       showContainerValidationError(result.error);
       return;
     }
+
+    const prevEmpty = String(selectedContainer.emptyInspection ?? selectedContainer.empty_inspection ?? "").toLowerCase();
+    const nextEmpty = String(patch.emptyInspection ?? patch.empty_inspection ?? prevEmpty).toLowerCase();
+    const isRevertingEcFailure = !isImport && prevEmpty === "failed" && nextEmpty !== "failed";
+    const replacementId = getReplacedByContainerId(selectedContainer);
+
+    if (isRevertingEcFailure && replacementId) {
+      const nextContainer = { ...selectedContainer, ...patch, replacedByContainerId: null };
+      clearContainerValidationFeedback();
+      removeContainerFromPackState(replacementId);
+      updateContainerById(selectedContainer.id, { ...patch, replacedByContainerId: null });
+      markContainerDirty(selectedContainer.id);
+      queueMicrotask(() => {
+        void saveContainerRecord(nextContainer);
+      });
+      return;
+    }
+
     clearContainerValidationFeedback();
     updateContainerById(selectedContainer.id, patch);
     markContainerDirty(selectedContainer.id);
+
+    if (
+      !isImport &&
+      String(nextEmpty).toLowerCase() === "failed" &&
+      !getReplacedByContainerId(selectedContainer)
+    ) {
+      const nextContainer = { ...selectedContainer, ...patch };
+      queueMicrotask(() => {
+        void saveContainerRecord(nextContainer);
+      });
+    }
   }
 
   const selectedContainerActions = useMemo(() => {
@@ -973,57 +1066,58 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     }
   }
 
-  async function addReplacementContainer() {
-    if (!packRow || !selectedContainer || isAddingReplacement) return;
-    setIsAddingReplacement(true);
-    try {
-      const updatedPack = await createContainerReplacement(packRow.id, selectedContainer.id);
-      setPackRow(updatedPack);
-      setWorkByPack((prev) => syncWorkDrafts([updatedPack], prev, lookups));
-      const replacement = (updatedPack.containers || []).find(
-        (container) =>
-          String(container.replacesContainerId ?? container.replaces_container_id) === String(selectedContainer.id),
-      );
-      if (replacement?.id) setSelectedContainerId(replacement.id);
-    } catch (err) {
-      showContainerValidationError(err?.message || "Failed to create replacement container.");
-    } finally {
-      setIsAddingReplacement(false);
-    }
-  }
-
-  async function saveSelectedContainer() {
-    if (!packRow || !selectedContainer) return;
-    if (isPackersContainerLockedAfterSignoff(packRow.status, selectedContainer, { isDirty: dirtyContainerIds.has(selectedContainer.id) })) {
+  async function saveContainerRecord(container) {
+    if (!packRow || !container) return null;
+    if (isPackersContainerLockedAfterSignoff(packRow.status, container, { isDirty: dirtyContainerIds.has(container.id) })) {
       showContainerValidationError("This container is locked after packer signoff. Use Unlock and enter a reason to edit.");
-      return;
+      return null;
     }
 
-    const saveError = validateContainerForSave(selectedContainer, { isImport: isImportPack(packRow) });
+    const saveError = validateContainerForSave(container, { isImport: isImportPack(packRow) });
     if (saveError) {
       showContainerValidationError(saveError);
-      return;
+      return null;
     }
 
     setIsSavingContainer(true);
     clearContainerValidationFeedback();
+    const wasEcFailed = isEcFailedContainer(container);
+    const linkedReplacementId = getReplacedByContainerId(container);
     try {
-      // Strip id, packId, order — read-only on this endpoint
-      const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(selectedContainer, packRow);
-      const updated = await updateContainer(packRow.id, selectedContainer.id, payload);
-      // Merge server response (includes server-computed nettWeight) back into local state
+      const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(container, packRow);
+      const updated = await updateContainer(packRow.id, container.id, payload);
       if (updated?.id) {
         updateContainerById(updated.id, updated);
+        setPackRow((prev) =>
+          prev
+            ? {
+                ...prev,
+                containers: (prev.containers || []).map((row) => (row.id === updated.id ? { ...row, ...updated } : row)),
+              }
+            : prev,
+        );
+        markContainerClean(container.id);
+        if (wasEcFailed && !isEcFailedContainer(updated) && linkedReplacementId) {
+          removeContainerFromPackState(linkedReplacementId);
+        } else if (containerNeedsEcReplacement(updated)) {
+          await ensureReplacementContainer(updated.id, { containerRecord: updated });
+        }
       }
       setContainerSaveStatus("saved");
-      markContainerClean(selectedContainer.id);
       scheduleContainerFeedbackClear();
+      return updated;
     } catch (err) {
       showContainerValidationError(err?.message || "Save failed — check connection.");
       setContainerSaveStatus(err?.status === 404 ? "not-found" : "error");
+      return null;
     } finally {
       setIsSavingContainer(false);
     }
+  }
+
+  async function saveSelectedContainer() {
+    if (!selectedContainer) return;
+    await saveContainerRecord(selectedContainer);
   }
 
   async function handleBulkImportApply(updatedContainers, appliedRows, logistics) {
@@ -1311,6 +1405,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
           <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
 
           <div className="bg-white/95 px-2.5 py-2">
+            <PackSamplesFormStrip row={packRow} />
             <div className={cn("grid gap-1.5", isImportJob ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-4")} role="group" aria-label="Pre-pack checks">
               {packCheckFields.map((field) => {
                 const checked = Boolean(packChecks[field.key]);
@@ -1558,18 +1653,12 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                   <p className="text-sm font-medium text-rose-800">
                     Empty container inspection failed — this container cannot be packed out on this job.
                   </p>
-                  {!selectedContainer.replacedByContainerId ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8"
-                      disabled={isAddingReplacement}
-                      onClick={addReplacementContainer}
-                    >
-                      {isAddingReplacement ? "Adding…" : "Add replacement container"}
-                    </Button>
-                  ) : (
+                  {getReplacedByContainerId(selectedContainer) ? (
                     <span className="text-xs text-rose-700">Replacement container added</span>
+                  ) : isAddingReplacement || isSavingContainer ? (
+                    <span className="text-xs text-rose-700">Adding replacement container…</span>
+                  ) : (
+                    <span className="text-xs text-rose-700">Replacement container will be added automatically</span>
                   )}
                 </div>
               ) : null}
@@ -1578,7 +1667,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                 <div className="border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   All mandatory checks complete for this container.
                 </div>
-              ) : selectedContainer.outLoaded === "Yes" ? (
+              ) : isContainerLoaded(selectedContainer) ? (
                 <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
                   Missing checks before completion: {missingChecks.join(", ")}.
                 </div>

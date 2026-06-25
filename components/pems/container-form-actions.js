@@ -23,9 +23,10 @@ export function createPraActionHandlers({ container, applyPatch, fallbackPacker 
         praLastError: "",
       }),
     onMarkPacked: () => {
+      const signoff = String(container?.packerSignoff || fallbackPacker || "").trim();
       const patch = {
-        outLoaded: "Yes",
-        packerSignoff: container?.packerSignoff || fallbackPacker || "",
+        packerSignoff: signoff,
+        outLoaded: signoff ? "Yes" : "No",
       };
       if (blockIfOutloadInvalid(patch)) return;
       applyPatch(patch);

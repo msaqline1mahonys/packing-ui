@@ -34,6 +34,7 @@ const config = {
       key: "testRequired",
       label: "TEST REQUIRED",
       type: "select",
+      required: true,
       options: ["Yes", "No"],
     },
   ],
@@ -112,6 +113,7 @@ function toApiPayload(draft) {
 function buildDraft(row) {
   const next = {};
   for (const field of config.formFields) next[field.key] = row?.[field.key] ?? "";
+  if (!next.testRequired) next.testRequired = "Yes";
   return next;
 }
 

@@ -2341,11 +2341,10 @@ function NewPackFormPageInner() {
   }, [pack.containerCode, containerCodeOptions]);
 
   const derivedVolumeM3 = useMemo(() => {
-    const completed = countPackedContainers(buildPackContainers(pack, editingRow));
     const m3PerContainer = Number(matchedContainerCode?.cubicMeters || 0);
-    if (!completed || !m3PerContainer) return null;
-    return Number((completed * m3PerContainer).toFixed(2));
-  }, [pack, editingRow, matchedContainerCode]);
+    if (!m3PerContainer) return null;
+    return Number(m3PerContainer.toFixed(2));
+  }, [matchedContainerCode]);
 
   const derivedActualTonnageMT = useMemo(() => {
     const totalMt = totalPackedNettWeight(buildPackContainers(pack, editingRow));
@@ -2353,7 +2352,7 @@ function NewPackFormPageInner() {
     return Number(totalMt.toFixed(3));
   }, [pack, editingRow]);
 
-  // Keep total volume in sync: completed containers × ISO m³
+  // Keep total volume in sync with ISO container code cubic metres
   useEffect(() => {
     if (derivedVolumeM3 == null) return;
     const current = pack.fumigationDetail ?? {};

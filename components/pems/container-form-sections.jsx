@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
-import { packFormQuickAdd } from "@/lib/pack-form-quick-add";
+import PackFormClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CONTAINER_INSPECTION_REMARK_FIELD, buildRemarkSelectOptions } from "@/lib/pems-container-fields";
@@ -588,8 +588,8 @@ export default function ContainerFormSections({
           {packReleases.length > 0 ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-600">Release Number</label>
-              <ClutchSelect
-                {...packFormQuickAdd("release")}
+              <PackFormClutchSelect
+                quickAdd="release"
                 options={releaseSelectOptions}
                 value={
                   releaseSelectOptions.find(
@@ -608,8 +608,8 @@ export default function ContainerFormSections({
           )}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Empty Container Park</label>
-            <ClutchSelect
-              {...packFormQuickAdd("containerPark")}
+            <PackFormClutchSelect
+              quickAdd="containerPark"
               options={parkSelectOptions}
               value={parkSelectOptions.find((o) => String(o.value) === String(container?.emptyContainerParkId ?? "")) ?? null}
               onChange={(option) => handleParkSelect(option ? option.value : "")}
@@ -619,8 +619,8 @@ export default function ContainerFormSections({
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-600">Transporter</label>
-            <ClutchSelect
-              {...packFormQuickAdd("transporter")}
+            <PackFormClutchSelect
+              quickAdd="transporter"
               options={transporterSelectOptions}
               value={transporterSelectOptions.find((o) => String(o.value) === String(container?.transporterId ?? "")) ?? null}
               onChange={(option) => handleTransporterSelect(option ? option.value : "")}

@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 
 import { SectionRouteDropdown } from "@/components/section-route-dropdown";
 import { TICKETING_NAV } from "@/lib/ticketing-nav";
+import { hasPermission } from "@/lib/use-user-permissions";
 import { cn } from "@/lib/utils";
 
-const TICKETING_ITEMS = TICKETING_NAV.map(({ label, href }) => ({ label, href }));
+function visibleTicketingNav() {
+  return TICKETING_NAV.filter((item) => !item.permission || hasPermission(item.permission));
+}
 
 function TicketingTabs() {
   const pathname = usePathname();
+  const items = useMemo(() => visibleTicketingNav(), []);
 
   return (
     <nav
@@ -18,7 +23,7 @@ function TicketingTabs() {
       className="flex w-full min-w-0 flex-nowrap items-end gap-1 overflow-x-auto py-0 [scrollbar-width:thin]"
       role="tablist"
     >
-      {TICKETING_NAV.map(({ slug, label, href }) => {
+      {items.map(({ slug, label, href }) => {
         const active = pathname === href;
         return (
           <Link
@@ -40,10 +45,15 @@ function TicketingTabs() {
 }
 
 export function TicketingBubbleNav() {
+  const items = useMemo(
+    () => visibleTicketingNav().map(({ label, href }) => ({ label, href })),
+    []
+  );
+
   return (
     <>
       <div className="w-full min-w-0 md:hidden">
-        <SectionRouteDropdown ariaLabel="Ticketing sections" items={TICKETING_ITEMS} placeholder="Ticketing" />
+        <SectionRouteDropdown ariaLabel="Ticketing sections" items={items} placeholder="Ticketing" />
       </div>
       <div className="hidden w-full min-w-0 md:block">
         <TicketingTabs />

@@ -25,9 +25,11 @@ import {
   prefillParkTransporterFromRelease,
 } from "@/lib/container-bulk-import";
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
+import { validateInprogressPackSave } from "@/lib/pack-inprogress-validation";
+import { validatePackSampleEntries } from "@/lib/pack-sample-validation";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
-import { openPackFormQuickAdd } from "@/lib/pack-form-quick-add";
+import { PackFormQuickAddProvider } from "@/components/packing-schedule/pack-form-quick-add-provider";
 import {
   loadCertificateTemplates,
   loadFumigants,
@@ -85,10 +87,11 @@ import { attachPemsSubmissionSnapshot } from "@/lib/pems-staging-snapshot";
 import { CONTAINER_INSPECTION_REMARK_FIELD } from "@/lib/pems-container-fields";
 import { normalizePackAttachmentFiles } from "@/lib/pack-attachments";
 import { readSiteRows } from "@/lib/site-data";
-import { AlertCircle, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AlertCircle, FileText, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import ClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
+import { openPackFormQuickAdd } from "@/lib/pack-form-quick-add";
 
 const SAMPLE_TYPES = ["Pre", "Post", "Supplementary"];
 const DAFF_PERMISSION_OPTIONS = ["N/A", "Requested", "Not Requested", "Accepted", "Declined"];
@@ -600,7 +603,6 @@ function createSampleEntry() {
   return {
     type: "Pre",
     sampleLocation: "",
-    sampleSentDate: "",
     status: SAMPLE_STATUSES[0] ?? "Pending",
     notes: "",
   };
@@ -608,7 +610,7 @@ function createSampleEntry() {
 
 function formatSampleEntrySummary(entry) {
   const parts = [entry.type, entry.status];
-  if (entry.sampleSentDate) parts.push(formatDateDisplay(entry.sampleSentDate));
+  if (entry.trackingDetail) parts.push(entry.trackingDetail);
   if (entry.sampleLocation) parts.push(entry.sampleLocation);
   if (entry.notes) parts.push(entry.notes);
   return parts.filter(Boolean);
@@ -631,6 +633,19 @@ function SampleEntrySummary({ entry, index, onActivate, onRemove }) {
           </span>
         ))}
       </button>
+      {entry.resultFileUrl ? (
+        <a
+          href={entry.resultFileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-brand-ink hover:border-brand/30 hover:bg-brand/5"
+          aria-label="View sample result"
+          title="View sample result"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <FileText className="size-3.5" />
+        </a>
+      ) : null}
       <button
         type="button"
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
@@ -668,21 +683,25 @@ function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove }) {
       </div>
       <div className="grid grid-cols-2 gap-1">
         <div className="min-w-0 space-y-0.5">
-          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Sent date</label>
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Tracking</label>
           <input
-            className={inputClass}
-            type="date"
-            aria-label="Sample sent date"
-            value={entry.sampleSentDate}
-            onChange={(e) => onUpdate({ sampleSentDate: e.target.value })}
+            className={cn(inputClass, "bg-slate-50 text-slate-600")}
+            value={entry.trackingDetail || ""}
+            aria-label="Sample tracking detail"
+            readOnly
+            placeholder="—"
+            tabIndex={-1}
           />
         </div>
         <div className="min-w-0 space-y-0.5">
-          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">Location</label>
+          <label className="block text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+            Location<span className="text-rose-600"> *</span>
+          </label>
           <input
             className={inputClass}
             value={entry.sampleLocation}
             aria-label="Sample location"
+            required
             onChange={(e) => onUpdate({ sampleLocation: e.target.value })}
             placeholder="Location"
           />
@@ -699,14 +718,28 @@ function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove }) {
             placeholder="Notes"
           />
         </div>
-        <button
-          type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-          aria-label={`Remove sample ${index + 1}`}
-          onClick={() => onRemove(index)}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {entry.resultFileUrl ? (
+            <a
+              href={entry.resultFileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-brand-ink hover:border-brand/30 hover:bg-brand/5"
+              aria-label="View sample result"
+              title="View sample result"
+            >
+              <FileText className="size-3.5" />
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+            aria-label={`Remove sample ${index + 1}`}
+            onClick={() => onRemove(index)}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -887,11 +920,15 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     jobNotes: (row.job_notes ?? row.jobNotes) || "",
     date: row.date || new Date().toISOString().slice(0, 10),
     sampleEntries: Array.isArray(row.samples) ? row.samples.map((s) => ({
+      id: s.id ?? null,
       type: s.type ?? "Pre",
       sampleLocation: s.sample_location ?? s.sampleLocation ?? "",
       sampleSentDate: s.sample_sent_date ?? s.sampleSentDate ?? "",
       status: s.status ?? SAMPLE_STATUSES[0] ?? "Pending",
       notes: s.notes ?? "",
+      trackingDetail: s.tracking_detail ?? s.trackingDetail ?? "",
+      resultFileName: s.result_file_name ?? s.resultFileName ?? "",
+      resultFileUrl: s.result_file_url ?? s.resultFileUrl ?? "",
     })) : Array.isArray(row.sampleEntries) ? row.sampleEntries
       : (row.sampleStatuses || []).map((status, index) => ({
         type: "Pre",
@@ -1921,6 +1958,7 @@ function NewPackFormPageInner() {
   const [certificateTemplates, setCertificateTemplates] = useState(() => loadCertificateTemplates());
   const [recordTemplates, setRecordTemplates] = useState(() => loadRecordTemplates());
   const [quickVesselOpen, setQuickVesselOpen] = useState(false);
+  const quickAddPendingCallbackRef = useRef(null);
 
   useEffect(() => {
     fetchFumigantsNormalized().then(setFumigants).catch(() => {});
@@ -2119,6 +2157,7 @@ function NewPackFormPageInner() {
   }
 
   function closeQuickAddRelease() {
+    quickAddPendingCallbackRef.current = null;
     setQuickReleaseOpen(false);
     setQuickReleaseError("");
     setQuickReleaseTargetIndex(null);
@@ -2217,10 +2256,16 @@ function NewPackFormPageInner() {
 
     linkReleaseRecord(savedRelease);
 
+    const pendingQuickAdd = quickAddPendingCallbackRef.current;
+    quickAddPendingCallbackRef.current = null;
+    pendingQuickAdd?.(savedRelease);
+
     closeQuickAddRelease();
   }
 
   function handleQuickVesselCreated(option) {
+    const pendingQuickAdd = quickAddPendingCallbackRef.current;
+    quickAddPendingCallbackRef.current = null;
     if (!option?.id) return;
     invalidateReferenceData("vesselVoyages");
     const { terminalId: nextTerminalId, portOfLoading: nextPortOfLoading } = resolveTerminalFromVoyage(option, terminalOptions);
@@ -2236,6 +2281,7 @@ function NewPackFormPageInner() {
       portOfLoading:
         nextPortOfLoading && !String(prev.portOfLoading ?? "").trim() ? nextPortOfLoading : prev.portOfLoading,
     }));
+    pendingQuickAdd?.(option);
   }
 
   useEffect(() => {
@@ -3258,6 +3304,18 @@ function NewPackFormPageInner() {
   }, [sampleEntries.length]);
 
   const save = async () => {
+    const inprogressValidation = validateInprogressPackSave(pack);
+    if (!inprogressValidation.ok) {
+      setSaveError(inprogressValidation.message);
+      return;
+    }
+
+    const sampleValidation = validatePackSampleEntries(pack);
+    if (!sampleValidation.ok) {
+      setSaveError(sampleValidation.message);
+      return;
+    }
+
     const [
       resolvedImportPermitFiles,
       resolvedAdditionalDeclarationFiles,
@@ -3303,13 +3361,13 @@ function NewPackFormPageInner() {
       fumigation: String(pack.fumigationDetail?.fumigationNotes || pack.fumigation || "").trim(),
       sampleEntries: (pack.sampleEntries || [])
         .map((entry) => ({
+          id: entry.id || undefined,
           type: entry.type,
           sampleLocation: String(entry.sampleLocation || "").trim(),
-          sampleSentDate: String(entry.sampleSentDate || "").trim(),
           status: entry.status,
           notes: String(entry.notes || "").trim(),
         }))
-        .filter((entry) => entry.sampleLocation || entry.sampleSentDate || entry.status || entry.notes),
+        .filter((entry) => entry.sampleLocation),
       importPermitFiles: resolvedImportPermitFiles,
       additionalDeclarationFiles: resolvedAdditionalDeclarationFiles,
       rfpFiles: resolvedRfpFiles,
@@ -3355,7 +3413,56 @@ function NewPackFormPageInner() {
         : "inset-x-0";
   const footerBottomClass = dock === "horizontal-bottom" ? "bottom-11 md:bottom-[4.5rem]" : "bottom-0";
 
+  const quickAddLookupOptions = useMemo(
+    () => ({
+      countries: countryOptions.map((c) => ({
+        value: c.id,
+        label: c.name ?? c.countryName ?? "",
+      })),
+      commodityTypes: commodityTypeOptions.map((t) => ({
+        value: t.id,
+        label: t.name ?? t.description ?? t.commodityType ?? "",
+      })),
+      sites: siteRows.map((s) => ({
+        value: s.id,
+        label: s.name ?? s.siteName ?? "",
+      })),
+      fumigants: fumigants.map((f) => ({
+        value: f.id,
+        label: f.name ?? "",
+      })),
+    }),
+    [countryOptions, commodityTypeOptions, siteRows, fumigants],
+  );
+
+  const handleQuickAddEntityCreated = useCallback((entityKey) => {
+    if (entityKey === "fumigant") {
+      fetchFumigantsNormalized().then(setFumigants).catch(() => {});
+    } else if (entityKey === "methodology") {
+      fetchMethodologiesNormalized().then(setMethodologies).catch(() => {});
+    } else if (entityKey === "certificateTemplate") {
+      fetchCertificateTemplatesNormalized().then(setCertificateTemplates).catch(() => {});
+    } else if (entityKey === "recordTemplate") {
+      fetchRecordTemplatesNormalized().then(setRecordTemplates).catch(() => {});
+    }
+  }, []);
+
   return (
+    <PackFormQuickAddProvider
+      customHandlers={{
+        release: ({ onCreated } = {}) => {
+          quickAddPendingCallbackRef.current = onCreated ?? null;
+          openQuickAddRelease();
+        },
+        vesselVoyage: ({ onCreated } = {}) => {
+          quickAddPendingCallbackRef.current = onCreated ?? null;
+          setQuickVesselOpen(true);
+        },
+      }}
+      lookupOptions={quickAddLookupOptions}
+      context={{ defaultSiteId: pack.siteId || currentSite || "" }}
+      onEntityCreated={handleQuickAddEntityCreated}
+    >
     <>
       <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-0 sm:px-2 lg:px-3">
         <div className="flex flex-wrap items-center justify-between gap-1">
@@ -5988,7 +6095,10 @@ function NewPackFormPageInner() {
 
         <QuickAddVesselModal
           open={quickVesselOpen}
-          onClose={() => setQuickVesselOpen(false)}
+          onClose={() => {
+            quickAddPendingCallbackRef.current = null;
+            setQuickVesselOpen(false);
+          }}
           onCreated={handleQuickVesselCreated}
           shippingLineOptions={shippingLineOptions}
           terminalOptions={terminalOptions}
@@ -6007,8 +6117,9 @@ function NewPackFormPageInner() {
             </button>
           </div>
         ) : null}
-      </>
-      );
+    </>
+    </PackFormQuickAddProvider>
+  );
 }
 
 function ReleaseModal({

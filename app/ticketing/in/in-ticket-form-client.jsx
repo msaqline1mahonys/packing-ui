@@ -43,6 +43,8 @@ import {
   sumGroupMembers,
   testAppliesToSurface,
 } from "@/lib/test-thresholds";
+import { formatDuplicateTicketLabel } from "@/lib/ticket-duplicate-check";
+import { useTicketDuplicateCheck } from "@/lib/hooks/use-ticket-duplicate-check";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500";
@@ -122,6 +124,37 @@ function buildBlankTicket(direction) {
   };
 }
 
+function DuplicateTicketWarning({ matches, loading, date, detailPathBase }) {
+  if (loading) {
+    return <p className="text-xs text-slate-500">Checking for duplicate tickets on this day…</p>;
+  }
+  if (!matches?.length) return null;
+
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+      <p className="font-semibold">
+        Warning: this truck already has{" "}
+        {matches.length === 1 ? "a ticket" : `${matches.length} tickets`} on {String(date ?? "").slice(0, 10)} with the
+        same gross and tare weights. You can still save this ticket.
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {matches.map((match) => (
+          <li key={match.id}>
+            <Link
+              href={`${detailPathBase}/${match.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-amber-400 underline-offset-2 hover:text-amber-900"
+            >
+              {formatDuplicateTicketLabel(match)}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function buildTicketCompletionFieldErrors({
   ticket,
   grossTotal,
@@ -190,7 +223,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     note: "",
     attachments: [],
   });
-  const [newTruck, setNewTruck] = useState({ name: "", driver: "", tare: "" });
+  const [newTruck, setNewTruck] = useState({ name: "", driver: "", tare: "", avgGross: "" });
   const [ticketFieldErrors, setTicketFieldErrors] = useState({});
   const [cmoModalFieldErrors, setCmoModalFieldErrors] = useState({});
   const [truckModalFieldErrors, setTruckModalFieldErrors] = useState({});
@@ -202,6 +235,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const ticketDisplayRef = ticket.ticketReference || "";
   const isCompleted = ticket.status === "completed";
   const printHref = ticketNumericId ? `${detailPathBase}/${ticketNumericId}/print?print=1` : null;
+  const { matches: duplicateTicketMatches, loading: duplicateTicketLoading, refresh: refreshDuplicateCheck } =
+    useTicketDuplicateCheck(ticket, {
+      ticketType,
+      excludeId: ticketNumericId,
+      enabled: !isCompleted,
+    });
 
   const cmo = ticket.cmoId ? cmos.find((c) => c.id === ticket.cmoId) : null;
   const cmoCommodityLines = useMemo(() => getCmoCommodityLines(cmo), [cmo]);
@@ -562,6 +601,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       return;
     }
     setTicketFieldErrors((prev) => clearFieldError(prev, "date"));
+    await refreshDuplicateCheck();
     try {
       setError("");
       const saved = await saveTicket({ ...ticket, type: ticketType });
@@ -606,6 +646,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const handleComplete = async () => {
     try {
       setError("");
+      await refreshDuplicateCheck();
       let saved = await saveTicket({ ...ticket, type: ticketType });
       setTicket(saved);
       saved = await completeTicket(saved.id, saved);
@@ -926,6 +967,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 </div>
               </FormRow>
             </div>
+            <DuplicateTicketWarning
+              matches={duplicateTicketMatches}
+              loading={duplicateTicketLoading}
+              date={ticket.date}
+              detailPathBase={detailPathBase}
+            />
             <div className="grid gap-3 xl:grid-cols-2">
               {isIncoming ? (
                 <>
@@ -1223,6 +1270,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
           <Card title="Actions">
             <div className="flex flex-col gap-2">
+              <DuplicateTicketWarning
+                matches={duplicateTicketMatches}
+                loading={duplicateTicketLoading}
+                date={ticket.date}
+                detailPathBase={detailPathBase}
+              />
               {!isCompleted ? (
                 <>
                   <Button
@@ -1501,6 +1554,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             placeholder="0"
           />
         </FormRow>
+        <FormRow label="Avg Gross Weight (t)">
+          <input
+            className={inputClass}
+            type="number"
+            value={newTruck.avgGross}
+            onChange={(e) => setNewTruck({ ...newTruck, avgGross: e.target.value })}
+            placeholder="0"
+          />
+        </FormRow>
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={() => setShowTruckModal(false)}>
             Cancel
@@ -1522,11 +1584,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   name: newTruck.name.trim().toUpperCase(),
                   driver: newTruck.driver.trim(),
                   tare: newTruck.tare,
+                  avgGross: newTruck.avgGross,
                 });
                 setTrucks((prev) => [...prev, created]);
                 setTicket((prev) => ({ ...prev, truck: created, truckId: created.id }));
                 setShowTruckModal(false);
-                setNewTruck({ name: "", driver: "", tare: "" });
+                setNewTruck({ name: "", driver: "", tare: "", avgGross: "" });
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to create truck.");
               }

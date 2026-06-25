@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
  *   - a two-column "asset" option row (registration left, fleet code right)
  *   - customer-style "match from the start of words" filtering
  *   - `searchLabel` per option so options can match on more text than they show
+ *   - Enter opens the menu when closed so keyboard users can type to filter
  *
  * Options are the standard react-select shape:
  *   { label, value, searchLabel?, subLabel?, isDisabled? }
@@ -76,9 +77,20 @@ export default function ClutchSelect({
   inputId: inputIdProp,
   ...rest
 }) {
+  const {
+    onKeyDown: onKeyDownProp,
+    menuIsOpen: menuIsOpenProp,
+    onMenuOpen: onMenuOpenProp,
+    onMenuClose: onMenuCloseProp,
+    ...selectRest
+  } = rest;
+
   const generatedId = useId();
   const inputId = inputIdProp ?? `clutch-select-${generatedId}`;
   const [inputValue, setInputValue] = useState("");
+  const isMenuControlled = menuIsOpenProp !== undefined;
+  const [internalMenuIsOpen, setInternalMenuIsOpen] = useState(false);
+  const menuIsOpen = isMenuControlled ? menuIsOpenProp : internalMenuIsOpen;
 
   const ADD_NEW_VALUE = "__clutch_add_new__";
 
@@ -126,6 +138,25 @@ export default function ClutchSelect({
     onChange?.(selected, meta);
   }
 
+  function handleMenuOpen() {
+    if (!isMenuControlled) setInternalMenuIsOpen(true);
+    onMenuOpenProp?.();
+  }
+
+  function handleMenuClose() {
+    if (!isMenuControlled) setInternalMenuIsOpen(false);
+    onMenuCloseProp?.();
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "Enter" && !menuIsOpen && !isDisabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleMenuOpen();
+    }
+    onKeyDownProp?.(event);
+  }
+
   return (
     <div className={cn("w-full", className)}>
       {label ? (
@@ -161,7 +192,11 @@ export default function ClutchSelect({
         classNamePrefix="clutch-select"
         menuPortalTarget={menuPortal && typeof document !== "undefined" ? document.body : undefined}
         styles={selectStyles(Boolean(error), compact)}
-        {...rest}
+        menuIsOpen={menuIsOpen}
+        onMenuOpen={handleMenuOpen}
+        onMenuClose={handleMenuClose}
+        onKeyDown={handleKeyDown}
+        {...selectRest}
       />
 
       {error ? <p className="mt-1 text-xs text-red-500">{error}</p> : null}

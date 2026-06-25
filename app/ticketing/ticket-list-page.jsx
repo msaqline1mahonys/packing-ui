@@ -9,6 +9,7 @@ import { HistoryDrawer } from "@/components/audit/history-drawer";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { deleteTicket, fetchTickets } from "@/lib/ticketing-api";
+import { todayIso } from "@/lib/ticket-turnaround";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
 
@@ -58,9 +59,12 @@ export default function TicketListPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState(() => new Set(STATUS_OPTIONS.map((s) => s.key)));
-  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [dateFilterMode, setDateFilterMode] = useState("range");
   const [filterDate, setFilterDate] = useState("");
-  const [dateRange, setDateRange] = useState([null, null]);
+  const [dateRange, setDateRange] = useState(() => {
+    const today = dayjs(todayIso());
+    return [today, today];
+  });
   const [selectedId, setSelectedId] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -68,9 +72,16 @@ export default function TicketListPage({
     setLoading(true);
     setError("");
     try {
+      const [fromDate, toDate] = dateRange;
       const data = await fetchTickets({
         type: ticketType,
         ...(dateFilterMode === "specific" && filterDate ? { date: filterDate } : {}),
+        ...(dateFilterMode === "range" && (fromDate || toDate)
+          ? {
+              ...(fromDate?.isValid() ? { dateFrom: fromDate.format("YYYY-MM-DD") } : {}),
+              ...(toDate?.isValid() ? { dateTo: toDate.format("YYYY-MM-DD") } : {}),
+            }
+          : {}),
       });
       setRows(data);
     } catch (err) {
@@ -79,7 +90,7 @@ export default function TicketListPage({
     } finally {
       setLoading(false);
     }
-  }, [ticketType, dateFilterMode, filterDate]);
+  }, [ticketType, dateFilterMode, filterDate, dateRange]);
 
   useEffect(() => {
     loadRows();

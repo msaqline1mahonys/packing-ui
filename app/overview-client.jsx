@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  Download,
   AlertTriangle,
   ArrowRight,
   Calendar,
@@ -19,12 +20,25 @@ import { readAuthPayload } from "@/lib/auth-session";
 import {
   countBySeverity,
   fetchDashboard,
+  fetchTurnaroundTickets,
   groupAlertsByCategory,
   SEVERITY_LABELS,
 } from "@/lib/dashboard-alerts";
-import { formatMt } from "@/lib/dashboard-metrics";
+import { buildTurnaroundMetrics, formatMt } from "@/lib/dashboard-metrics";
 import { stageBadgeClass } from "@/lib/packing-container-ui";
 import { SITE_CHANGED_EVENT } from "@/lib/site-switch";
+import {
+  defaultTurnaroundDateRange,
+  EMPTY_TURNAROUND_METRICS,
+  formatDateRangeLabel,
+  formatTurnaroundMinutes,
+  formatWeighDatetime,
+  presetToDateRange,
+  TURNAROUND_EXPORT_COLUMNS,
+  TURNAROUND_RANGE_PRESETS,
+  todayIso,
+} from "@/lib/ticket-turnaround";
+import { downloadCsv, rowsToCsv } from "@/components/clutch-table/utils/csv";
 import { cn } from "@/lib/utils";
 
 const QUICK_LINKS = [
@@ -68,6 +82,7 @@ const EMPTY_METRICS = {
     negativeCommodities: [],
     topLocations: [],
   },
+  turnaround: { ...EMPTY_TURNAROUND_METRICS },
 };
 
 function severityBadgeClass(severity) {
@@ -426,6 +441,320 @@ function OperationsPanels({ metrics, permissions, loading }) {
   );
 }
 
+const dateInputClass =
+  "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+
+function TurnaroundTabButton({ active, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+        active
+          ? "bg-brand text-white shadow-sm"
+          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TruckTurnaroundPanel({ refreshKey }) {
+  const defaultRange = defaultTurnaroundDateRange();
+  const [tab, setTab] = useState("completed");
+  const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
+  const [dateTo, setDateTo] = useState(defaultRange.dateTo);
+  const [activePreset, setActivePreset] = useState("7d");
+  const [turnaround, setTurnaround] = useState(EMPTY_TURNAROUND_METRICS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    const rangeFrom = activePreset === "all" ? null : dateFrom || null;
+    const rangeTo = activePreset === "all" ? null : dateTo || null;
+
+    fetchTurnaroundTickets({ dateFrom: rangeFrom, dateTo: rangeTo })
+      .then((tickets) => {
+        if (cancelled) return;
+        const metrics = buildTurnaroundMetrics(tickets, {
+          today: todayIso(),
+          dateFrom: rangeFrom,
+          dateTo: rangeTo,
+        });
+        setTurnaround(metrics);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTurnaround(EMPTY_TURNAROUND_METRICS);
+        setError(err?.message || "Failed to load turnaround data.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dateFrom, dateTo, activePreset, refreshKey]);
+
+  const applyPreset = (presetId) => {
+    const range = presetToDateRange(presetId);
+    setActivePreset(presetId);
+    setDateFrom(range.dateFrom ?? "");
+    setDateTo(range.dateTo ?? "");
+  };
+
+  const handleDateFromChange = (value) => {
+    setActivePreset("custom");
+    setDateFrom(value);
+    if (value && dateTo && value > dateTo) setDateTo(value);
+  };
+
+  const handleDateToChange = (value) => {
+    setActivePreset("custom");
+    setDateTo(value);
+    if (value && dateFrom && value < dateFrom) setDateFrom(value);
+  };
+
+  const rangeLabel = formatDateRangeLabel(
+    activePreset === "all" ? null : dateFrom || null,
+    activePreset === "all" ? null : dateTo || null,
+  );
+
+  const rows =
+    tab === "onsite" ? turnaround.onSiteNow ?? [] : turnaround.completedInRange ?? [];
+
+  const handleExport = () => {
+    let exportData = [];
+    if (tab === "onsite") {
+      exportData = rows.map((row) => ({
+        ticket: row.ticketReference,
+        direction: row.direction,
+        truck: row.truck,
+        arrived: formatWeighDatetime(row.arrivedAt),
+        departed: "—",
+        turnaround: row.turnaroundLabel,
+        notes: row.notes,
+        date: row.date,
+      }));
+    } else {
+      exportData = turnaround.exportRows ?? [];
+    }
+
+    if (!exportData.length) return;
+
+    const today = todayIso();
+    const rangeSuffix =
+      activePreset === "all"
+        ? "all-time"
+        : `${dateFrom || "start"}_to_${dateTo || "end"}`.replace(/[^a-z0-9_-]+/gi, "-");
+    const suffix = tab === "onsite" ? "on-site" : `completed-${rangeSuffix}`;
+    const csv = rowsToCsv(TURNAROUND_EXPORT_COLUMNS, exportData);
+    downloadCsv(`truck-turnaround-${suffix}-${today}`, csv);
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200/95 bg-white/90 p-5 shadow-sm sm:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Ticket className="size-4 text-brand" strokeWidth={1.5} />
+          <h2 className="text-lg font-medium text-slate-900">Truck turnaround</h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <TurnaroundTabButton active={tab === "completed"} onClick={() => setTab("completed")}>
+              Completed
+            </TurnaroundTabButton>
+            <TurnaroundTabButton active={tab === "onsite"} onClick={() => setTab("onsite")}>
+              On site now
+            </TurnaroundTabButton>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={handleExport}
+            disabled={loading || rows.length === 0}
+          >
+            <Download className="size-3.5" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="flex flex-wrap gap-1.5">
+          {TURNAROUND_RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => applyPreset(preset.id)}
+              className={cn(
+                "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                activePreset === preset.id
+                  ? "bg-brand text-white shadow-sm"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:text-slate-900",
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
+          {activePreset === "custom" ? (
+            <span className="self-center rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+              Custom
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <span className="font-medium">From</span>
+            <input
+              type="date"
+              className={dateInputClass}
+              value={activePreset === "all" ? "" : dateFrom}
+              disabled={activePreset === "all"}
+              onChange={(e) => handleDateFromChange(e.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <span className="font-medium">To</span>
+            <input
+              type="date"
+              className={dateInputClass}
+              value={activePreset === "all" ? "" : dateTo}
+              disabled={activePreset === "all"}
+              onChange={(e) => handleDateToChange(e.target.value)}
+            />
+          </label>
+        </div>
+        <p className="text-xs text-slate-500">
+          Showing <span className="font-medium text-slate-700">{rangeLabel}</span>
+          {activePreset === "all" ? " (latest 500 tickets)" : null}
+        </p>
+      </div>
+
+      {error ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard
+          label="Avg turnaround today"
+          value={
+            turnaround.avgMinutesToday != null
+              ? formatTurnaroundMinutes(turnaround.avgMinutesToday)
+              : "—"
+          }
+          sub={
+            turnaround.completedToday?.length
+              ? `${turnaround.completedToday.length} completed with times`
+              : "No completed tickets today"
+          }
+          loading={loading}
+        />
+        <MetricCard
+          label="Avg in date range"
+          value={
+            turnaround.avgMinutesInRange != null
+              ? formatTurnaroundMinutes(turnaround.avgMinutesInRange)
+              : "—"
+          }
+          sub={
+            turnaround.completedInRange?.length
+              ? `${turnaround.completedInRange.length} tickets · ${rangeLabel}`
+              : `No data for ${rangeLabel}`
+          }
+          loading={loading}
+        />
+        <MetricCard
+          label="Trucks on site"
+          value={turnaround.trucksOnSiteCount ?? 0}
+          sub="Awaiting second weigh"
+          href="/ticketing"
+          loading={loading}
+        />
+        <MetricCard
+          label="Avg time on site"
+          value={
+            turnaround.avgOnSiteMinutes != null
+              ? formatTurnaroundMinutes(turnaround.avgOnSiteMinutes)
+              : "—"
+          }
+          sub="Open tickets with first weigh"
+          loading={loading}
+        />
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+        <div className="max-h-80 overflow-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2.5">Ticket</th>
+                <th className="px-3 py-2.5">In/Out</th>
+                <th className="px-3 py-2.5">Truck</th>
+                <th className="px-3 py-2.5">Arrived</th>
+                <th className="px-3 py-2.5">Departed</th>
+                <th className="px-3 py-2.5">Turnaround</th>
+                <th className="px-3 py-2.5">Notes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                    Loading turnaround data…
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                    {tab === "onsite"
+                      ? "No trucks currently on site with a first weigh recorded."
+                      : `No completed tickets with turnaround times for ${rangeLabel}.`}
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80">
+                    <td className="px-3 py-2.5 font-medium text-slate-900">
+                      {row.ticketReference || "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-700">{row.direction}</td>
+                    <td className="px-3 py-2.5 text-slate-700">{row.truck}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
+                      {formatWeighDatetime(row.arrivedAt)}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
+                      {tab === "onsite" ? "—" : formatWeighDatetime(row.departedAt)}
+                    </td>
+                    <td className="px-3 py-2.5 font-semibold tabular-nums text-slate-900">
+                      {row.turnaroundLabel}
+                    </td>
+                    <td className="max-w-[200px] truncate px-3 py-2.5 text-slate-600" title={row.notes}>
+                      {row.notes || "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function OverviewClient() {
   const [alerts, setAlerts] = useState([]);
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
@@ -539,6 +868,8 @@ export default function OverviewClient() {
       </header>
 
       <OperationsPanels metrics={metrics} permissions={permissions} loading={loading} />
+
+      {permissions.ticketing ? <TruckTurnaroundPanel refreshKey={refreshKey} /> : null}
 
       {(permissions.packing || permissions.ticketing) && hasAnyPermission ? (
         <SummaryStrip counts={counts} loading={loading} />

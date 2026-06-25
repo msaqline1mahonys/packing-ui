@@ -164,6 +164,12 @@ export function MultiSelectCombobox({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !open && !disabled) {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(

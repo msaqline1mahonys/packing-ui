@@ -41,6 +41,8 @@ const TABLE_COLUMNS = [
   { key: "containersPacked", label: "Packed", numeric: true },
   { key: "id", label: "ID", numeric: true },
   { key: "importExport", label: "I/E" },
+  { key: "invoiceNumber", label: "Invoice number" },
+  { key: "transportInvoice", label: "Transport invoice" },
   // Pack basics
   { key: "packType", label: "Pack Type", hidden: true },
   { key: "packingLocation", label: "Location", hidden: true },

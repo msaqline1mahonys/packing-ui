@@ -918,6 +918,8 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     packWarningRequired: Boolean(row.pack_warning_required ?? row.packWarningRequired),
     packWarning: (row.pack_warning ?? row.packWarning) || "",
     jobNotes: (row.job_notes ?? row.jobNotes) || "",
+    invoiceNumber: (row.invoice_number ?? row.invoiceNumber) || "",
+    transportInvoice: (row.transport_invoice ?? row.transportInvoice) || "",
     date: row.date || new Date().toISOString().slice(0, 10),
     sampleEntries: Array.isArray(row.samples) ? row.samples.map((s) => ({
       id: s.id ?? null,
@@ -1067,6 +1069,8 @@ function packToScheduleRow(pack, existingRow, { includeContainers = true } = {})
     packWarningRequired: Boolean(pack.packWarningRequired),
     packWarning: pack.packWarning || "",
     jobNotes: pack.jobNotes || "",
+    invoiceNumber: pack.invoiceNumber || "",
+    transportInvoice: pack.transportInvoice || "",
     date: pack.date || new Date().toISOString().slice(0, 10),
     samples: sampleEntries,
     importPermitRequired: Boolean(pack.importPermitRequired),
@@ -4875,6 +4879,12 @@ function NewPackFormPageInner() {
                     onRemove={(id) => removeFile("packingInstructionFiles", id)}
                   />
                 </FormRow>
+                <FormRow label="Invoice number">
+                  <input className={inputClass} value={pack.invoiceNumber} onChange={(e) => set("invoiceNumber", e.target.value)} placeholder="Invoice number" />
+                </FormRow>
+                <FormRow label="Transport invoice">
+                  <input className={inputClass} value={pack.transportInvoice} onChange={(e) => set("transportInvoice", e.target.value)} placeholder="Transport invoice" />
+                </FormRow>
                 <FormRow label="Job notes">
                   <textarea className={`${inputClass} min-h-[3rem] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
                 </FormRow>
@@ -5968,6 +5978,7 @@ function NewPackFormPageInner() {
                     packId={pack.id ?? editingRow?.id}
                     containerId={selectedEditContainer.id}
                     packContainers={packContainers}
+                    isImportPack={isImportJob}
                     packerNames={packerNames}
                     packerSelectOptions={packerSelectOptions}
                     yesNoOptions={YES_NO_STRINGS}

@@ -47,6 +47,7 @@ import {
   applyContainerPatch,
   getCompletionMissingChecks,
   getOutloadBlockers,
+  isContainerLoaded,
   isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
@@ -613,7 +614,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     const isImport = isImportPack(packRow);
     const total = selectedPackDraft.containers.length;
     const submitted = isImport
-      ? selectedPackDraft.containers.filter((container) => container.outLoaded === "Yes").length
+      ? selectedPackDraft.containers.filter((container) => isContainerLoaded(container)).length
       : selectedPackDraft.containers.filter((container) => container.praSubmitted).length;
     const complete = selectedPackDraft.containers.filter((container) => isContainerOutloadComplete(container, { isImport })).length;
     const progress = complete;
@@ -1666,7 +1667,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                 <div className="border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   All mandatory checks complete for this container.
                 </div>
-              ) : selectedContainer.outLoaded === "Yes" ? (
+              ) : isContainerLoaded(selectedContainer) ? (
                 <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
                   Missing checks before completion: {missingChecks.join(", ")}.
                 </div>

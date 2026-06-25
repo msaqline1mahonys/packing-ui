@@ -10,6 +10,31 @@ const API_BASE_URL = (
 ).replace(/\/+$/, "");
 const INGEST_ENDPOINT = `${API_BASE_URL}/reference-data/vessels/ingest`;
 const RUNS_ENDPOINT = `${API_BASE_URL}/reference-data/vessels/ingest/runs`;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+async function readApiJson(res) {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error("Empty response from server.");
+  }
+  if (trimmed.startsWith("<")) {
+    if (/unable to create a temporary file/i.test(trimmed)) {
+      throw new Error(
+        "The API server could not save the uploaded file. Restart it with `php scripts/serve.php` (or `composer dev`) so uploads use storage/app/upload-tmp."
+      );
+    }
+    if (/exceeds the limit/i.test(trimmed)) {
+      throw new Error("Upload is too large for the server PHP limits (max 20 MB per file).");
+    }
+    throw new Error("Server returned an HTML error instead of JSON. Check the API logs.");
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new Error("Invalid JSON response from server.");
+  }
+}
 
 function getAuthToken() {
   if (typeof window === "undefined") return null;
@@ -36,7 +61,7 @@ export function VesselIngestDialog({ open, onClose, onIngestComplete }) {
       const res = await fetch(`${RUNS_ENDPOINT}?per_page=10`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       });
-      const json = await res.json();
+      const json = await readApiJson(res);
       const data = json?.data?.data ?? json?.data ?? [];
       setRuns(Array.isArray(data) ? data : []);
     } catch {
@@ -60,6 +85,11 @@ export function VesselIngestDialog({ open, onClose, onIngestComplete }) {
       setError("Choose at least one of the two CSV files.");
       return;
     }
+    const tooLarge = [vsFile, vrFile].filter(Boolean).find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooLarge) {
+      setError(`"${tooLarge.name}" is too large. Each CSV must be 20 MB or less.`);
+      return;
+    }
     const token = getAuthToken();
     if (!token) {
       setError("Not authenticated. Please log in again.");
@@ -77,7 +107,7 @@ export function VesselIngestDialog({ open, onClose, onIngestComplete }) {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         body: fd,
       });
-      const json = await res.json();
+      const json = await readApiJson(res);
       if (!res.ok || json?.success === false) {
         throw new Error(json?.message || "Ingest failed.");
       }

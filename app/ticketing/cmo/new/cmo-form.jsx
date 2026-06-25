@@ -7,6 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { commodityOptionLabel } from "@/lib/commodity-display";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
+import { formFieldErrorTextClass, formLabelErrorClass, inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import {
   fetchCmo,
@@ -57,6 +59,18 @@ export default function CmoForm() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const cmoRequiredRules = useMemo(
+    () => [
+      { key: "cmoReference", required: true },
+      { key: "customerId", required: true },
+      { key: "commodityTypeId", required: true },
+      { key: "commodityIds", required: true },
+      { key: "status", required: true },
+    ],
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +136,10 @@ export default function CmoForm() {
     return comm?.unitType ?? comm?.unit_type;
   }, [form.commodityIds, commodities]);
 
-  const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => clearFieldError(prev, key));
+  };
 
   const toggleCommodityId = (commodityId) => {
     setForm((prev) => ({
@@ -131,6 +148,7 @@ export default function CmoForm() {
         ? prev.commodityIds.filter((id) => id !== commodityId)
         : [...prev.commodityIds, commodityId],
     }));
+    setFieldErrors((prev) => clearFieldError(prev, "commodityIds"));
   };
 
   const addAdditionalReference = () => {
@@ -150,16 +168,17 @@ export default function CmoForm() {
     }));
   };
 
-  const canSave =
-    form.cmoReference.trim() &&
-    form.customerId &&
-    form.commodityTypeId &&
-    form.commodityIds.length > 0 &&
-    form.status;
-
   const handleSave = async () => {
-    if (!canSave || isSaving) return;
+    if (isSaving) return;
 
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(cmoRequiredRules, form);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
+      setError("Please fill all required fields.");
+      return;
+    }
+
+    setFieldErrors({});
     setIsSaving(true);
     setError("");
     try {
@@ -216,9 +235,9 @@ export default function CmoForm() {
         <div className="space-y-4">
           <input suppressHydrationWarning className="h-10 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500" value="CMO reference will be auto-generated" disabled readOnly />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <Field label="CMO Reference" required>
+            <Field label="CMO Reference" required hasError={Boolean(fieldErrors.cmoReference)}>
               <input
-                className={inputClass}
+                className={inputClassName(Boolean(fieldErrors.cmoReference), inputClass)}
                 value={form.cmoReference}
                 onChange={(e) => setField("cmoReference", e.target.value)}
                 placeholder="e.g. CMO-0142"
@@ -235,7 +254,7 @@ export default function CmoForm() {
               />
             </Field>
 
-            <Field label="Customer / Account" required>
+            <Field label="Customer / Account" required hasError={Boolean(fieldErrors.customerId)}>
               {(() => {
                 const customerOptions = customers.map((c) => ({ value: c.id, label: c.name }));
                 return (
@@ -244,12 +263,13 @@ export default function CmoForm() {
                     value={customerOptions.find((o) => String(o.value) === String(form.customerId)) ?? null}
                     onChange={(option) => { const v = option ? option.value : ""; setField("customerId", v); }}
                     placeholder="Select customer / account..."
+                    error={fieldErrors.customerId ? "Required" : undefined}
                   />
                 );
               })()}
             </Field>
 
-            <Field label="Status" required>
+            <Field label="Status" required hasError={Boolean(fieldErrors.status)}>
               {(() => {
                 const statusOptions = STATUS_OPTIONS.map((s) => ({ value: s, label: s }));
                 return (
@@ -258,6 +278,7 @@ export default function CmoForm() {
                     value={statusOptions.find((o) => o.value === form.status) ?? null}
                     onChange={(option) => { const v = option ? option.value : ""; setField("status", v); }}
                     placeholder="Select status..."
+                    error={fieldErrors.status ? "Required" : undefined}
                   />
                 );
               })()}
@@ -271,7 +292,7 @@ export default function CmoForm() {
               />
             </Field>
 
-            <Field label="Commodity Type" required>
+            <Field label="Commodity Type" required hasError={Boolean(fieldErrors.commodityTypeId)}>
               {(() => {
                 const commodityTypeOptions = commodityTypes.map((ct) => ({ value: ct.id, label: ct.name }));
                 return (
@@ -284,6 +305,7 @@ export default function CmoForm() {
                       setField("commodityIds", []);
                     }}
                     placeholder="Select commodity type..."
+                    error={fieldErrors.commodityTypeId ? "Required" : undefined}
                   />
                 );
               })()}
@@ -298,13 +320,18 @@ export default function CmoForm() {
             </Field>
           </div>
 
-          <Field label="Commodity Grades" required>
+          <Field label="Commodity Grades" required hasError={Boolean(fieldErrors.commodityIds)}>
             {!form.commodityTypeId ? (
               <p className="text-xs text-slate-500">Select a commodity type first.</p>
             ) : commodityChoices.length === 0 ? (
               <p className="text-xs text-slate-500">No active commodity grades for this type.</p>
             ) : (
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <div
+                className={cn(
+                  "max-h-48 space-y-1 overflow-y-auto rounded-lg border bg-slate-50/60 p-3",
+                  fieldErrors.commodityIds ? "border-red-400 ring-2 ring-red-100" : "border-slate-200"
+                )}
+              >
                 {commodityChoices.map((c) => {
                   const checked = form.commodityIds.includes(c.id);
                   return (
@@ -399,7 +426,7 @@ export default function CmoForm() {
         <Button type="button" variant="ghost" onClick={() => router.push("/ticketing/cmo")}>
           Cancel
         </Button>
-        <Button type="button" onClick={handleSave} disabled={!canSave || isSaving}>
+        <Button type="button" onClick={handleSave} disabled={isSaving}>
           {isSaving ? "Saving…" : isEdit ? "Update CMO" : "Create CMO"}
         </Button>
       </div>
@@ -407,13 +434,14 @@ export default function CmoForm() {
   );
 }
 
-function Field({ label, required, children }) {
+function Field({ label, required, hasError = false, children }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn("text-xs font-semibold uppercase tracking-wide", hasError ? formLabelErrorClass : "text-slate-600")}>
         {label} {required ? <span className="text-rose-500">*</span> : null}
       </label>
       {children}
+      {hasError ? <p className={formFieldErrorTextClass}>Required</p> : null}
     </div>
   );
 }

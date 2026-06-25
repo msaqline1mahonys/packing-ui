@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { buildTicketPrintPreviewModel, resolveLogoSrc } from "@/lib/in-ticket-print";
 import { refreshAuthPayload } from "@/lib/site-switch";
+import { inputClassName, formLabelErrorClass, formFieldErrorTextClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -317,6 +318,7 @@ export default function SitePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [previewDirection, setPreviewDirection] = useState("incoming");
   const [logoObjectUrl, setLogoObjectUrl] = useState("");
 
@@ -371,6 +373,7 @@ export default function SitePage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -379,6 +382,7 @@ export default function SitePage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
@@ -390,9 +394,11 @@ export default function SitePage() {
 
   const saveModal = async () => {
     if (!String(draft.name ?? "").trim()) {
+      setFieldErrors({ name: true });
       setError("Site name is required.");
       return;
     }
+    setFieldErrors({});
 
     const tenant = getTenantPayload();
     if (modalMode === "add" && !tenant.organization_id) {
@@ -587,7 +593,18 @@ export default function SitePage() {
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <FormInput label="Site Name" required value={draft.name} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, name: v }))} placeholder="e.g. Melbourne" />
+          <FormInput
+            label="Site Name"
+            required
+            hasError={Boolean(fieldErrors.name)}
+            value={draft.name}
+            disabled={isSaving}
+            onChange={(v) => {
+              setFieldErrors((prev) => (prev.name ? { ...prev, name: false } : prev));
+              setDraft((p) => ({ ...p, name: v }));
+            }}
+            placeholder="e.g. Melbourne"
+          />
           <FormInput label="Code" value={draft.code} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, code: v }))} placeholder="Site code" />
           <FormInput label="Phone" value={draft.phone} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, phone: v }))} placeholder="+61 …" />
           <FormInput label="Email" type="email" value={draft.email} disabled={isSaving} onChange={(v) => setDraft((p) => ({ ...p, email: v }))} placeholder="contact@example.com" />
@@ -733,22 +750,23 @@ function DetailRow({ label, value, highlight }) {
   );
 }
 
-function FormInput({ label, required, value, onChange, disabled, placeholder, type = "text" }) {
+function FormInput({ label, required, hasError = false, value, onChange, disabled, placeholder, type = "text" }) {
   return (
     <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn("text-[11px] font-semibold uppercase tracking-wide", hasError ? formLabelErrorClass : "text-slate-600")}>
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
       </label>
       <input
         type={type}
-        className={inputClass}
+        className={inputClassName(hasError)}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         {...numberInputProps(type)}
       />
+      {hasError ? <p className={formFieldErrorTextClass}>Required</p> : null}
     </div>
   );
 }

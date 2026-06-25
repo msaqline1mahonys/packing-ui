@@ -254,7 +254,7 @@ export default function FumigationCertificateEditorClient({ packId }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="-mx-6 min-h-screen bg-slate-50 md:-mx-10">
       <EditorToolbar
         title={`Certificate editor — ${cert.packRef || packId}`}
         subtitle={cert.fumigant?.name ? `Fumigant: ${cert.fumigant.name}` : undefined}
@@ -266,10 +266,10 @@ export default function FumigationCertificateEditorClient({ packId }) {
         }
       />
 
-      <div className="mx-auto grid max-w-screen-xl grid-cols-1 gap-6 px-4 py-6 xl:grid-cols-[1fr_440px]">
+      <div className="grid w-full grid-cols-1 gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,34%)] xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_440px]">
 
         {/* ── FORM ── */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
 
           {/* Consignment details */}
           <SectionCard>

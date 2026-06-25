@@ -4,14 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 
 import { Grid } from "@/components/clutch-table";
+import ClutchFormField from "@/components/form/clutch-form-field";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { usePolling } from "@/lib/use-polling";
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
+import {
+  buildRequiredFieldErrors,
+  clearFieldError,
+  hasFieldErrors,
+} from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -237,6 +241,7 @@ export default function VesselVoyagePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [dateField, setDateField] = useState("vesselEtd");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -333,6 +338,7 @@ export default function VesselVoyagePage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -343,20 +349,21 @@ export default function VesselVoyagePage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
 
   const closeModal = () => {
     if (isSaving) return;
+    setFieldErrors({});
     setModalMode(null);
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some(
-      (field) => field.required && !String(draft[field.key] ?? "").trim()
-    );
-    if (requiredMissing) {
+    const errors = buildRequiredFieldErrors(config.formFields, draft);
+    if (hasFieldErrors(errors)) {
+      setFieldErrors(errors);
       setError("Please fill all required fields.");
       return;
     }
@@ -505,7 +512,17 @@ export default function VesselVoyagePage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {formFields.map((field) => (
-            <FormField key={field.key} field={field} value={draft[field.key] ?? ""} disabled={isSaving} onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))} />
+            <ClutchFormField
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              disabled={isSaving}
+              hasError={Boolean(fieldErrors[field.key])}
+              onChange={(value) => {
+                setFieldErrors((prev) => clearFieldError(prev, field.key));
+                setDraft((prev) => ({ ...prev, [field.key]: value }));
+              }}
+            />
           ))}
         </div>
         <div className="mt-5 flex justify-end gap-2">
@@ -515,28 +532,6 @@ export default function VesselVoyagePage() {
           </Button>
         </div>
       </Modal>
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled }) {
-  return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(field.options ?? [])}
-          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select..."
-        />
-      ) : (
-        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} {...numberInputProps(field.type)} />
-      )}
     </div>
   );
 }

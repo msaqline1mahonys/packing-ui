@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Grid } from "@/components/clutch-table";
+import ClutchFormField from "@/components/form/clutch-form-field";
 import { Button } from "@/components/ui/button";
+import { buildRequiredFieldErrors, clearFieldError } from "@/lib/form-validation";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -189,6 +189,7 @@ export default function ShippingLinePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -240,6 +241,7 @@ export default function ShippingLinePage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -249,20 +251,24 @@ export default function ShippingLinePage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
   const closeModal = () => {
     if (isSaving) return;
     setModalMode(null);
+    setFieldErrors({});
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some((field) => field.required && !String(draft[field.key] ?? "").trim());
-    if (requiredMissing) {
+    const nextFieldErrors = buildRequiredFieldErrors(config.formFields, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Please fill all required fields.");
       return;
     }
+    setFieldErrors({});
 
     const normalized = {};
     for (const field of config.formFields) normalized[field.key] = parseFieldValue(field, draft[field.key] ?? "");
@@ -457,12 +463,16 @@ export default function ShippingLinePage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {config.formFields.map((field) => (
-            <FormField
+            <ClutchFormField
               key={field.key}
               field={field}
               value={draft[field.key] ?? ""}
               disabled={isSaving}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+              hasError={Boolean(fieldErrors[field.key])}
+              onChange={(value) => {
+                setDraft((prev) => ({ ...prev, [field.key]: value }));
+                setFieldErrors((prev) => clearFieldError(prev, field.key));
+              }}
             />
           ))}
         </div>
@@ -536,30 +546,6 @@ export default function ShippingLinePage() {
           ↑
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled }) {
-  return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2", field.type === "textarea" && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(field.options ?? [])}
-          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select..."
-        />
-      ) : field.type === "textarea" ? (
-        <textarea suppressHydrationWarning className={cn(inputClass, "min-h-20 resize-y")} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} rows={3} />
-      ) : (
-        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} {...numberInputProps(field.type)} />
-      )}
     </div>
   );
 }

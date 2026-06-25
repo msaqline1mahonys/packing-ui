@@ -3,18 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
+
+const REQUIRED_FIELD_RULES = [{ key: "name", required: true }];
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 ).replace(/\/+$/, "");
 const TRANSPORTERS_ENDPOINT = `${API_BASE_URL}/contacts/transporters`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const columns = [
   { key: "code", label: "Code" },
@@ -167,6 +169,7 @@ export default function TransporterPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadTransporters = useCallback(async () => {
     setIsLoading(true);
@@ -212,6 +215,7 @@ export default function TransporterPage() {
   function openCreateModal() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setEditMode(false);
     setFormData(buildFormData());
     setModalOpen(true);
@@ -223,6 +227,7 @@ export default function TransporterPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setEditMode(true);
     setFormData(buildFormData(selected));
     setModalOpen(true);
@@ -232,10 +237,13 @@ export default function TransporterPage() {
     if (isSaving) return;
     setModalOpen(false);
     setError("");
+    setFieldErrors({});
   }
 
   async function handleSubmit() {
-    if (!formData.name.trim()) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, formData);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Transporter name is required.");
       return;
     }
@@ -423,15 +431,24 @@ export default function TransporterPage() {
         ) : null}
         <div className="space-y-3">
           <FormRow label="Code (optional)">
-            <Input value={formData.code} disabled={isSaving} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
+            <FormInput value={formData.code} disabled={isSaving} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="Short code" />
           </FormRow>
 
-          <FormRow label="Name" required>
-            <Input value={formData.name} disabled={isSaving} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="Company name" />
+          <FormRow label="Name" required hasError={fieldErrors.name}>
+            <FormInput
+              hasError={fieldErrors.name}
+              value={formData.name}
+              disabled={isSaving}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "name"));
+                setFormData({ ...formData, name: event.target.value });
+              }}
+              placeholder="Company name"
+            />
           </FormRow>
 
           <FormRow label="Email">
-            <Input
+            <FormInput
               type="email"
               value={formData.email}
               disabled={isSaving}
@@ -572,20 +589,8 @@ function Modal({ open, title, onClose, children, width = 640 }) {
   );
 }
 
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function Input({ className, ...props }) {
-  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
+function Input(props) {
+  return <FormInput {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

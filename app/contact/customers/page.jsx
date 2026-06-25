@@ -3,20 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import FormRow from "@/components/form/form-row";
+import FormInput, { FormTextarea } from "@/components/form/form-input";
 import { useCustomersQuery, useInvalidateCustomers } from "@/lib/hooks/use-customers-query";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
+
+const REQUIRED_FIELD_RULES = [
+  { key: "code", required: true },
+  { key: "name", required: true },
+];
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 ).replace(/\/+$/, "");
 const CUSTOMERS_ENDPOINT = `${API_BASE_URL}/reference-data/customers`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
-const textareaClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2 resize-y";
 
 const columns = [
   { key: "code", label: "Code" },
@@ -238,6 +241,7 @@ export default function ContactCustomersPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -271,6 +275,7 @@ export default function ContactCustomersPage() {
   function openCreateModal() {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setEditMode(false);
     setFormData(buildFormData());
     setModalOpen(true);
@@ -282,6 +287,7 @@ export default function ContactCustomersPage() {
     if (!selected || selected.isShrink || selected.isWriteOff) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setEditMode(true);
     setFormData(buildFormData(selected));
     setModalOpen(true);
@@ -291,10 +297,13 @@ export default function ContactCustomersPage() {
     if (isSaving) return;
     setModalOpen(false);
     setError("");
+    setFieldErrors({});
   }
 
   async function handleSubmit() {
-    if (!formData.code.trim() || !formData.name.trim()) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, formData);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Customer code and name are required.");
       return;
     }
@@ -513,22 +522,39 @@ export default function ContactCustomersPage() {
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
         ) : null}
         <div className="space-y-3 pe-2">
-          <FormRow label="Customer Code" required>
-            <Input value={formData.code} disabled={isSaving} onChange={(event) => setFormData({ ...formData, code: event.target.value })} placeholder="e.g., AC001" />
+          <FormRow label="Customer Code" required hasError={fieldErrors.code}>
+            <FormInput
+              hasError={fieldErrors.code}
+              value={formData.code}
+              disabled={isSaving}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "code"));
+                setFormData({ ...formData, code: event.target.value });
+              }}
+              placeholder="e.g., AC001"
+            />
           </FormRow>
 
-          <FormRow label="Customer Name" required>
-            <Input value={formData.name} disabled={isSaving} onChange={(event) => setFormData({ ...formData, name: event.target.value })} placeholder="e.g., Agri-Corp Pty Ltd" />
+          <FormRow label="Customer Name" required hasError={fieldErrors.name}>
+            <FormInput
+              hasError={fieldErrors.name}
+              value={formData.name}
+              disabled={isSaving}
+              onChange={(event) => {
+                setFieldErrors((prev) => clearFieldError(prev, "name"));
+                setFormData({ ...formData, name: event.target.value });
+              }}
+              placeholder="e.g., Agri-Corp Pty Ltd"
+            />
           </FormRow>
 
           <FormRow label="Customer Email(s)">
-            <textarea
+            <FormTextarea
               value={formData.emails}
               disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, emails: event.target.value })}
               placeholder={"Enter one email per line\naccounts@company.com.au\nadmin@company.com.au"}
               rows={3}
-              className={textareaClass}
             />
           </FormRow>
 
@@ -565,13 +591,12 @@ export default function ContactCustomersPage() {
           </div>
 
           <FormRow label="Customer Address(es)">
-            <textarea
+            <FormTextarea
               value={formData.addresses}
               disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, addresses: event.target.value })}
               placeholder={"Enter one address per line\n123 Farm Road, Toowoomba QLD 4350"}
               rows={2}
-              className={textareaClass}
             />
           </FormRow>
 
@@ -589,13 +614,12 @@ export default function ContactCustomersPage() {
           </FormRow>
 
           <FormRow label="Notes">
-            <textarea
+            <FormTextarea
               value={formData.notes}
               disabled={isSaving}
               onChange={(event) => setFormData({ ...formData, notes: event.target.value })}
               placeholder="Any additional notes about this customer"
               rows={2}
-              className={textareaClass}
             />
           </FormRow>
 
@@ -735,20 +759,8 @@ function Modal({ open, title, onClose, children, width = 640 }) {
   );
 }
 
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 function Input({ className, ...props }) {
-  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
+  return <FormInput className={className} {...props} />;
 }
 
 function BtnPrimary({ className, ...props }) {

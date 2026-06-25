@@ -60,7 +60,7 @@ import {
 import { defaultPemsDraftFields } from "@/lib/pems/constants";
 import PemsTab from "@/components/pems/pems-tab";
 import PackAccountingTab from "@/components/accounting/pack-accounting-tab";
-import { savePack } from "@/lib/pack-schedule-store";
+import { fetchPack, savePack } from "@/lib/pack-schedule-store";
 import { packAssignedPackerOptions, performBlend, removePackContainers, updateContainer } from "@/lib/api/packing";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import {
@@ -2547,7 +2547,18 @@ function NewPackFormPageInner() {
     setPendingSaveAfterRemove(null);
   }
 
-  async function persistPackSave(normalized) {
+  async function refreshPackForm(packId) {
+    const row = await fetchPack(packId);
+    if (!row) return;
+    setEditingRow(row);
+    setPack(rowToPack(row, currentSite, customerOptions, commodityOptions));
+    setContainersRequiredWarning("");
+    if (mode === "add") {
+      router.replace(`/packing-schedule/new-pack-form?mode=edit&id=${packId}`);
+    }
+  }
+
+  async function persistPackSave(normalized, { exit = true } = {}) {
     if (mode === "edit" && editingRow) {
       const baselineCount = Number(
         editingRow.containersRequired ?? editingRow.containers_required ?? 0
@@ -2566,7 +2577,7 @@ function NewPackFormPageInner() {
             nextCount
           );
           if (!validation.ok) {
-            openRemoveContainersDialog(baselineCount - nextCount, { pack: normalized });
+            openRemoveContainersDialog(baselineCount - nextCount, { pack: normalized, exit });
             return;
           }
           if (validation.slotsToRemove > 0) {
@@ -2581,14 +2592,27 @@ function NewPackFormPageInner() {
       }
 
       const updated = packToScheduleRow(normalized, editingRow, { includeContainers });
-      await savePack({ ...updated, id: editingRow.id });
-      router.push("/packing-schedule");
+      const saved = await savePack({ ...updated, id: editingRow.id });
+      const packId = saved?.id ?? editingRow.id;
+      if (exit) {
+        router.push("/packing-schedule");
+        return;
+      }
+      await refreshPackForm(packId);
       return;
     }
 
     const created = packToScheduleRow(normalized, null);
-    await savePack(created);
-    router.push("/packing-schedule");
+    const saved = await savePack(created);
+    const packId = saved?.id;
+    if (!packId) {
+      throw new Error("Pack was saved but no id was returned.");
+    }
+    if (exit) {
+      router.push("/packing-schedule");
+      return;
+    }
+    await refreshPackForm(packId);
   }
 
   async function confirmRemoveContainers(selectedIds) {
@@ -2623,10 +2647,14 @@ function NewPackFormPageInner() {
       if (pending) {
         try {
           const pendingPack = pending.pack ?? pending;
-          await persistPackSave({
-            ...pendingPack,
-            containersRequired: nextRequired ?? pendingPack.containersRequired,
-          });
+          const exit = pending.exit ?? true;
+          await persistPackSave(
+            {
+              ...pendingPack,
+              containersRequired: nextRequired ?? pendingPack.containersRequired,
+            },
+            { exit }
+          );
         } catch (err) {
           setSaveError(err?.message || "Failed to save pack.");
         }
@@ -3303,7 +3331,7 @@ function NewPackFormPageInner() {
     prevSampleCountRef.current = count;
   }, [sampleEntries.length]);
 
-  const save = async () => {
+  const save = async ({ exit = false } = {}) => {
     const inprogressValidation = validateInprogressPackSave(pack);
     if (!inprogressValidation.ok) {
       setSaveError(inprogressValidation.message);
@@ -3381,7 +3409,7 @@ function NewPackFormPageInner() {
     setSaveError("");
     setIsSaving(true);
     try {
-      await persistPackSave(normalized);
+      await persistPackSave(normalized, { exit });
     } catch (err) {
       setSaveError(err?.message || "Failed to save pack.");
     } finally {
@@ -5578,8 +5606,8 @@ function NewPackFormPageInner() {
                     </FormRow>
                   </div>
 
-                  <div className={cn(sectionRowClass, "gap-3 xl:grid-cols-2 xl:gap-4")}>
-                    {/* ─── Section D — Concentration readings & ventilation ─── */}
+                  <div className={cn(sectionRowClass, "gap-3")}>
+                    {/* ─── Section D — Concentration readings & ventilation (full width for wide table) ─── */}
                     <div className={fumigationInnerClass} aria-label="Section D — Concentration readings and ventilation">
                       <div className={fumigationGridClass}>
                         <FormRow className="sm:col-span-2 lg:col-span-2 xl:col-span-2" label="Monitoring device serial(s)">
@@ -6042,8 +6070,22 @@ function NewPackFormPageInner() {
                 >
                   Cancel
                 </Button>
-                <Button size="sm" type="button" disabled={isSaving} onClick={save}>
-                  {isSaving ? "Saving…" : mode === "edit" ? "Save changes" : "Create pack"}
+                <Button
+                  size="sm"
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => save({ exit: false })}
+                >
+                  {isSaving ? "Saving…" : mode === "edit" ? "Save" : "Create"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => save({ exit: true })}
+                >
+                  {isSaving ? "Saving…" : mode === "edit" ? "Save and Exit" : "Create & exit"}
                 </Button>
               </div>
             </div>

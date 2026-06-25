@@ -6,7 +6,9 @@ import ClutchSelect from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { createCharge } from "@/lib/api/accounting";
 import { CHARGE_TYPES } from "@/lib/Data";
+import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import { normalizeChargeFromApi } from "@/lib/pack-invoice-breakdown";
+import { cn } from "@/lib/utils";
 
 const inputClass =
   "h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-800 outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20";
@@ -21,11 +23,13 @@ export default function QuickAddChargePanel({ disabled = false, onCreated }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
+  const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function resetForm() {
     setForm(EMPTY_FORM);
     setError("");
+    setNameError(false);
   }
 
   async function handleSubmit(event) {
@@ -34,9 +38,11 @@ export default function QuickAddChargePanel({ disabled = false, onCreated }) {
 
     const chargeName = form.chargeName.trim();
     if (!chargeName) {
+      setNameError(true);
       setError("Charge name is required.");
       return;
     }
+    setNameError(false);
 
     const rate = form.chargeRate === "" ? 0 : Number.parseFloat(form.chargeRate);
     if (form.chargeRate !== "" && (!Number.isFinite(rate) || rate < 0)) {
@@ -83,6 +89,7 @@ export default function QuickAddChargePanel({ disabled = false, onCreated }) {
         onClick={() => {
           setOpen((prev) => !prev);
           setError("");
+          setNameError(false);
         }}
         className="h-7 shrink-0 px-2.5 text-[11px]"
       >
@@ -99,11 +106,14 @@ export default function QuickAddChargePanel({ disabled = false, onCreated }) {
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(160px,1fr)_120px_170px_auto] sm:items-end">
             <label className="block space-y-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Name</span>
+              <span className={cn("text-[10px] font-semibold uppercase tracking-wide", nameError ? formLabelErrorClass : "text-slate-500")}>Name</span>
               <input
-                className={inputClass}
+                className={inputClassName(nameError, "h-8 text-xs")}
                 value={form.chargeName}
-                onChange={(event) => setForm((prev) => ({ ...prev, chargeName: event.target.value }))}
+                onChange={(event) => {
+                  setNameError(false);
+                  setForm((prev) => ({ ...prev, chargeName: event.target.value }));
+                }}
                 placeholder="e.g. Handling fee"
                 disabled={saving}
               />

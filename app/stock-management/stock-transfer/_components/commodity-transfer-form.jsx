@@ -10,7 +10,7 @@ import {
   transferLimitErrorMessage,
   projectedDestinationBalance,
 } from "@/lib/stock-transfers-api";
-import { Field, ErrorText, WarningText, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
+import { Field, ErrorText, WarningText, controlClassName, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
 import StockLocationChips from "./stock-location-chips";
 
 function blankState() {
@@ -225,10 +225,10 @@ export default function CommodityTransferForm({
         />
       </Field>
 
-      <Field label="Location" required>
+      <Field label="Location" required hasError={Boolean(fieldErr("locationId"))}>
         <select
           suppressHydrationWarning
-          className={inputClass}
+          className={controlClassName(inputClass, fieldErr("locationId"))}
           value={form.locationId}
           onChange={(e) => { set("locationId", e.target.value); touch("locationId"); }}
           onBlur={() => touch("locationId")}
@@ -244,10 +244,10 @@ export default function CommodityTransferForm({
       </Field>
 
       {/* Customer */}
-      <Field label="Customer" required>
+      <Field label="Customer" required hasError={Boolean(fieldErr("customerId"))}>
         <select
           suppressHydrationWarning
-          className={inputClass}
+          className={controlClassName(inputClass, fieldErr("customerId"))}
           value={form.customerId}
           onChange={(e) => { set("customerId", e.target.value); touch("customerId"); }}
           onBlur={() => touch("customerId")}
@@ -265,10 +265,10 @@ export default function CommodityTransferForm({
 
       {/* From Commodity + To Commodity */}
       <div className="grid gap-2.5 sm:grid-cols-2">
-        <Field label="From Commodity Grade" required>
+        <Field label="From Commodity Grade" required hasError={Boolean(fieldErr("fromCommodityId"))}>
           <select
             suppressHydrationWarning
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("fromCommodityId"))}
             value={form.fromCommodityId}
             onChange={(e) => {
               set("fromCommodityId", e.target.value);
@@ -290,10 +290,10 @@ export default function CommodityTransferForm({
           {fieldErr("fromCommodityId") ? <ErrorText>{fieldErr("fromCommodityId")}</ErrorText> : null}
         </Field>
 
-        <Field label="To Commodity Grade" required>
+        <Field label="To Commodity Grade" required hasError={Boolean(fieldErr("toCommodityId"))}>
           <select
             suppressHydrationWarning
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("toCommodityId"))}
             value={form.toCommodityId}
             onChange={(e) => { set("toCommodityId", e.target.value); touch("toCommodityId"); }}
             onBlur={() => touch("toCommodityId")}
@@ -323,13 +323,13 @@ export default function CommodityTransferForm({
 
       {/* Amount + SOH badge */}
       <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-        <Field label="Amount (t)" required>
+        <Field label="Amount (t)" required hasError={Boolean(fieldErr("amount"))}>
           <input
             suppressHydrationWarning
             type="number"
             step="0.01"
             min="0"
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("amount"))}
             value={form.amount}
             placeholder="0.00"
             onChange={(e) => { set("amount", e.target.value); touch("amount"); }}

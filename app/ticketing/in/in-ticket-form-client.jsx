@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
 import { commodityOptionLabel } from "@/lib/commodity-display";
+import { buildRequiredFieldErrorsFromRules, clearFieldError, isEmptyFieldValue } from "@/lib/form-validation";
+import { formFieldErrorTextClass, formInputErrorClass, inputClassName } from "@/lib/form-styles";
 import { cn, nowDatetimeLocal, nowDatetimeLocalDate } from "@/lib/utils";
 import { saveInTicketSnapshot } from "@/lib/ticketing-in-ticket-storage";
 import { enrichPrintSnapshot } from "@/lib/in-ticket-print";
@@ -118,6 +122,24 @@ function buildBlankTicket(direction) {
   };
 }
 
+function buildTicketCompletionFieldErrors({
+  ticket,
+  grossTotal,
+  tareTotal,
+  locationField,
+  commodityReady,
+}) {
+  const errors = {};
+  if (!ticket.cmoId) errors.cmoId = true;
+  if (!ticket.truck && !ticket.truckId) errors.truck = true;
+  if (grossTotal <= 0) errors.grossWeight = true;
+  if (tareTotal <= 0) errors.tareWeight = true;
+  if (!ticket.signoffUserId) errors.signoffUserId = true;
+  if (isEmptyFieldValue(ticket[locationField])) errors[locationField] = true;
+  if (!commodityReady) errors.commodity = true;
+  return errors;
+}
+
 export default function InTicketFormClient({ mode, ticketId: routeTicketId, direction = "incoming" }) {
   const router = useRouter();
   const isCreate = mode === "create";
@@ -169,6 +191,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     attachments: [],
   });
   const [newTruck, setNewTruck] = useState({ name: "", driver: "", tare: "" });
+  const [ticketFieldErrors, setTicketFieldErrors] = useState({});
+  const [cmoModalFieldErrors, setCmoModalFieldErrors] = useState({});
+  const [truckModalFieldErrors, setTruckModalFieldErrors] = useState({});
+  const [commodityModalFieldErrors, setCommodityModalFieldErrors] = useState({});
+  const [cmoModalError, setCmoModalError] = useState("");
+  const [truckModalError, setTruckModalError] = useState("");
 
   const ticketNumericId = ticket.id ?? routeTicketId ?? null;
   const ticketDisplayRef = ticket.ticketReference || "";
@@ -192,7 +220,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const weightUnit = commodity?.unitType ?? cmoCommodity?.unitType;
   const customer = ticket.customerId ? customers.find((cust) => cust.id === ticket.customerId) : null;
 
-  const set = (key, val) => setTicket((prev) => ({ ...prev, [key]: val }));
+  const set = (key, val) => {
+    setTicket((prev) => ({ ...prev, [key]: val }));
+    setTicketFieldErrors((prev) => clearFieldError(prev, key));
+    if (key === "commodityId" || key === "commodityConfirmed") {
+      setTicketFieldErrors((prev) => clearFieldError(prev, "commodity"));
+    }
+  };
   const setTest = (name, val) => setTicket((prev) => ({ ...prev, tests: { ...prev.tests, [name]: val } }));
   const locationValue = ticket[locationField] ?? "";
 
@@ -503,6 +537,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
     setTestResultsSummary(commodityAnalysis);
     setSuggestedCommodities(matchingCommodities);
     setOverrideReason("");
+    setCommodityModalFieldErrors({});
     setShowCommodityModal(true);
   };
 
@@ -521,6 +556,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
   const canComplete = completionBaseReady && commodityReady;
 
   const handleSave = async () => {
+    if (!String(ticket.date ?? "").trim()) {
+      setTicketFieldErrors({ date: true });
+      setError("Ticket date is required.");
+      return;
+    }
+    setTicketFieldErrors((prev) => clearFieldError(prev, "date"));
     try {
       setError("");
       const saved = await saveTicket({ ...ticket, type: ticketType });
@@ -540,10 +581,25 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         confirmCommodity();
       } else {
         setError("Select an identified commodity before completing this ticket.");
+        setTicketFieldErrors((prev) => ({ ...prev, commodity: true }));
       }
       return;
     }
-    if (!canComplete) return;
+
+    const nextFieldErrors = buildTicketCompletionFieldErrors({
+      ticket,
+      grossTotal,
+      tareTotal,
+      locationField,
+      commodityReady,
+    });
+    if (Object.keys(nextFieldErrors).length) {
+      setTicketFieldErrors(nextFieldErrors);
+      setError("Please complete all required fields before finishing this ticket.");
+      return;
+    }
+
+    setTicketFieldErrors({});
     void handleComplete();
   };
 
@@ -635,7 +691,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         <div className="min-w-0 flex-1 space-y-4">
           <Card title="CMO & Booking">
             <div className="grid gap-x-4 gap-y-3 md:grid-cols-2">
-              <FormRow label="CMO" required>
+              <FormRow label="CMO" required hasError={Boolean(ticketFieldErrors.cmoId)}>
                 <div className="flex gap-2">
                   <ClutchSelect
                     className="min-w-0 flex-1"
@@ -649,6 +705,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     })()}
                     isDisabled={isCompleted}
                     placeholder="Select CMO"
+                    error={ticketFieldErrors.cmoId ? "Required" : undefined}
                     onChange={(option) => {
                       const cmoId = option ? option.value : null;
                       const selectedCmo = cmoId ? cmos.find((c) => c.id === cmoId) : null;
@@ -664,12 +721,17 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         commodityConfirmed: false,
                         commodityOverrideReason: "",
                       }));
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "cmoId"));
                     }}
                   />
                   {!isCompleted ? (
                     <button
                       type="button"
-                      onClick={() => setShowCmoModal(true)}
+                      onClick={() => {
+                        setCmoModalFieldErrors({});
+                        setCmoModalError("");
+                        setShowCmoModal(true);
+                      }}
                       className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand text-lg font-medium leading-none text-white hover:bg-brand/90"
                       aria-label="Add CMO"
                     >
@@ -720,7 +782,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 })()}
               </FormRow>
 
-              <FormRow label="Identified Commodity Grade">
+              <FormRow label="Identified Commodity Grade" required={!requiresCommodityConfirmation} hasError={Boolean(ticketFieldErrors.commodity)}>
                 {(() => {
                   const identifiedCommodityOptions = commodities
                     .filter(
@@ -736,11 +798,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       value={identifiedCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
                       isDisabled={isCompleted || !ticket.commodityTypeId}
                       placeholder="Select commodity grade"
+                      error={ticketFieldErrors.commodity ? "Required" : undefined}
                       onChange={(option) => {
                         const v = option ? option.value : null;
                         set("commodityId", v || null);
                         set("commodityConfirmed", false);
                         set("commodityOverrideReason", "");
+                        setTicketFieldErrors((prev) => clearFieldError(prev, "commodity"));
                       }}
                     />
                   );
@@ -804,7 +868,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
           <Card title="Truck & Weights">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-end">
-              <FormRow label="Truck" required>
+              <FormRow label="Truck" required hasError={Boolean(ticketFieldErrors.truck)}>
                 <div className="flex gap-2">
                   <ClutchSelect
                     className="min-w-0 flex-1"
@@ -814,15 +878,21 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       : null}
                     isDisabled={isCompleted}
                     placeholder="Select truck"
+                    error={ticketFieldErrors.truck ? "Required" : undefined}
                     onChange={(option) => {
                       const t = option ? trucks.find((tr) => tr.id === option.value) : null;
                       setTicket((prev) => ({ ...prev, truck: t || null, truckId: t?.id ?? null }));
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "truck"));
                     }}
                   />
                   {!isCompleted ? (
                     <button
                       type="button"
-                      onClick={() => setShowTruckModal(true)}
+                      onClick={() => {
+                        setTruckModalFieldErrors({});
+                        setTruckModalError("");
+                        setShowTruckModal(true);
+                      }}
                       className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand text-lg font-medium leading-none text-white hover:bg-brand/90"
                       aria-label="Add truck"
                     >
@@ -868,8 +938,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     splitLoad={ticket.splitLoad}
                     disabled={isCompleted}
                     hideTotal
+                    hasError={Boolean(ticketFieldErrors.grossWeight)}
                     onAdd={() => addWeight("grossWeights")}
-                    onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
+                    onUpdate={(i, storageKg) => {
+                      updateWeight("grossWeights", i, storageKg);
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "grossWeight"));
+                    }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
                     onRemove={(i) => removeWeight("grossWeights", i)}
                   />
@@ -882,8 +956,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     splitLoad={ticket.splitLoad}
                     disabled={isCompleted}
                     hideTotal
+                    hasError={Boolean(ticketFieldErrors.tareWeight)}
                     onAdd={() => addWeight("tareWeights")}
-                    onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
+                    onUpdate={(i, storageKg) => {
+                      updateWeight("tareWeights", i, storageKg);
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "tareWeight"));
+                    }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
                     onRemove={(i) => removeWeight("tareWeights", i)}
                   />
@@ -899,8 +977,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     splitLoad={ticket.splitLoad}
                     disabled={isCompleted}
                     hideTotal
+                    hasError={Boolean(ticketFieldErrors.tareWeight)}
                     onAdd={() => addWeight("tareWeights")}
-                    onUpdate={(i, storageKg) => updateWeight("tareWeights", i, storageKg)}
+                    onUpdate={(i, storageKg) => {
+                      updateWeight("tareWeights", i, storageKg);
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "tareWeight"));
+                    }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
                     onRemove={(i) => removeWeight("tareWeights", i)}
                   />
@@ -913,8 +995,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     splitLoad={ticket.splitLoad}
                     disabled={isCompleted}
                     hideTotal
+                    hasError={Boolean(ticketFieldErrors.grossWeight)}
                     onAdd={() => addWeight("grossWeights")}
-                    onUpdate={(i, storageKg) => updateWeight("grossWeights", i, storageKg)}
+                    onUpdate={(i, storageKg) => {
+                      updateWeight("grossWeights", i, storageKg);
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "grossWeight"));
+                    }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
                     onRemove={(i) => removeWeight("grossWeights", i)}
                   />
@@ -947,6 +1033,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
           {ticket.commodityTypeId && requiresCommodityConfirmation ? (
             <Card title="Test Results">
+              <div className={cn(ticketFieldErrors.commodity && "rounded-lg ring-2 ring-red-200")}>
               <TestResultsSection
                 commodityTypeId={ticket.commodityTypeId}
                 commodities={commodities}
@@ -974,16 +1061,20 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   <span className="text-[11px] text-amber-800">Override: {ticket.commodityOverrideReason}</span>
                 ) : null}
               </div>
+              {ticketFieldErrors.commodity ? (
+                <p className={cn("mt-2", formFieldErrorTextClass)}>Commodity grade confirmation is required.</p>
+              ) : null}
+              </div>
             </Card>
           ) : null}
         </div>
 
         <div className="w-full shrink-0 space-y-4 lg:w-[280px]">
           <Card title="Details">
-            <FormRow label="Ticket Date" required>
-              <input
-                className={inputClass}
+            <FormRow label="Ticket Date" required hasError={Boolean(ticketFieldErrors.date)}>
+              <FormInput
                 type="date"
+                hasError={Boolean(ticketFieldErrors.date)}
                 value={ticket.date || ""}
                 disabled={isCompleted}
                 onChange={(e) => set("date", e.target.value)}
@@ -1048,7 +1139,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 placeholder="Enter additional reference..."
               />
             </FormRow>
-            <FormRow label="Signoff">
+            <FormRow label="Signoff" hasError={Boolean(ticketFieldErrors.signoffUserId)}>
               {(() => {
                 const signoffOptions = users.filter((u) => u.active).map((u) => ({ value: u.id, label: u.name }));
                 return (
@@ -1057,6 +1148,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     value={signoffOptions.find((o) => String(o.value) === String(ticket.signoffUserId ?? "")) ?? null}
                     isDisabled={isCompleted}
                     placeholder="Select user"
+                    error={ticketFieldErrors.signoffUserId ? "Required" : undefined}
                     onChange={(option) => {
                       const userId = option ? option.value : "";
                       const user = option ? users.find((u) => u.id === option.value) : null;
@@ -1065,12 +1157,17 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                         signoffUserId: userId,
                         signoff: user?.name ?? "",
                       }));
+                      setTicketFieldErrors((prev) => clearFieldError(prev, "signoffUserId"));
                     }}
                   />
                 );
               })()}
             </FormRow>
-            <FormRow label={isIncoming ? "Unloaded Location" : "Loading Location"} required>
+            <FormRow
+              label={isIncoming ? "Unloaded Location" : "Loading Location"}
+              required
+              hasError={Boolean(ticketFieldErrors[locationField])}
+            >
               {(() => {
                 const locationOptions = stockLocations
                   .filter((loc) => (loc.status ?? "active").toLowerCase() === "active")
@@ -1087,10 +1184,12 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     value={locationOptions.find((o) => String(o.value) === String(locationValue)) ?? null}
                     isDisabled={isCompleted || !ticket.cmoId}
                     placeholder="Select location"
+                    error={ticketFieldErrors[locationField] ? "Required" : undefined}
                     onChange={(option) => {
                       const locId = option ? option.value : "";
                       set(locationField, locId);
                       setLocationWarning(locId ? validateLocationSelection(locId) : null);
+                      setTicketFieldErrors((prev) => clearFieldError(prev, locationField));
                     }}
                   />
                 );
@@ -1129,7 +1228,6 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                   <Button
                     type="button"
                     className="w-full justify-center"
-                    disabled={!canComplete && !pendingCommodityForCompletion}
                     onClick={handleCompleteClick}
                   >
                     Complete Ticket
@@ -1183,25 +1281,35 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </div>
       </div>
 
-      <Modal open={showCmoModal} title={`Create New CMO (${isIncoming ? "Incoming" : "Outgoing"})`} onClose={() => setShowCmoModal(false)}>
-        <FormRow label="CMO Reference" required>
-          <input
-            className={inputClass}
+      <Modal open={showCmoModal} title={`Create New CMO (${isIncoming ? "Incoming" : "Outgoing"})`} onClose={() => { setShowCmoModal(false); setCmoModalFieldErrors({}); setCmoModalError(""); }}>
+        {cmoModalError ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-600">{cmoModalError}</div>
+        ) : null}
+        <FormRow label="CMO Reference" required hasError={Boolean(cmoModalFieldErrors.cmoReference)}>
+          <FormInput
+            hasError={Boolean(cmoModalFieldErrors.cmoReference)}
             value={newCmo.cmoReference}
-            onChange={(e) => setNewCmo({ ...newCmo, cmoReference: e.target.value })}
+            onChange={(e) => {
+              setNewCmo({ ...newCmo, cmoReference: e.target.value });
+              setCmoModalFieldErrors((prev) => clearFieldError(prev, "cmoReference"));
+            }}
             placeholder="e.g. CMO-0142"
           />
         </FormRow>
-        <FormRow label="Customer" required>
+        <FormRow label="Customer" required hasError={Boolean(cmoModalFieldErrors.customerId)}>
           <ClutchSelect
             options={customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }))}
             value={customers.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })).find((o) => String(o.value) === String(newCmo.customerId)) ?? null}
             placeholder="Select customer"
-            onChange={(option) => setNewCmo({ ...newCmo, customerId: option ? option.value : "" })}
+            error={cmoModalFieldErrors.customerId ? "Required" : undefined}
+            onChange={(option) => {
+              setNewCmo({ ...newCmo, customerId: option ? option.value : "" });
+              setCmoModalFieldErrors((prev) => clearFieldError(prev, "customerId"));
+            }}
           />
         </FormRow>
 
-        <FormRow label="Commodity Type" required>
+        <FormRow label="Commodity Type" required hasError={Boolean(cmoModalFieldErrors.commodityTypeId)}>
           {(() => {
             const cmoCommodityTypeOptions = commodityTypes.map((t) => ({ value: t.id, label: t.name }));
             return (
@@ -1209,16 +1317,28 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                 options={cmoCommodityTypeOptions}
                 value={cmoCommodityTypeOptions.find((o) => String(o.value) === String(newCmo.commodityTypeId)) ?? null}
                 placeholder="Select commodity type"
-                onChange={(option) => setNewCmo({ ...newCmo, commodityTypeId: option ? option.value : "", commodityIds: [] })}
+                error={cmoModalFieldErrors.commodityTypeId ? "Required" : undefined}
+                onChange={(option) => {
+                  setNewCmo({ ...newCmo, commodityTypeId: option ? option.value : "", commodityIds: [] });
+                  setCmoModalFieldErrors((prev) => {
+                    const next = clearFieldError(prev, "commodityTypeId");
+                    return clearFieldError(next, "commodityIds");
+                  });
+                }}
               />
             );
           })()}
         </FormRow>
-        <FormRow label="Commodity Grades" required>
+        <FormRow label="Commodity Grades" required hasError={Boolean(cmoModalFieldErrors.commodityIds)}>
           {!newCmo.commodityTypeId ? (
             <p className="text-xs text-slate-500">Select a commodity type first.</p>
           ) : (
-            <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+            <div
+              className={cn(
+                "max-h-40 space-y-1 overflow-y-auto rounded-md border bg-slate-50 p-2",
+                cmoModalFieldErrors.commodityIds ? "border-red-400 ring-2 ring-red-100" : "border-slate-200"
+              )}
+            >
               {commodities
                 .filter(
                   (c) =>
@@ -1231,14 +1351,15 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                       type="checkbox"
                       className="size-4 rounded border-slate-300"
                       checked={newCmo.commodityIds.includes(c.id)}
-                      onChange={() =>
+                      onChange={() => {
                         setNewCmo((prev) => ({
                           ...prev,
                           commodityIds: prev.commodityIds.includes(c.id)
                             ? prev.commodityIds.filter((id) => id !== c.id)
                             : [...prev.commodityIds, c.id],
-                        }))
-                      }
+                        }));
+                        setCmoModalFieldErrors((prev) => clearFieldError(prev, "commodityIds"));
+                      }}
                     />
                     <span>{commodityOptionLabel(c)}</span>
                   </label>
@@ -1284,7 +1405,21 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             type="button"
             size="sm"
             onClick={async () => {
-              if (!newCmo.customerId || !newCmo.commodityTypeId || newCmo.commodityIds.length === 0) return;
+              const nextErrors = buildRequiredFieldErrorsFromRules(
+                [
+                  { key: "customerId", required: true },
+                  { key: "commodityTypeId", required: true },
+                  { key: "commodityIds", required: true },
+                ],
+                newCmo
+              );
+              if (Object.keys(nextErrors).length) {
+                setCmoModalFieldErrors(nextErrors);
+                setCmoModalError("Please fill all required fields.");
+                return;
+              }
+              setCmoModalFieldErrors({});
+              setCmoModalError("");
               try {
                 setError("");
                 const created = await saveCmo({
@@ -1334,12 +1469,18 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </div>
       </Modal>
 
-      <Modal open={showTruckModal} title="Add New Truck" onClose={() => setShowTruckModal(false)}>
-        <FormRow label="Rego" required>
-          <input
-            className={inputClass}
+      <Modal open={showTruckModal} title="Add New Truck" onClose={() => { setShowTruckModal(false); setTruckModalFieldErrors({}); setTruckModalError(""); }}>
+        {truckModalError ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-600">{truckModalError}</div>
+        ) : null}
+        <FormRow label="Rego" required hasError={Boolean(truckModalFieldErrors.name)}>
+          <FormInput
+            hasError={Boolean(truckModalFieldErrors.name)}
             value={newTruck.name}
-            onChange={(e) => setNewTruck({ ...newTruck, name: e.target.value.toUpperCase() })}
+            onChange={(e) => {
+              setNewTruck({ ...newTruck, name: e.target.value.toUpperCase() });
+              setTruckModalFieldErrors((prev) => clearFieldError(prev, "name"));
+            }}
             placeholder="e.g. TRK-006"
           />
         </FormRow>
@@ -1368,7 +1509,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
             type="button"
             size="sm"
             onClick={async () => {
-              if (!newTruck.name.trim()) return;
+              if (!newTruck.name.trim()) {
+                setTruckModalFieldErrors({ name: true });
+                setTruckModalError("Rego is required.");
+                return;
+              }
+              setTruckModalFieldErrors({});
+              setTruckModalError("");
               try {
                 setError("");
                 const created = await saveTruck({
@@ -1390,7 +1537,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
         </div>
       </Modal>
 
-      <Modal open={showCommodityModal} title="Commodity Grade Identification" wide onClose={() => setShowCommodityModal(false)}>
+      <Modal open={showCommodityModal} title="Commodity Grade Identification" wide onClose={() => { setShowCommodityModal(false); setCommodityModalFieldErrors({}); }}>
         <CommodityIdentificationBody
           suggestedCommodities={suggestedCommodities}
           testResultsSummary={testResultsSummary}
@@ -1400,7 +1547,10 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
           set={set}
           overrideReason={overrideReason}
           setOverrideReason={setOverrideReason}
-          onClose={() => setShowCommodityModal(false)}
+          fieldErrors={commodityModalFieldErrors}
+          setFieldErrors={setCommodityModalFieldErrors}
+          onCommodityConfirmed={() => setTicketFieldErrors((prev) => clearFieldError(prev, "commodity"))}
+          onClose={() => { setShowCommodityModal(false); setCommodityModalFieldErrors({}); }}
         />
       </Modal>
 
@@ -1440,8 +1590,26 @@ function CommodityIdentificationBody({
   set,
   overrideReason,
   setOverrideReason,
+  fieldErrors = {},
+  setFieldErrors,
+  onCommodityConfirmed,
   onClose,
 }) {
+  const needsOverride =
+    ticket.commodityId && !suggestedCommodities.some((s) => s.commodityId === ticket.commodityId);
+
+  function validateBeforeConfirm() {
+    const errors = {};
+    if (!ticket.commodityId) errors.commodityId = true;
+    if (needsOverride && !overrideReason.trim()) errors.overrideReason = true;
+    if (Object.keys(errors).length) {
+      setFieldErrors?.(errors);
+      return false;
+    }
+    setFieldErrors?.({});
+    return true;
+  }
+
   return (
     <>
       <div className="mb-4">
@@ -1510,7 +1678,7 @@ function CommodityIdentificationBody({
         </div>
       </div>
 
-      <FormRow label="Confirm Commodity Grade" required>
+      <FormRow label="Confirm Commodity Grade" required hasError={Boolean(fieldErrors.commodityId)}>
         {(() => {
           const confirmCommodityOptions = commodities
             .filter(
@@ -1528,18 +1696,25 @@ function CommodityIdentificationBody({
               options={confirmCommodityOptions}
               value={confirmCommodityOptions.find((o) => String(o.value) === String(ticket.commodityId ?? "")) ?? null}
               placeholder="Select commodity grade"
-              onChange={(option) => set("commodityId", option ? option.value : null)}
+              error={fieldErrors.commodityId ? "Required" : undefined}
+              onChange={(option) => {
+                set("commodityId", option ? option.value : null);
+                setFieldErrors?.((prev) => clearFieldError(prev, "commodityId"));
+              }}
             />
           );
         })()}
       </FormRow>
 
-      {ticket.commodityId && !suggestedCommodities.some((s) => s.commodityId === ticket.commodityId) ? (
-        <FormRow label="Override Reason" required>
+      {ticket.commodityId && needsOverride ? (
+        <FormRow label="Override Reason" required hasError={Boolean(fieldErrors.overrideReason)}>
           <textarea
-            className={cn(inputClass, "min-h-[72px] resize-y")}
+            className={inputClassName(Boolean(fieldErrors.overrideReason), cn(inputClass, "min-h-[72px] resize-y"))}
             value={overrideReason}
-            onChange={(e) => setOverrideReason(e.target.value)}
+            onChange={(e) => {
+              setOverrideReason(e.target.value);
+              setFieldErrors?.((prev) => clearFieldError(prev, "overrideReason"));
+            }}
             placeholder="Explain why you're selecting a different commodity grade..."
             rows={3}
           />
@@ -1550,32 +1725,40 @@ function CommodityIdentificationBody({
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
+        {!ticket.commodityId ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => validateBeforeConfirm()}
+          >
+            Confirm
+          </Button>
+        ) : null}
         {ticket.commodityId && suggestedCommodities.some((s) => s.commodityId === ticket.commodityId) ? (
           <Button
             type="button"
             size="sm"
             onClick={() => {
+              if (!validateBeforeConfirm()) return;
               set("commodityConfirmed", true);
               set("commodityOverrideReason", "");
+              onCommodityConfirmed?.();
               onClose();
             }}
           >
             Confirm {commodityOptionLabel(commodities.find((c) => c.id === ticket.commodityId))}
           </Button>
         ) : null}
-        {ticket.commodityId && !suggestedCommodities.some((s) => s.commodityId === ticket.commodityId) ? (
+        {ticket.commodityId && needsOverride ? (
           <Button
             type="button"
             variant="secondary"
             size="sm"
-            disabled={!overrideReason.trim()}
             onClick={() => {
-              if (!overrideReason.trim()) {
-                alert("Please provide an override reason for selecting a different commodity");
-                return;
-              }
+              if (!validateBeforeConfirm()) return;
               set("commodityConfirmed", true);
               set("commodityOverrideReason", overrideReason);
+              onCommodityConfirmed?.();
               onClose();
             }}
           >
@@ -1635,6 +1818,7 @@ function WeightSection({
   splitLoad,
   disabled,
   hideTotal,
+  hasError = false,
   onAdd,
   onUpdate,
   onUpdateDateTime,
@@ -1648,7 +1832,7 @@ function WeightSection({
   const hasTotal = total > 0;
 
   return (
-    <div className="mt-3">
+    <div className={cn("mt-3", hasError && "rounded-lg ring-2 ring-red-200 p-1")}>
       {!hideTotal ? (
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
           <span className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</span>
@@ -1681,7 +1865,7 @@ function WeightSection({
         </div>
       ) : (
         <div className="mb-2">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</span>
+          <span className={cn("text-xs font-bold uppercase tracking-wide", hasError ? "text-red-600" : "text-slate-600")}>{label}</span>
         </div>
       )}
       <div className="flex flex-wrap items-start gap-2.5">
@@ -1691,7 +1875,7 @@ function WeightSection({
               <div>
                 <label className="mb-1 block text-[10px] font-semibold text-slate-500">Weight ({unitLabel})</label>
                 <input
-                  className={cn(inputClass, "w-[110px] text-sm")}
+                  className={inputClassName(hasError, cn(inputClass, "w-[110px] text-sm"))}
                   type="number"
                   disabled={disabled}
                   placeholder="0"
@@ -1738,6 +1922,7 @@ function WeightSection({
           </button>
         ) : null}
       </div>
+      {hasError ? <p className={cn("mt-1", formFieldErrorTextClass)}>Required</p> : null}
     </div>
   );
 }
@@ -1749,18 +1934,6 @@ function Card({ title, children }) {
         <span className="text-xs font-bold uppercase tracking-wide text-[#0f1e3d]">{title}</span>
       </div>
       <div className="space-y-3 p-4">{children}</div>
-    </div>
-  );
-}
-
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
     </div>
   );
 }

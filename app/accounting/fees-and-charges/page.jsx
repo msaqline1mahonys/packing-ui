@@ -5,9 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
 import { createCharge, deleteCharge, listCharges, updateCharge } from "@/lib/api/accounting";
 import { CHARGE_CLASSIFICATIONS, CHARGE_TYPES, FEES_AND_CHARGES_ROWS } from "@/lib/Data";
+import { buildRequiredFieldErrorsFromRules, clearFieldError, hasFieldErrors } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
+
+const CHARGE_FIELD_RULES = [{ key: "chargeName", required: true }];
 
 const MOBILE_BREAKPOINT = 900;
 
@@ -15,9 +20,6 @@ const APPLY_TO_ALL_PACKS_OPTS = [
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
 ];
-
-const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
 
 function getClassLabel(charge) {
   if (charge.chargeClassification === "revenue") return "Revenue";
@@ -134,6 +136,7 @@ export default function FeesAndChargesPage() {
     chargeClassification: "revenue",
     accountCode: "",
   });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     fetchCharges(setFeesAndCharges);
@@ -151,6 +154,7 @@ export default function FeesAndChargesPage() {
 
   function openCreateModal() {
     setEditMode(false);
+    setFieldErrors({});
     setFormData({
       chargeName: "",
       chargeDescription: "",
@@ -166,6 +170,7 @@ export default function FeesAndChargesPage() {
   function openEditModal() {
     if (!selected) return;
     setEditMode(true);
+    setFieldErrors({});
     setFormData({
       chargeName: selected.chargeName || "",
       chargeDescription: selected.chargeDescription || "",
@@ -179,10 +184,12 @@ export default function FeesAndChargesPage() {
   }
 
   async function handleSubmit() {
-    if (!formData.chargeName.trim()) {
-      window.alert("Charge Name is required");
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(CHARGE_FIELD_RULES, formData);
+    if (hasFieldErrors(nextFieldErrors)) {
+      setFieldErrors(nextFieldErrors);
       return;
     }
+    setFieldErrors({});
     const rate = Number.parseFloat(formData.chargeRate);
     if (formData.chargeRate !== "" && (!Number.isFinite(rate) || rate < 0)) {
       window.alert("Charge Rate must be a valid number greater than or equal to 0");
@@ -342,26 +349,41 @@ export default function FeesAndChargesPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit Charge" : "Add Charge"}>
+      <Modal
+        open={modalOpen}
+        onClose={() => {
+          setFieldErrors({});
+          setModalOpen(false);
+        }}
+        title={editMode ? "Edit Charge" : "Add Charge"}
+      >
         <div className="grid gap-3 sm:grid-cols-2">
-          <FormRow label="Charge Name" required className="sm:col-span-2">
-            <Input
-              value={formData.chargeName}
-              onChange={(event) => setFormData({ ...formData, chargeName: event.target.value })}
-              placeholder="e.g., Handling Fee"
-            />
-          </FormRow>
+          <div className="sm:col-span-2">
+            <FormRow label="Charge Name" required hasError={Boolean(fieldErrors.chargeName)}>
+              <FormInput
+                hasError={Boolean(fieldErrors.chargeName)}
+                value={formData.chargeName}
+                onChange={(event) => {
+                  setFieldErrors((prev) => clearFieldError(prev, "chargeName"));
+                  setFormData({ ...formData, chargeName: event.target.value });
+                }}
+                placeholder="e.g., Handling Fee"
+              />
+            </FormRow>
+          </div>
 
-          <FormRow label="Charge Description" className="sm:col-span-2">
-            <Input
-              value={formData.chargeDescription}
-              onChange={(event) => setFormData({ ...formData, chargeDescription: event.target.value })}
-              placeholder="e.g., Standard handling and administration"
-            />
-          </FormRow>
+          <div className="sm:col-span-2">
+            <FormRow label="Charge Description">
+              <FormInput
+                value={formData.chargeDescription}
+                onChange={(event) => setFormData({ ...formData, chargeDescription: event.target.value })}
+                placeholder="e.g., Standard handling and administration"
+              />
+            </FormRow>
+          </div>
 
           <FormRow label="Charge Rate">
-            <Input
+            <FormInput
               type="number"
               min={0}
               step={0.01}
@@ -393,7 +415,7 @@ export default function FeesAndChargesPage() {
           </FormRow>
 
           <FormRow label="Account Code">
-            <Input
+            <FormInput
               value={formData.accountCode}
               onChange={(event) => setFormData({ ...formData, accountCode: event.target.value })}
               placeholder="e.g. 4000, REV-001"
@@ -412,7 +434,17 @@ export default function FeesAndChargesPage() {
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFieldErrors({});
+              setModalOpen(false);
+            }}
+          >
+            Cancel
+          </Button>
           <Button type="button" size="sm" onClick={handleSubmit}>{editMode ? "Save Changes" : "Add Charge"}</Button>
         </div>
       </Modal>
@@ -447,18 +479,3 @@ function Modal({ open, title, onClose, children }) {
   );
 }
 
-function FormRow({ label, required, className, children }) {
-  return (
-    <div className={cn("space-y-1", className)}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function Input({ className, ...props }) {
-  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
-}

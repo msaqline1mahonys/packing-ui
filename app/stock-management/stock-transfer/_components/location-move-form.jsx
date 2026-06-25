@@ -10,7 +10,7 @@ import {
   transferLimitErrorMessage,
   projectedDestinationBalance,
 } from "@/lib/stock-transfers-api";
-import { Field, ErrorText, WarningText, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
+import { Field, ErrorText, WarningText, controlClassName, inputClass, commodityLabel, nowDatetimeLocalDate, qtyColor } from "./form-primitives";
 
 export default function LocationMoveForm({ locations, commodities, defaultSiteId, submitting, onSubmit, onContextChange }) {
   const [fromLocationId, setFromLocationId] = useState("");
@@ -23,8 +23,11 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
   const [holdingsError, setHoldingsError] = useState("");
   const [loadedKey, setLoadedKey] = useState("");
   const [submittedError, setSubmittedError] = useState("");
+  const [touched, setTouched] = useState({});
   const [destHoldings, setDestHoldings] = useState({});
   const [destHoldingsLoading, setDestHoldingsLoading] = useState(false);
+
+  const touch = (k) => setTouched((prev) => ({ ...prev, [k]: true }));
 
   // DERIVED
   const siteLocations = useMemo(() => {
@@ -176,28 +179,53 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
   }
 
   // VALIDATION
-  function buildValidation() {
-    if (!fromLocationId) return { valid: false, message: "From Location is required." };
-    if (!toLocationId) return { valid: false, message: "To Location is required." };
-    if (!commodityId) return { valid: false, message: "Commodity Grade is required." };
-    if (String(fromLocationId) === String(toLocationId))
-      return { valid: false, message: "From and To locations must be different." };
-    if (loadedKey !== `${fromLocationId}|${commodityId}`)
-      return { valid: false, message: "Holdings are loading for the current selection." };
-    if (selectedCount === 0) return { valid: false, message: "Select at least one owner row to move." };
+  const errors = useMemo(() => {
+    const e = {};
+    if (!fromLocationId) e.fromLocationId = "From Location is required.";
+    if (!toLocationId) e.toLocationId = "To Location is required.";
+    if (!commodityId) e.commodityId = "Commodity Grade is required.";
+    if (fromLocationId && toLocationId && String(fromLocationId) === String(toLocationId)) {
+      e.toLocationId = "From and To locations must be different.";
+    }
+    if (fromLocationId && commodityId && loadedKey !== `${fromLocationId}|${commodityId}`) {
+      e.commodityId = "Holdings are loading for the current selection.";
+    }
+    if (loadedKey === `${fromLocationId}|${commodityId}` && selectedCount === 0) {
+      e.rows = "Select at least one owner row to move.";
+    }
     for (const r of selectedRows) {
       const amt = parseFloat(r.moveAmount) || 0;
-      if (amt <= 0) return { valid: false, message: `Move amount must be greater than 0 for ${r.accountName}.` };
-      if (exceedsTransferLimit(r.available ?? 0, amt)) {
-        return { valid: false, message: `${r.accountName}: ${transferLimitErrorMessage(r.available ?? 0)}` };
+      if (amt <= 0) {
+        e.rows = `Move amount must be greater than 0 for ${r.accountName}.`;
+        break;
       }
+      if (exceedsTransferLimit(r.available ?? 0, amt)) {
+        e.rows = `${r.accountName}: ${transferLimitErrorMessage(r.available ?? 0)}`;
+        break;
+      }
+    }
+    return e;
+  }, [fromLocationId, toLocationId, commodityId, loadedKey, selectedCount, selectedRows]);
+
+  const isValid = Object.keys(errors).length === 0;
+
+  function buildValidation() {
+    if (!isValid) {
+      const firstKey = Object.keys(errors)[0];
+      return { valid: false, message: errors[firstKey] || "Complete all required fields to save." };
     }
     return { valid: true, message: "" };
   }
 
   const validation = buildValidation();
+  const fieldErr = (k) => (touched[k] ? errors[k] : undefined);
 
   function handleSave() {
+    setTouched({
+      fromLocationId: true,
+      toLocationId: true,
+      commodityId: true,
+    });
     const v = buildValidation();
     if (!v.valid) {
       setSubmittedError(v.message);
@@ -223,6 +251,7 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
     setHoldingsError("");
     setLoadedKey("");
     setSubmittedError("");
+    setTouched({});
   }
 
   return (
@@ -239,12 +268,16 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
           />
         </Field>
 
-        <Field label="From Location" required>
+        <Field label="From Location" required hasError={Boolean(fieldErr("fromLocationId"))}>
           <select
             suppressHydrationWarning
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("fromLocationId"))}
             value={fromLocationId}
-            onChange={(e) => handleFromLocationChange(e.target.value)}
+            onChange={(e) => {
+              handleFromLocationChange(e.target.value);
+              touch("fromLocationId");
+            }}
+            onBlur={() => touch("fromLocationId")}
           >
             <option value="">Select location</option>
             {siteLocations.map((l) => (
@@ -253,14 +286,19 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
               </option>
             ))}
           </select>
+          {fieldErr("fromLocationId") ? <ErrorText>{fieldErr("fromLocationId")}</ErrorText> : null}
         </Field>
 
-        <Field label="To Location" required>
+        <Field label="To Location" required hasError={Boolean(fieldErr("toLocationId"))}>
           <select
             suppressHydrationWarning
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("toLocationId"))}
             value={toLocationId}
-            onChange={(e) => setToLocationId(e.target.value)}
+            onChange={(e) => {
+              setToLocationId(e.target.value);
+              touch("toLocationId");
+            }}
+            onBlur={() => touch("toLocationId")}
             disabled={!fromLocationId}
           >
             <option value="">{fromLocationId ? "Select location" : "Select from location first"}</option>
@@ -270,14 +308,19 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
               </option>
             ))}
           </select>
+          {fieldErr("toLocationId") ? <ErrorText>{fieldErr("toLocationId")}</ErrorText> : null}
         </Field>
 
-        <Field label="Commodity Grade" required>
+        <Field label="Commodity Grade" required hasError={Boolean(fieldErr("commodityId"))}>
           <select
             suppressHydrationWarning
-            className={inputClass}
+            className={controlClassName(inputClass, fieldErr("commodityId"))}
             value={commodityId}
-            onChange={(e) => handleCommodityChange(e.target.value)}
+            onChange={(e) => {
+              handleCommodityChange(e.target.value);
+              touch("commodityId");
+            }}
+            onBlur={() => touch("commodityId")}
           >
             <option value="">Select commodity</option>
             {commodities.map((c) => (
@@ -286,6 +329,7 @@ export default function LocationMoveForm({ locations, commodities, defaultSiteId
               </option>
             ))}
           </select>
+          {fieldErr("commodityId") ? <ErrorText>{fieldErr("commodityId")}</ErrorText> : null}
         </Field>
       </div>
 

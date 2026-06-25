@@ -1,23 +1,24 @@
 "use client";
 
-import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { useCallback, useEffect, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
+import ClutchFormField from "@/components/form/clutch-form-field";
 import { Button } from "@/components/ui/button";
 import { VesselIngestDialog } from "@/components/ingest/vessel-ingest-dialog";
-import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
+import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
+import {
+  buildRequiredFieldErrors,
+  clearFieldError,
+  hasFieldErrors,
+} from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { numberInputProps } from "@/lib/number-input";
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 ).replace(/\/+$/, "");
 const VESSELS_ENDPOINT = `${API_BASE_URL}/reference-data/vessels`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const config = {
   title: "Vessel",
@@ -148,6 +149,7 @@ export default function VesselPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [ingestOpen, setIngestOpen] = useState(false);
 
   useEffect(() => {
@@ -203,6 +205,7 @@ export default function VesselPage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -213,20 +216,21 @@ export default function VesselPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
 
   const closeModal = () => {
     if (isSaving) return;
+    setFieldErrors({});
     setModalMode(null);
   };
 
   const saveModal = async () => {
-    const requiredMissing = config.formFields.some(
-      (field) => field.required && !String(draft[field.key] ?? "").trim()
-    );
-    if (requiredMissing) {
+    const errors = buildRequiredFieldErrors(config.formFields, draft);
+    if (hasFieldErrors(errors)) {
+      setFieldErrors(errors);
       setError("Please fill all required fields.");
       return;
     }
@@ -380,7 +384,17 @@ export default function VesselPage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {formFields.map((field) => (
-            <FormField key={field.key} field={field} value={draft[field.key] ?? ""} disabled={isSaving} onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))} />
+            <ClutchFormField
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              disabled={isSaving}
+              hasError={Boolean(fieldErrors[field.key])}
+              onChange={(value) => {
+                setFieldErrors((prev) => clearFieldError(prev, field.key));
+                setDraft((prev) => ({ ...prev, [field.key]: value }));
+              }}
+            />
           ))}
         </div>
         <div className="mt-5 flex justify-end gap-2">
@@ -401,28 +415,6 @@ export default function VesselPage() {
           ^
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function FormField({ field, value, onChange, disabled }) {
-  return (
-    <div className={cn("space-y-1", field.wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {field.label}
-        {field.required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {field.type === "select" ? (
-        <ClutchSelect
-          options={toOptions(field.options ?? [])}
-          value={toOptions(field.options ?? []).find((o) => String(o.value) === String(value)) ?? null}
-          onChange={(option) => onChange(option ? option.value : "")}
-          isDisabled={disabled}
-          placeholder="Select..."
-        />
-      ) : (
-        <input suppressHydrationWarning type={field.type || "text"} className={inputClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} {...numberInputProps(field.type)} />
-      )}
     </div>
   );
 }

@@ -4,10 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
+import ClutchFormField from "@/components/form/clutch-form-field";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
+import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
+import { formLabelClass, formLabelErrorClass, formFieldErrorTextClass, inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import { numberInputWheelProps } from "@/lib/number-input";
+
+const REQUIRED_FIELD_RULES = [
+  { key: "commodityTypeId", required: true },
+  { key: "commodityCode", required: true },
+  { key: "description", required: true },
+];
 
 const MOBILE_BREAKPOINT = 900;
 const API_BASE_URL = (
@@ -16,10 +25,6 @@ const API_BASE_URL = (
 const ENDPOINT = `${API_BASE_URL}/product-settings/commodities`;
 const FORM_DATA_ENDPOINT = `${ENDPOINT}/form-data`;
 const TESTS_ENDPOINT = `${API_BASE_URL}/product-settings/tests`;
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
-"w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 const UNIT_TYPE_OPTIONS = ["kg (Kilograms)", "t (Tonnes)", "lb (Pounds)", "g (Grams)"];
 
@@ -166,6 +171,7 @@ export default function CommodityPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const loadRows = useCallback(async () => {
     setIsLoading(true);
@@ -328,6 +334,7 @@ export default function CommodityPage() {
   const openAddModal = () => {
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft());
     setModalMode("add");
   };
@@ -338,6 +345,7 @@ export default function CommodityPage() {
     if (!selected) return;
     setError("");
     setNotice("");
+    setFieldErrors({});
     setDraft(buildDraft(selected));
     setModalMode("edit");
   };
@@ -345,10 +353,13 @@ export default function CommodityPage() {
   const closeModal = () => {
     if (isSaving) return;
     setModalMode(null);
+    setFieldErrors({});
   };
 
   const saveModal = async () => {
-    if (!String(draft.commodityTypeId ?? "").trim() || !String(draft.commodityCode ?? "").trim() || !String(draft.description ?? "").trim()) {
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(REQUIRED_FIELD_RULES, draft);
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
       setError("Commodity Type, Commodity Grade Code, and Description are required.");
       return;
     }
@@ -421,6 +432,39 @@ export default function CommodityPage() {
   };
 
   const modalError = modalMode ? error : "";
+
+  const commodityTypeField = useMemo(
+    () => ({
+      key: "commodityTypeId",
+      label: "Commodity Type",
+      type: "select",
+      required: true,
+      options: commodityTypes.map((ct) => ({ value: String(ct.id), label: ct.name })),
+    }),
+    [commodityTypes]
+  );
+
+  const commodityCodeField = useMemo(
+    () => ({
+      key: "commodityCode",
+      label: "Commodity Grade Code",
+      type: "text",
+      required: true,
+      placeholder: "e.g., COM-001",
+    }),
+    []
+  );
+
+  const descriptionField = useMemo(
+    () => ({
+      key: "description",
+      label: "Description",
+      type: "text",
+      required: true,
+      placeholder: "e.g., Australian Hard Wheat",
+    }),
+    []
+  );
 
   return (
     <div className="space-y-5">
@@ -517,70 +561,45 @@ export default function CommodityPage() {
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          {/* Commodity Type */}
-          <FormField
-            label="COMMODITY TYPE"
-            wide={false}
-            required
+          <ClutchFormField
+            field={commodityTypeField}
+            value={draft.commodityTypeId}
             disabled={isSaving}
-            renderInput={() => (
-              <select
-                suppressHydrationWarning
-                className={inputClass}
-                value={draft.commodityTypeId}
-                disabled={isSaving}
-                onChange={(e) => setDraft((prev) => ({ ...prev, commodityTypeId: e.target.value }))}
-              >
-                <option value="">Select...</option>
-                {commodityTypes.map((ct) => (
-                  <option key={ct.id} value={ct.id}>{ct.name}</option>
-                ))}
-              </select>
-            )}
+            hasError={fieldErrors.commodityTypeId}
+            onChange={(value) => {
+              setFieldErrors((prev) => clearFieldError(prev, "commodityTypeId"));
+              setDraft((prev) => ({ ...prev, commodityTypeId: value }));
+            }}
           />
-          {/* Commodity Grade Code */}
-          <FormField
-            label="COMMODITY GRADE CODE"
-            required
+          <ClutchFormField
+            field={commodityCodeField}
+            value={draft.commodityCode}
             disabled={isSaving}
-            renderInput={() => (
-              <input
-                suppressHydrationWarning
-                type="text"
-                className={inputClass}
-                value={draft.commodityCode}
-                disabled={isSaving}
-                onChange={(e) => setDraft((prev) => ({ ...prev, commodityCode: e.target.value }))}
-                placeholder="e.g., COM-001"
-              />
-            )}
+            hasError={fieldErrors.commodityCode}
+            onChange={(value) => {
+              setFieldErrors((prev) => clearFieldError(prev, "commodityCode"));
+              setDraft((prev) => ({ ...prev, commodityCode: value }));
+            }}
           />
-          {/* Description */}
-          <FormField
-            label="DESCRIPTION"
-            required
+          <ClutchFormField
+            field={descriptionField}
+            value={draft.description}
             disabled={isSaving}
-            renderInput={() => (
-              <input
-                suppressHydrationWarning
-                type="text"
-                className={inputClass}
-                value={draft.description}
-                disabled={isSaving}
-                onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="e.g., Australian Hard Wheat"
-              />
-            )}
+            hasError={fieldErrors.description}
+            onChange={(value) => {
+              setFieldErrors((prev) => clearFieldError(prev, "description"));
+              setDraft((prev) => ({ ...prev, description: value }));
+            }}
           />
           {/* HS Code */}
           <FormField
             label="HS CODE"
             disabled={isSaving}
-            renderInput={() => (
+            renderInput={(hasError) => (
               <input
                 suppressHydrationWarning
                 type="text"
-                className={inputClass}
+                className={inputClassName(hasError)}
                 value={draft.hsCode}
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, hsCode: e.target.value }))}
@@ -592,11 +611,11 @@ export default function CommodityPage() {
           <FormField
             label="PEMS CODE"
             disabled={isSaving}
-            renderInput={() => (
+            renderInput={(hasError) => (
               <input
                 suppressHydrationWarning
                 type="text"
-                className={inputClass}
+                className={inputClassName(hasError)}
                 value={draft.pemsCode}
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, pemsCode: e.target.value }))}
@@ -608,10 +627,10 @@ export default function CommodityPage() {
           <FormField
             label="STATUS"
             disabled={isSaving}
-            renderInput={() => (
+            renderInput={(hasError) => (
               <select
                 suppressHydrationWarning
-                className={inputClass}
+                className={inputClassName(hasError)}
                 value={draft.status}
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, status: e.target.value }))}
@@ -624,10 +643,10 @@ export default function CommodityPage() {
           <FormField
             label="UNIT TYPE"
             disabled={isSaving}
-            renderInput={() => (
+            renderInput={(hasError) => (
               <select
                 suppressHydrationWarning
-                className={inputClass}
+                className={inputClassName(hasError)}
                 value={draft.unitType}
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, unitType: e.target.value }))}
@@ -641,11 +660,11 @@ export default function CommodityPage() {
           <FormField
             label="SHRINK AMOUNT"
             disabled={isSaving}
-            renderInput={() => (
+            renderInput={(hasError) => (
               <input
                 suppressHydrationWarning
                 type="text"
-                className={inputClass}
+                className={inputClassName(hasError)}
                 value={draft.shrinkAmount}
                 disabled={isSaving}
                 onChange={(e) => setDraft((prev) => ({ ...prev, shrinkAmount: e.target.value }))}
@@ -796,10 +815,10 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
       <div className="flex-1 space-y-1">
         <label className="text-[10px] font-semibold uppercase text-slate-500">Test</label>
         {lockTestName ? (
-          <div className={cn(inputClass, "bg-slate-50 text-slate-700")}>{item.test}</div>
+          <div className={cn(inputClassName(false), "bg-slate-50 text-slate-700")}>{item.test}</div>
         ) : (
           <select
-            className={inputClass}
+            className={inputClassName(false)}
             value={item.test}
             disabled={isSaving}
             onChange={(e) => onTestChange(e.target.value)}
@@ -821,7 +840,7 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
         <label className="text-[10px] font-semibold uppercase text-slate-500">Min</label>
         <input
           type="number"
-          className={inputClass}
+          className={inputClassName(false)}
           {...numberInputWheelProps}
           value={item.min}
           disabled={isSaving}
@@ -833,7 +852,7 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
         <label className="text-[10px] font-semibold uppercase text-slate-500">Max</label>
         <input
           type="number"
-          className={inputClass}
+          className={inputClassName(false)}
           {...numberInputWheelProps}
           value={item.max}
           disabled={isSaving}
@@ -857,14 +876,15 @@ function ThresholdRow({ item, tests, isSaving, lockTestName = false, onTestChang
   );
 }
 
-function FormField({ label, required, wide, disabled, renderInput }) {
+function FormField({ label, required, wide, disabled, hasError = false, renderInput }) {
   return (
     <div className={cn("space-y-1", wide && "sm:col-span-2")}>
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn(formLabelClass, hasError && formLabelErrorClass)}>
         {label}
         {required ? <span className="text-red-500"> *</span> : null}
       </label>
-      {renderInput()}
+      {renderInput(hasError)}
+      {hasError ? <p className={formFieldErrorTextClass}>Required</p> : null}
     </div>
   );
 }

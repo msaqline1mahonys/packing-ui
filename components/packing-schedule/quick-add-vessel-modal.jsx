@@ -5,11 +5,19 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/custom/ClutchSelect";
 import { createVessel, createVesselVoyage } from "@/lib/api/shipping";
+import {
+  buildRequiredFieldErrors,
+  clearFieldError,
+  hasFieldErrors,
+} from "@/lib/form-validation";
+import {
+  formLabelClass,
+  formLabelErrorClass,
+  formFieldErrorTextClass,
+  inputClassName,
+} from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:border-brand/35 focus:ring-2";
 
 // Vessel hull fields — mirrors Shipping Details › Vessel.
 const VESSEL_FIELDS = [
@@ -42,10 +50,10 @@ function blankDraft() {
   return draft;
 }
 
-function FormField({ field, value, onChange, disabled }) {
+function FormField({ field, value, onChange, disabled, hasError = false }) {
   return (
     <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <label className={cn(formLabelClass, hasError && formLabelErrorClass)}>
         {field.label}
         {field.required ? <span className="text-red-500"> *</span> : null}
       </label>
@@ -55,18 +63,22 @@ function FormField({ field, value, onChange, disabled }) {
           options={field.options || []}
           value={(field.options || []).find((o) => String(o.value) === String(value)) ?? null}
           isDisabled={disabled}
+          error={hasError ? "Required" : undefined}
           onChange={(option) => onChange(option ? option.value : "")}
         />
       ) : (
         <input
           type={field.type || "text"}
-          className={inputClass}
+          className={inputClassName(hasError)}
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           {...numberInputProps(field.type)}
         />
       )}
+      {hasError && field.type !== "select" ? (
+        <p className={formFieldErrorTextClass}>Required</p>
+      ) : null}
     </div>
   );
 }
@@ -86,6 +98,7 @@ export default function QuickAddVesselModal({
 }) {
   const [draft, setDraft] = useState(() => blankDraft());
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -93,6 +106,7 @@ export default function QuickAddVesselModal({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(blankDraft());
     setError("");
+    setFieldErrors({});
     setIsSaving(false);
   }, [open]);
 
@@ -109,19 +123,20 @@ export default function QuickAddVesselModal({
     [shippingLineOptions, terminalOptions, portOptions]
   );
 
-  const setField = (key, value) => setDraft((prev) => ({ ...prev, [key]: value }));
+  const setField = (key, value) => {
+    setFieldErrors((prev) => clearFieldError(prev, key));
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  };
 
   function withOptions(field) {
     return field.optionsKey ? { ...field, options: optionLists[field.optionsKey] } : field;
   }
 
   async function handleSave() {
-    if (!String(draft.vesselName || "").trim()) {
-      setError("Vessel Name is required.");
-      return;
-    }
-    if (!String(draft.voyageNumber || "").trim()) {
-      setError("Voyage Number is required.");
+    const errors = buildRequiredFieldErrors([...VESSEL_FIELDS, ...VOYAGE_FIELDS], draft);
+    if (hasFieldErrors(errors)) {
+      setFieldErrors(errors);
+      setError("Please fill all required fields.");
       return;
     }
     setIsSaving(true);
@@ -175,7 +190,16 @@ export default function QuickAddVesselModal({
             <div className="grid gap-3 sm:grid-cols-2">
               {VESSEL_FIELDS.map((field) => {
                 const f = withOptions(field);
-                return <FormField key={`v-${f.key}`} field={f} value={draft[f.key] ?? ""} disabled={isSaving} onChange={(value) => setField(f.key, value)} />;
+                return (
+                  <FormField
+                    key={`v-${f.key}`}
+                    field={f}
+                    value={draft[f.key] ?? ""}
+                    disabled={isSaving}
+                    hasError={Boolean(fieldErrors[f.key])}
+                    onChange={(value) => setField(f.key, value)}
+                  />
+                );
               })}
             </div>
           </section>
@@ -185,7 +209,16 @@ export default function QuickAddVesselModal({
             <div className="grid gap-3 sm:grid-cols-2">
               {VOYAGE_FIELDS.map((field) => {
                 const f = withOptions(field);
-                return <FormField key={`y-${f.key}`} field={f} value={draft[f.key] ?? ""} disabled={isSaving} onChange={(value) => setField(f.key, value)} />;
+                return (
+                  <FormField
+                    key={`y-${f.key}`}
+                    field={f}
+                    value={draft[f.key] ?? ""}
+                    disabled={isSaving}
+                    hasError={Boolean(fieldErrors[f.key])}
+                    onChange={(value) => setField(f.key, value)}
+                  />
+                );
               })}
             </div>
           </section>

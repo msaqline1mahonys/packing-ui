@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 import { readSiteOptions, SITES_UPDATED_EVENT } from "@/lib/site-data";
@@ -720,11 +721,13 @@ function ToggleRow({ label, checked, onChange }) {
 function LabeledInput({ label, value, onChange, type = "text", error, trailingButton }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{label}</label>
+      <label className={cn("text-[11px] font-semibold uppercase tracking-wide", error ? formLabelErrorClass : "text-slate-600")}>
+        {label}
+      </label>
       <div className="flex items-center gap-2">
         <input
           type={type}
-          className={inputClass}
+          className={inputClassName(Boolean(error), inputClass)}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder="Not configured"

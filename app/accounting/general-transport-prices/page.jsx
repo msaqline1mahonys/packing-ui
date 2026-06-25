@@ -5,17 +5,25 @@ import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_CONTAINER_SIZES, GENERAL_TRANSPORT_PRICE_ROWS, TRANSPORTER_MASTER_ROWS } from "@/lib/Data";
 import { cn } from "@/lib/utils";
 import ClutchSelect from "@/components/custom/ClutchSelect";
+import FormRow from "@/components/form/form-row";
+import FormInput from "@/components/form/form-input";
+import { buildRequiredFieldErrorsFromRules, clearFieldError, hasFieldErrors } from "@/lib/form-validation";
 
 const MOBILE_BREAKPOINT = 900;
+const TRANSPORT_PRICE_FIELD_RULES = [
+  { key: "transporterId", required: true },
+  { key: "containerSize", required: true },
+];
 const CONTAINER_SIZES = DEFAULT_CONTAINER_SIZES.map((size) => size.toLowerCase());
 const CONTAINER_SIZE_OPTS = CONTAINER_SIZES.map((size) => ({ value: size, label: size }));
 
-const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
+const initialTransportPrices = GENERAL_TRANSPORT_PRICE_ROWS;
+
 const filterInputClass =
   "w-full rounded-md border border-slate-200/90 bg-white px-2 py-1 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand/35 focus:ring-1 focus:ring-brand/25";
 
-const initialTransportPrices = GENERAL_TRANSPORT_PRICE_ROWS;
+const inputClass =
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-100 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2";
 
 function nextId(items) {
   return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
@@ -51,6 +59,7 @@ export default function GeneralTransportPricesPage() {
     lineItemDescription: "",
     price: "0",
   });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const transporterOptions = useMemo(
     () =>
@@ -109,6 +118,7 @@ export default function GeneralTransportPricesPage() {
 
   function openCreateModal() {
     setEditMode(false);
+    setFieldErrors({});
     setFormData({
       transporterId: "",
       containerSize: "10ft",
@@ -121,6 +131,7 @@ export default function GeneralTransportPricesPage() {
   function openEditModal() {
     if (!selected) return;
     setEditMode(true);
+    setFieldErrors({});
     setFormData({
       transporterId: String(selected.transporterId),
       containerSize: selected.containerSize || "10ft",
@@ -131,14 +142,12 @@ export default function GeneralTransportPricesPage() {
   }
 
   function handleSubmit() {
-    if (!formData.transporterId) {
-      window.alert("Transporter is required");
+    const nextFieldErrors = buildRequiredFieldErrorsFromRules(TRANSPORT_PRICE_FIELD_RULES, formData);
+    if (hasFieldErrors(nextFieldErrors)) {
+      setFieldErrors(nextFieldErrors);
       return;
     }
-    if (!formData.containerSize) {
-      window.alert("Container size is required");
-      return;
-    }
+    setFieldErrors({});
     const parsedPrice = Number.parseFloat(formData.price);
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
       window.alert("Price must be a valid number greater than or equal to 0");
@@ -340,28 +349,44 @@ export default function GeneralTransportPricesPage() {
         ) : null}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editMode ? "Edit transporter transport price" : "Add transporter transport price"} width={520}>
-        <FormRow label="Transporter" required>
+      <Modal
+        open={modalOpen}
+        onClose={() => {
+          setFieldErrors({});
+          setModalOpen(false);
+        }}
+        title={editMode ? "Edit transporter transport price" : "Add transporter transport price"}
+        width={520}
+      >
+        <FormRow label="Transporter" required hasError={Boolean(fieldErrors.transporterId)}>
           <ClutchSelect
             options={transporterSelectOpts}
             value={transporterSelectOpts.find((o) => String(o.value) === String(formData.transporterId)) ?? null}
-            onChange={(option) => setFormData({ ...formData, transporterId: option ? option.value : "" })}
+            onChange={(option) => {
+              setFieldErrors((prev) => clearFieldError(prev, "transporterId"));
+              setFormData({ ...formData, transporterId: option ? option.value : "" });
+            }}
             placeholder="Select transporter"
+            error={fieldErrors.transporterId ? "Required" : undefined}
           />
         </FormRow>
 
-        <FormRow label="Container size" required>
+        <FormRow label="Container size" required hasError={Boolean(fieldErrors.containerSize)}>
           <ClutchSelect
             options={CONTAINER_SIZE_OPTS}
             value={CONTAINER_SIZE_OPTS.find((o) => o.value === formData.containerSize) ?? null}
-            onChange={(option) => setFormData({ ...formData, containerSize: option ? option.value : "10ft" })}
+            onChange={(option) => {
+              setFieldErrors((prev) => clearFieldError(prev, "containerSize"));
+              setFormData({ ...formData, containerSize: option ? option.value : "" });
+            }}
             isClearable={false}
             placeholder="Select size"
+            error={fieldErrors.containerSize ? "Required" : undefined}
           />
         </FormRow>
 
         <FormRow label="Line-item description">
-          <Input
+          <FormInput
             value={formData.lineItemDescription}
             onChange={(event) => setFormData({ ...formData, lineItemDescription: event.target.value })}
             placeholder="e.g. Transport - 20ft"
@@ -369,7 +394,7 @@ export default function GeneralTransportPricesPage() {
         </FormRow>
 
         <FormRow label="Price" required>
-          <Input
+          <FormInput
             type="number"
             min={0}
             step={0.01}
@@ -381,7 +406,14 @@ export default function GeneralTransportPricesPage() {
         </FormRow>
 
         <div className="mt-5 flex justify-end gap-2">
-          <BtnSecondary onClick={() => setModalOpen(false)}>Cancel</BtnSecondary>
+          <BtnSecondary
+            onClick={() => {
+              setFieldErrors({});
+              setModalOpen(false);
+            }}
+          >
+            Cancel
+          </BtnSecondary>
           <BtnPrimary onClick={handleSubmit}>{editMode ? "Save" : "Add"}</BtnPrimary>
         </div>
       </Modal>
@@ -407,23 +439,6 @@ function Modal({ open, title, onClose, width, children }) {
   );
 }
 
-function FormRow({ label, required, children }) {
-  return (
-    <div className="space-y-1">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function Input({ className, ...props }) {
-  return <input suppressHydrationWarning className={cn(inputClass, className)} {...props} />;
-}
-
-function BtnPrimary({ className, ...props }) {
   return (
     <button
       className={cn(

@@ -26,12 +26,14 @@ const config = {
     { key: "driver", label: "Driver" },
     { key: "combination", label: "Combination" },
     { key: "tare", label: "Tare (T)", numeric: true },
+    { key: "avgGross", label: "Avg Gross (T)", numeric: true },
   ],
   formFields: [
     { key: "name", label: "Rego", required: true, placeholder: "e.g. MHY-104", uppercase: true },
     { key: "driver", label: "Driver", placeholder: "Driver name" },
     { key: "combination", label: "Combination", placeholder: "e.g. B-Double" },
     { key: "tare", label: "Tare (T)", type: "number", placeholder: "0.00" },
+    { key: "avgGross", label: "Avg Gross (T)", type: "number", placeholder: "0.00" },
   ],
 };
 
@@ -113,12 +115,18 @@ function fromApiTruck(row) {
     tareVal === null || tareVal === undefined || tareVal === ""
       ? ""
       : String(tareVal);
+  const avgGrossVal = row.avg_gross ?? row.avgGross;
+  const avgGrossStr =
+    avgGrossVal === null || avgGrossVal === undefined || avgGrossVal === ""
+      ? ""
+      : String(avgGrossVal);
   return {
     id: row.id,
     name: row.rego ?? "",
     driver: row.driver ?? "",
     combination: row.combination ?? "",
     tare: tareStr,
+    avgGross: avgGrossStr,
     organizationName: row.organization?.name ?? "",
     siteName: row.site?.name ?? "",
   };
@@ -131,12 +139,19 @@ function toApiPayload(draft) {
     const n = Number(tareRaw);
     tare = Number.isNaN(n) ? null : n;
   }
+  const avgGrossRaw = draft.avgGross;
+  let avg_gross = null;
+  if (avgGrossRaw !== "" && avgGrossRaw != null) {
+    const n = Number(avgGrossRaw);
+    avg_gross = Number.isNaN(n) ? null : n;
+  }
   return {
     ...getTenantPayload(),
     rego: String(draft.name ?? "").trim().toUpperCase() || null,
     driver: String(draft.driver ?? "").trim() || null,
     combination: String(draft.combination ?? "").trim() || null,
     tare,
+    avg_gross,
   };
 }
 

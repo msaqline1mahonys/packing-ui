@@ -51,7 +51,14 @@ import {
   isContainerOutloadComplete,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
-import { updateContainer, updatePrepackChecks, packAssignedPackerOptions, createContainerReplacement } from "@/lib/api/packing";
+import {
+  updateContainer,
+  updatePrepackChecks,
+  packAssignedPackerOptions,
+  createContainerReplacement,
+  updatePack,
+} from "@/lib/api/packing";
+import { resolvePackLocationName } from "@/lib/pack-container-prefill";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
 import { fetchFumigantsNormalized } from "@/lib/api/fumigation";
@@ -448,12 +455,15 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     const activeAssigned = assigned.filter((packer) => String(packer.status ?? "active").toLowerCase() === "active");
     if (!activeAssigned.length) return;
 
-    if (getSessionPackerForPack(row.id)) {
+    const hasSessionPacker = Boolean(getSessionPackerForPack(row.id));
+    const hasLocation = Boolean(resolvePackLocationName(row, lookups.stockLocations));
+
+    if (hasSessionPacker && hasLocation) {
       resyncWorkDraftsForPack(row);
       return;
     }
 
-    if (activeAssigned.length === 1) {
+    if (activeAssigned.length === 1 && hasLocation && !hasSessionPacker) {
       setSessionPackerForPack(row.id, {
         packerId: activeAssigned[0].id,
         packerName: activeAssigned[0].name,
@@ -479,10 +489,23 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId]);
 
-  function handlePackerModalConfirm({ packerId, packerName }) {
+  async function handlePackerModalConfirm({ packerId, packerName, packingLocationId, packingLocationName }) {
     setSessionPackerForPack(packId, { packerId, packerName });
+
+    let nextPackRow = packRow;
+    if (packRow && packingLocationId) {
+      await updatePack(packId, { packingLocationId });
+      nextPackRow = {
+        ...packRow,
+        packingLocationId,
+        packingLocationName,
+        packingLocation: { id: packingLocationId, name: packingLocationName },
+      };
+      setPackRow(nextPackRow);
+    }
+
     setShowPackerModal(false);
-    if (packRow) resyncWorkDraftsForPack(packRow);
+    if (nextPackRow) resyncWorkDraftsForPack(nextPackRow);
   }
 
   function handlePackerModalClose() {
@@ -1931,14 +1954,18 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
         </div>
       ) : null}
 
-      <PackerSelectModal
-        key={packId}
-        open={showPackerModal}
-        packLabel={packDisplayRef ? `#${packDisplayRef}` : ""}
-        packers={packRow.assignedPackers || []}
-        onConfirm={handlePackerModalConfirm}
-        onClose={handlePackerModalClose}
-      />
+      {showPackerModal ? (
+        <PackerSelectModal
+          key={packId}
+          open
+          packLabel={packDisplayRef ? `#${packDisplayRef}` : ""}
+          packers={packRow?.assignedPackers || []}
+          stockLocations={lookups.stockLocations || []}
+          initialLocationId={packRow?.packingLocationId ?? packRow?.packing_location_id ?? null}
+          onConfirm={handlePackerModalConfirm}
+          onClose={handlePackerModalClose}
+        />
+      ) : null}
     </div>
   );
 }

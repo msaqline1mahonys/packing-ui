@@ -3925,54 +3925,27 @@ function NewPackFormPageInner() {
                 <FormRow label="Packing start date">
                   <input className={inputClass} type="date" value={pack.packingStartDate || ""} onChange={(e) => set("packingStartDate", e.target.value)} />
                 </FormRow>
-                <div className={spanFullClass}>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-start">
-                    <FormRow label="Location" className="min-w-0">
-                      {(() => {
-                        const locationSelectOpts = (Array.isArray(queryLookups.stockLocations) ? queryLookups.stockLocations : []).map((s) => ({
-                          value: s.id,
-                          label: s.name ?? "",
-                        }));
-                        return (
-                          <ClutchSelect
-                            quickAdd="stockLocation"
-                            placeholder="- Select location -"
-                            options={locationSelectOpts}
-                            value={locationSelectOpts.find((o) => String(o.value) === String(pack.packingLocationId ?? "")) ?? null}
-                            onChange={(option) =>
-                              setPack((prev) => ({
-                                ...prev,
-                                packingLocationId: option ? option.value : null,
-                                packingLocationName: option ? option.label : "",
-                              }))
-                            }
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label="Assigned packers" className="min-w-0">
-                      <ClutchSelect
-                        quickAdd="packer"
-                        isMulti
-                        placeholder="- Select packers -"
-                        options={activePackerSelectOpts}
-                        value={activePackerSelectOpts.filter(
-                          (option) =>
-                            Array.isArray(pack.assignedPackerIds) &&
-                            pack.assignedPackerIds.map(String).includes(option.value)
-                        )}
-                        onChange={(selected) => {
-                          const rows = Array.isArray(selected) ? selected : [];
-                          const nextIds = rows.map((option) => option.value);
-                          const nextAssigned = packerOptions
-                            .filter((row) => nextIds.includes(String(row.id)))
-                            .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
-                          setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
-                        }}
-                      />
-                    </FormRow>
-                  </div>
-                </div>
+                <FormRow label="Assigned packers" className={spanFullClass}>
+                  <ClutchSelect
+                    quickAdd="packer"
+                    isMulti
+                    placeholder="- Select packers -"
+                    options={activePackerSelectOpts}
+                    value={activePackerSelectOpts.filter(
+                      (option) =>
+                        Array.isArray(pack.assignedPackerIds) &&
+                        pack.assignedPackerIds.map(String).includes(option.value)
+                    )}
+                    onChange={(selected) => {
+                      const rows = Array.isArray(selected) ? selected : [];
+                      const nextIds = rows.map((option) => option.value);
+                      const nextAssigned = packerOptions
+                        .filter((row) => nextIds.includes(String(row.id)))
+                        .map((row) => ({ id: row.id, name: row.name ?? "", status: row.status ?? "Active" }));
+                      setPack((prev) => ({ ...prev, assignedPackerIds: nextIds, assignedPackers: nextAssigned }));
+                    }}
+                  />
+                </FormRow>
                 <div className={spanFullClass}>
                   <div className={cn("grid gap-2", pack.fumigationRequired ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "sm:grid-cols-1")}>
                     <FormRow label="Fumigation required">

@@ -710,20 +710,6 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
 
     const prevEmpty = String(selectedContainer.emptyInspection ?? selectedContainer.empty_inspection ?? "").toLowerCase();
     const nextEmpty = String(patch.emptyInspection ?? patch.empty_inspection ?? prevEmpty).toLowerCase();
-    const isRevertingEcFailure = !isImport && prevEmpty === "failed" && nextEmpty !== "failed";
-    const replacementId = getReplacedByContainerId(selectedContainer);
-
-    if (isRevertingEcFailure && replacementId) {
-      const nextContainer = { ...selectedContainer, ...patch, replacedByContainerId: null };
-      clearContainerValidationFeedback();
-      removeContainerFromPackState(replacementId);
-      updateContainerById(selectedContainer.id, { ...patch, replacedByContainerId: null });
-      markContainerDirty(selectedContainer.id);
-      queueMicrotask(() => {
-        void saveContainerRecord(nextContainer);
-      });
-      return;
-    }
 
     clearContainerValidationFeedback();
     updateContainerById(selectedContainer.id, patch);
@@ -1089,8 +1075,8 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
 
     setIsSavingContainer(true);
     clearContainerValidationFeedback();
-    const wasEcFailed = isEcFailedContainer(container);
     const linkedReplacementId = getReplacedByContainerId(container);
+    const isRevertingEcFailure = Boolean(linkedReplacementId) && !isEcFailedContainer(container);
     try {
       const { id: _id, packId: _packId, order: _order, ...payload } = buildContainerApiRecord(container, packRow);
       const updated = await updateContainer(packRow.id, container.id, payload);
@@ -1105,7 +1091,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
             : prev,
         );
         markContainerClean(container.id);
-        if (wasEcFailed && !isEcFailedContainer(updated) && linkedReplacementId) {
+        if (isRevertingEcFailure && linkedReplacementId) {
           removeContainerFromPackState(linkedReplacementId);
         } else if (containerNeedsEcReplacement(updated)) {
           await ensureReplacementContainer(updated.id, { containerRecord: updated });

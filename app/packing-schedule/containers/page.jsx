@@ -13,7 +13,7 @@ import { PACK_STATUSES } from "@/lib/Data";
 import { fetchContainerRows } from "@/lib/pack-schedule-store";
 import { updateContainer } from "@/lib/api/packing";
 import { getCompletionMissingChecks } from "@/lib/packers-container-validation";
-import { containerStage } from "@/lib/packers-work-store";
+import { canToggleOnSite, containerStage } from "@/lib/packers-work-store";
 import {
   ACTIVE_PACK_STATUSES,
   CONTAINER_STAGE_OPTIONS,
@@ -69,27 +69,26 @@ export default function PackingScheduleContainersPage() {
   const [selectedPackStatuses, setSelectedPackStatuses] = useState(() => [...ACTIVE_PACK_STATUSES]);
   const [selectedStages, setSelectedStages] = useState(() => [...CONTAINER_STAGE_OPTIONS]);
   const [selectedId, setSelectedId] = useState(null);
-  const [savingSiteStageId, setSavingSiteStageId] = useState(null);
+  const [savingOnSiteId, setSavingOnSiteId] = useState(null);
   const tableRef = useRef(null);
   const detailsRef = useRef(null);
 
-  // Toggle Off Site ↔ On Site via on_site boolean (stage is derived).
-  const toggleSiteStage = useCallback(async (row) => {
-    if (!row?.id || !row?.packId || savingSiteStageId) return;
+  const toggleOnSite = useCallback(async (row) => {
+    if (!row?.id || !row?.packId || savingOnSiteId) return;
     const stage = displayContainerStage(row);
-    if (stage !== "Off Site" && stage !== "On Site") return;
-    const next = stage === "Off Site";
-    setSavingSiteStageId(row.id);
+    if (!canToggleOnSite(stage)) return;
+    const next = !Boolean(row.onSite ?? row.on_site);
+    setSavingOnSiteId(row.id);
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: next } : r)));
     try {
       await updateContainer(row.packId, row.id, { onSite: next });
     } catch (err) {
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, onSite: !next } : r)));
-      window.alert(err?.message || "Failed to update container stage.");
+      window.alert(err?.message || "Failed to update on-site status.");
     } finally {
-      setSavingSiteStageId(null);
+      setSavingOnSiteId(null);
     }
-  }, [savingSiteStageId]);
+  }, [savingOnSiteId]);
 
   useEffect(() => {
     if (selectedId == null) return;
@@ -143,7 +142,7 @@ export default function PackingScheduleContainersPage() {
     return rows
       .filter((row) => {
         const isImport = String(row.importExport ?? "").toLowerCase() === "import";
-        return containerStage(row, isImport) !== "Complete";
+        return containerStage(row, isImport) !== "Completed";
       })
       .filter((row) => {
         if (!selectedPackStatuses.length) return ACTIVE_PACK_STATUSES.includes(row.packStatus);
@@ -192,17 +191,8 @@ export default function PackingScheduleContainersPage() {
   );
 
   const summary = useMemo(() => {
-    const counts = {
-      total: filtered.length,
-      Draft: 0,
-      "Off Site": 0,
-      "On Site": 0,
-      Packing: 0,
-      "EC Failed": 0,
-      "PRA Submitted": 0,
-      "PRA Passed": 0,
-      "PRA Failed": 0,
-    };
+    const counts = Object.fromEntries(CONTAINER_STAGE_OPTIONS.map((stage) => [stage, 0]));
+    counts.total = filtered.length;
     for (const row of filtered) {
       const stage = displayContainerStage(row);
       if (counts[stage] != null) counts[stage] += 1;
@@ -222,10 +212,10 @@ export default function PackingScheduleContainersPage() {
 
   const gridColumns = useMemo(() => {
     return buildContainerGridColumns({
-      onToggleSiteStage: toggleSiteStage,
-      savingSiteStageId,
+      onToggleOnSite: toggleOnSite,
+      savingOnSiteId,
     });
-  }, [toggleSiteStage, savingSiteStageId]);
+  }, [toggleOnSite, savingOnSiteId]);
 
   const missingChecks = useMemo(
     () => (selected ? getCompletionMissingChecks(selected) : []),
@@ -240,17 +230,15 @@ export default function PackingScheduleContainersPage() {
           {" · "}
           Draft: {summary.Draft}
           {" · "}
-          Off site: {summary["Off Site"]}
+          In progress: {summary["In Progress"]}
           {" · "}
-          On site: {summary["On Site"]}
+          ECI approved: {summary["ECI Approved"]}
           {" · "}
-          Packing: {summary.Packing}
-          {" · "}
-          EC failed: {summary["EC Failed"]}
+          ECI failed: {summary["ECI Failed"]}
           {" · "}
           PRA: {summary["PRA Submitted"] + summary["PRA Passed"] + summary["PRA Failed"]}
           {" · "}
-          Complete containers excluded
+          Completed containers excluded
         </p>
       </section>
 
@@ -411,23 +399,26 @@ export default function PackingScheduleContainersPage() {
                 <Field label="Seal" value={selected.sealNumber || ""} />
                 {(() => {
                   const stage = displayContainerStage(selected);
-                  const canToggle = stage === "Off Site" || stage === "On Site";
+                  const canToggle = canToggleOnSite(stage);
                   if (!canToggle) {
                     return <Field label="Stage" value={stage} />;
                   }
+                  const onSite = Boolean(selected.onSite ?? selected.on_site);
                   return (
                     <div className="space-y-0.5">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Stage</div>
                       <button
                         type="button"
-                        onClick={() => toggleSiteStage(selected)}
-                        disabled={savingSiteStageId === selected.id}
+                        onClick={() => toggleOnSite(selected)}
+                        disabled={savingOnSiteId === selected.id}
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-60",
                           stageBadgeClass(stage),
                         )}
                       >
-                        {stage === "On Site" ? "On site — click to mark off site" : "Off site — click to mark on site"}
+                        {stage}
+                        {" · "}
+                        {onSite ? "On site — click to mark off site" : "Off site — click to mark on site"}
                       </button>
                     </div>
                   );

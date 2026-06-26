@@ -298,7 +298,7 @@ function rowIsImport(row) {
   return String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
 }
 
-// How many containers are in the On Site stage (derived from on_site until packing starts).
+// Count of containers marked on_site (location tracking, not a lifecycle stage).
 function onSiteContainerCount(row) {
   return countOnSiteContainers(rowContainers(row), rowIsImport(row));
 }

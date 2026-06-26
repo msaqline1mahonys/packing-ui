@@ -94,12 +94,12 @@ export default function ClutchSelect({
 
   const ADD_NEW_VALUE = "__clutch_add_new__";
 
-  // Inject the synthetic "Add New" row at the top when configured.
+  // Inject the synthetic "Add New" row at the end when configured.
   const computedOptions = useMemo(() => {
     if (!addNew) return options;
     return [
-      { label: addNew.label ?? "➕ Add New", value: ADD_NEW_VALUE, __isAddNew: true },
       ...options,
+      { label: addNew.label ?? "➕ Add New", value: ADD_NEW_VALUE, __isAddNew: true },
     ];
   }, [options, addNew]);
 

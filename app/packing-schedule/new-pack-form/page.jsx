@@ -68,7 +68,7 @@ import {
   totalPackedNettWeight,
   validateContainerForSave,
 } from "@/lib/packers-container-validation";
-import { isEcFailedContainer, isEligibleForPemsGppir } from "@/lib/packers-work-store";
+import { containerStage, isEcFailedContainer, isEligibleForPemsGppir } from "@/lib/packers-work-store";
 import { isUuid } from "@/lib/pack-schedule-api";
 import { fetchStockByLocationForAccount } from "@/lib/stock-transfers-api";
 import { useAllPackLookups } from "@/lib/hooks/use-pack-form-data";
@@ -3189,8 +3189,8 @@ function NewPackFormPageInner() {
   });
   const containersLeftToPack = packContainers.filter((container) => {
     if (isEcFailedContainer(container)) return false;
-    const status = String(container.status || "").toLowerCase();
-    return status !== "complete" && status !== "completed";
+    const isImport = String(pack.importExport || "").toLowerCase() === "import";
+    return containerStage(container, isImport) !== "Completed";
   }).length;
   const containersLeftToPackDisplay =
     pack.containersRequired === "" || pack.containersRequired == null ? "" : String(containersLeftToPack);

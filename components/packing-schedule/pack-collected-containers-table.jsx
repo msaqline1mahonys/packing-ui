@@ -11,6 +11,7 @@ import {
   decoratePackScopedContainerRow,
   displayContainerStage,
 } from "@/lib/packing-containers-grid";
+import { canToggleOnSite } from "@/lib/packers-work-store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,7 +31,7 @@ export default function PackCollectedContainersTable({
   const router = useRouter();
   const resolvedPackId = packId ?? pack.id ?? null;
   const canOpenPackers = Boolean(resolvedPackId && isUuid(resolvedPackId));
-  const [savingSiteStageId, setSavingSiteStageId] = useState(null);
+  const [savingOnSiteId, setSavingOnSiteId] = useState(null);
   const [localPatches, setLocalPatches] = useState({});
 
   const rows = useMemo(() => {
@@ -47,13 +48,13 @@ export default function PackCollectedContainersTable({
       .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
   }, [containers, pack, resolvedPackId, containerParkOptions, transporterOptions, localPatches]);
 
-  const toggleSiteStage = useCallback(
+  const toggleOnSite = useCallback(
     async (row) => {
-      if (!row?.id || !resolvedPackId || savingSiteStageId) return;
+      if (!row?.id || !resolvedPackId || savingOnSiteId) return;
       const stage = displayContainerStage(row);
-      if (stage !== "Off Site" && stage !== "On Site") return;
-      const next = stage === "Off Site";
-      setSavingSiteStageId(row.id);
+      if (!canToggleOnSite(stage)) return;
+      const next = !Boolean(row.onSite ?? row.on_site);
+      setSavingOnSiteId(row.id);
       setLocalPatches((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), onSite: next } }));
       try {
         await updateContainer(resolvedPackId, row.id, { onSite: next });
@@ -69,21 +70,21 @@ export default function PackCollectedContainersTable({
           }
           return nextPatches;
         });
-        window.alert(err?.message || "Failed to update container stage.");
+        window.alert(err?.message || "Failed to update on-site status.");
       } finally {
-        setSavingSiteStageId(null);
+        setSavingOnSiteId(null);
       }
     },
-    [resolvedPackId, savingSiteStageId, onContainerUpdated],
+    [resolvedPackId, savingOnSiteId, onContainerUpdated],
   );
 
   const gridColumns = useMemo(
     () =>
       buildContainerGridColumns({
-        onToggleSiteStage: resolvedPackId && isUuid(resolvedPackId) ? toggleSiteStage : null,
-        savingSiteStageId,
+        onToggleOnSite: resolvedPackId && isUuid(resolvedPackId) ? toggleOnSite : null,
+        savingOnSiteId,
       }),
-    [toggleSiteStage, savingSiteStageId, resolvedPackId],
+    [toggleOnSite, savingOnSiteId, resolvedPackId],
   );
 
   const openPackers = useCallback(

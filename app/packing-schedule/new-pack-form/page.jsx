@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -143,7 +143,6 @@ const sectionRowClass = "grid items-stretch gap-1.5";
 const flushSectionClass = cn(sectionClass, "flex h-full min-h-0 flex-col");
 const flushSectionBodyClass = "flex min-h-0 flex-1 flex-col";
 const sectionColumnsClass = cn(sectionRowClass, "xl:grid-cols-2 2xl:grid-cols-3");
-const containersShippingRowClass = cn(sectionRowClass, "items-start xl:grid-cols-2");
 const shippingGridClass = "grid grid-cols-1 items-start gap-x-2 gap-y-2 sm:grid-cols-2 lg:grid-cols-3";
 const importScheduleGridClass =
   "grid gap-x-2 gap-y-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7";
@@ -2951,44 +2950,6 @@ function NewPackFormPageInner() {
     return (country.warningItems ?? []).filter((warning) => warning.showOnPacks !== false);
   }, [pack.destinationCountry, countryOptions]);
   const packContainers = useMemo(() => buildPackContainers(pack, editingRow), [pack, editingRow]);
-  const containersReleasesPanelRef = useRef(null);
-  const [containersReleasesPanelHeight, setContainersReleasesPanelHeight] = useState(null);
-  const [containersPanelSyncEnabled, setContainersPanelSyncEnabled] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 1280px)");
-    const update = () => setContainersPanelSyncEnabled(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!containersPanelSyncEnabled) {
-      setContainersReleasesPanelHeight(null);
-      return;
-    }
-    const node = containersReleasesPanelRef.current;
-    if (!node) return;
-
-    const syncHeight = () => {
-      const height = node.offsetHeight;
-      setContainersReleasesPanelHeight(height > 0 ? height : null);
-    };
-
-    syncHeight();
-    const observer = new ResizeObserver(syncHeight);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [
-    containersPanelSyncEnabled,
-    releaseRows.length,
-    packContainers.length,
-    containersRequiredWarning,
-    pack.containersRequired,
-    pack.containerCode,
-    pack.quantityPerContainer,
-  ]);
   const accountingPackId = String(pack.id || editingRow?.id || "").trim();
   const accountingRefreshKey = useMemo(() => {
     const packedSignature = packContainers
@@ -4043,12 +4004,346 @@ function NewPackFormPageInner() {
               sectionClass={sectionClass}
             />
 
-            <div className={containersShippingRowClass}>
-              <section
-                ref={containersReleasesPanelRef}
-                className={cn(sectionClass, "xl:order-1")}
-                aria-label="Containers and quantity"
-              >
+            <section
+              className={sectionClass}
+              aria-label={isImportJob ? "Import vessel" : "Destination and shipping"}
+            >
+                <div className={cn("gap-1", isImportJob && "rounded-md bg-emerald-50/60 p-2")}>
+                  <div className={shippingGridClass}>
+                    {!isImportJob ? (
+                      <>
+                        <FormRow label="Destination country">
+                          {(() => {
+                            const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
+                            return (
+                              <ClutchSelect
+                                quickAdd="country"
+                                placeholder="- Select country -"
+                                options={countrySelectOpts}
+                                value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
+                                onChange={(option) =>
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    destinationCountry: option ? option.value : "",
+                                    destinationPort: "",
+                                  }))
+                                }
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                        <FormRow label="Destination port">
+                          {(() => {
+                            const destPortOpts = [
+                              ...(pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort)
+                                ? [{ value: pack.destinationPort, label: pack.destinationPort }]
+                                : []),
+                              ...destinationPortOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                            ];
+                            return (
+                              <ClutchSelect
+                                quickAdd="port"
+                                placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
+                                options={destPortOpts}
+                                value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
+                                onChange={(option) => set("destinationPort", option ? option.value : "")}
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                        {vesselDepartureField}
+                        {destinationCountryWarnings.length ? (
+                          <div className={cn(spanFullClass, "space-y-1.5")}>
+                            {destinationCountryWarnings.map((warning, index) => (
+                              <p
+                                key={`destination-country-warning-${index}`}
+                                className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800"
+                              >
+                                <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                                <span>{warning.description}</span>
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>
+                      {(() => {
+                        const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
+                        return (
+                          <ClutchSelect
+                            quickAdd="shippingLine"
+                            placeholder="- Select -"
+                            options={shippingLineSelectOpts}
+                            value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
+                            onChange={(option) => set("shippingLineId", option ? option.value : "")}
+                          />
+                        );
+                      })()}
+                    </FormRow>
+                    {!isImportJob ? (
+                      <>
+                        <FormRow label="Transshipment port">
+                          {(() => {
+                            const transshipmentPortOpts = [
+                              ...(pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort)
+                                ? [{ value: pack.transshipmentPort, label: pack.transshipmentPort }]
+                                : []),
+                              ...portOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
+                            ];
+                            return (
+                              <ClutchSelect
+                                quickAdd="port"
+                                placeholder="- Select port -"
+                                options={transshipmentPortOpts}
+                                value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
+                                onChange={(option) => {
+                                  const name = option ? option.value : "";
+                                  const matched = portOptions.find((p) => p.name === name);
+                                  setPack((prev) => ({
+                                    ...prev,
+                                    transshipmentPort: name,
+                                    transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
+                                  }));
+                                }}
+                              />
+                            );
+                          })()}
+                        </FormRow>
+                        <FormRow label="Transshipment port code">
+                          <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
+                        </FormRow>
+                      </>
+                    ) : null}
+                    {isImportJob ? (
+                      <FormRow label="Vessel">
+                        <input className={inputClass} value={pack.vesselName || ""} readOnly placeholder="Select a voyage below" />
+                      </FormRow>
+                    ) : null}
+                    {isImportJob ? vesselDepartureField : null}
+                    <FormRow label="Terminal (port of loading)">
+                      {(() => {
+                        const terminalSelectOpts = terminalOptions.map((t) => ({
+                          value: String(t.id),
+                          label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                        }));
+                        return (
+                          <ClutchSelect
+                            quickAdd="terminal"
+                            placeholder="- Select -"
+                            options={terminalSelectOpts}
+                            value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
+                            onChange={(option) => {
+                              const terminalId = option ? option.value : "";
+                              const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
+                              setPack((prev) => ({
+                                ...prev,
+                                terminalId,
+                                portOfLoading:
+                                  (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
+                                    ? (matched.port_of_loading ?? matched.portOfLoading)
+                                    : prev.portOfLoading,
+                              }));
+                            }}
+                          />
+                        );
+                      })()}
+                    </FormRow>
+                    <FormRow label="Voyage number">
+                      <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
+                    </FormRow>
+                    <FormRow label={isImportJob ? "Lloyds number" : "Lloyd ID"}>
+                      <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder={isImportJob ? "Lloyds number" : "Lloyd ID"} />
+                    </FormRow>
+                    {isImportJob ? (
+                      <>
+                        <FormRow label="Estimated arrival date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.vesselEta)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                        <FormRow label="First free date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.firstFreeImportDate)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                        <FormRow label="Storage start date">
+                          <input
+                            className={cn(inputClass, "bg-slate-50")}
+                            type="datetime-local"
+                            value={formatDateTimeInput(vesselImportDates.importStorageStartDate)}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </FormRow>
+                      </>
+                    ) : (
+                      <>
+                        <FormRow label="Cut-off">
+                          <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
+                        </FormRow>
+                        <FormRow label="ETD">
+                          <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
+                        </FormRow>
+                      </>
+                    )}
+                  </div>
+                  {selectedVessel ? (
+                    <p className="shrink-0 text-[10px] leading-snug text-slate-500">
+                      <span className="font-semibold text-slate-700">Vessel schedule:</span>{" "}
+                      {vesselDisplayName(selectedVessel)}{" "}
+                      {(selectedVessel.voyage_number ?? selectedVessel.voyageNumber) ? `(${selectedVessel.voyage_number ?? selectedVessel.voyageNumber})` : ""}
+                      {isImportJob && vesselImportDates.vesselEta
+                        ? ` · ETA ${formatDateDisplay(vesselImportDates.vesselEta)}`
+                        : (selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)
+                          ? ` · Cut-off ${formatDateDisplay(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)}`
+                          : ""}
+                    </p>
+                  ) : null}
+                </div>
+            </section>
+
+            {isImportJob ? (
+              <section className={sectionClass} aria-label="Import schedule details">
+                  <div className={importScheduleGridClass}>
+                      <FormRow label="Planned inspection date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.plannedInspectionDate)}
+                          onChange={(e) => set("plannedInspectionDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF inspection booked">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.daffInspectionBooked === null ? "" : pack.daffInspectionBooked ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("daffInspectionBooked", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="DAFF confirmed date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.daffConfirmedDate)}
+                          onChange={(e) => set("daffConfirmedDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Tonnes per container">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          step="0.0001"
+                          value={pack.quantityPerContainer ?? ""}
+                          onChange={(e) => set("quantityPerContainer", e.target.value)}
+                          placeholder="Tonnes"
+                        />
+                      </FormRow>
+                      <FormRow label="Total tonnage">
+                        <input className={cn(inputClass, "bg-slate-50")} type="number" step="0.0001" value={computedMtTotal ?? pack.mtTotal ?? 0} readOnly tabIndex={-1} />
+                      </FormRow>
+                      <FormRow label="Unloading location">
+                        {(() => {
+                          const unloadingOpts = [
+                            ...(pack.unloadingLocation && !terminalOptions.some((t) => (t.terminal_name ?? t.terminalName ?? t.name) === pack.unloadingLocation)
+                              ? [{ value: pack.unloadingLocation, label: pack.unloadingLocation }]
+                              : []),
+                            ...terminalOptions.map((t) => ({
+                              value: t.terminal_name ?? t.terminalName ?? t.name,
+                              label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
+                            })),
+                          ];
+                          return (
+                            <ClutchSelect
+                              quickAdd="terminal"
+                              placeholder="- Select location -"
+                              options={unloadingOpts}
+                              value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
+                              onChange={(option) => set("unloadingLocation", option ? option.value : "")}
+                            />
+                          );
+                        })()}
+                      </FormRow>
+                      <FormRow label="Import directions received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.importDirectionsReceived === null ? "" : pack.importDirectionsReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("importDirectionsReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Import direction code">
+                        <input className={inputClass} value={pack.importDirectionCode || ""} onChange={(e) => set("importDirectionCode", e.target.value)} placeholder="Direction code" />
+                      </FormRow>
+                      <FormRow label="EDO received">
+                        <ClutchSelect
+                          isClearable={false}
+                          options={YES_NO_OPTIONS}
+                          value={
+                            YES_NO_OPTIONS.find((o) =>
+                              o.value === (pack.edoReceived === null ? "" : pack.edoReceived ? "yes" : "no")
+                            ) ?? null
+                          }
+                          onChange={(option) => set("edoReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
+                        />
+                      </FormRow>
+                      <FormRow label="Date collected">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dateCollected)}
+                          onChange={(e) => set("dateCollected", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Free days">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={pack.freeDays ?? ""}
+                          onChange={(e) => set("freeDays", e.target.value)}
+                          placeholder="Days"
+                        />
+                      </FormRow>
+                      <FormRow label="Dehire by date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.dehireByDate)}
+                          onChange={(e) => set("dehireByDate", e.target.value)}
+                        />
+                      </FormRow>
+                      <FormRow label="Final dehire date">
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={formatDateTimeInput(pack.finalDehireDate)}
+                          onChange={(e) => set("finalDehireDate", e.target.value)}
+                        />
+                      </FormRow>
+                  </div>
+              </section>
+            ) : null}
+
+            <section className={sectionClass} aria-label="Containers and quantity">
                 <div className={cn(innerPanelClass, "flex flex-col")}>
                   <div className="shrink-0 space-y-2">
                   <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -4335,362 +4630,24 @@ function NewPackFormPageInner() {
                     </div>
                   </div>
                 </div>
-              </section>
+            </section>
 
-              <PackCollectedContainersTable
-                className="xl:order-2"
-                panelHeight={containersPanelSyncEnabled ? containersReleasesPanelHeight : null}
-                containers={packContainers}
-                pack={pack}
-                packId={pack.id ?? editingRow?.id ?? editId ?? null}
-                containerParkOptions={containerParkOptions}
-                transporterOptions={transporterOptions}
-                onContainerUpdated={(containerId, patch) => {
-                  setPack((prev) => ({
-                    ...prev,
-                    containers: (prev.containers ?? []).map((container) =>
-                      container.id === containerId ? { ...container, ...patch } : container,
-                    ),
-                  }));
-                }}
-              />
-
-              {isImportJob ? (
-                <section className={cn(sectionClass, spanFullClass)} aria-label="Import schedule details">
-                  <div className={importScheduleGridClass}>
-                      <FormRow label="Planned inspection date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.plannedInspectionDate)}
-                          onChange={(e) => set("plannedInspectionDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="DAFF inspection booked">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.daffInspectionBooked === null ? "" : pack.daffInspectionBooked ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("daffInspectionBooked", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="DAFF confirmed date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.daffConfirmedDate)}
-                          onChange={(e) => set("daffConfirmedDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Tonnes per container">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          step="0.0001"
-                          value={pack.quantityPerContainer ?? ""}
-                          onChange={(e) => set("quantityPerContainer", e.target.value)}
-                          placeholder="Tonnes"
-                        />
-                      </FormRow>
-                      <FormRow label="Total tonnage">
-                        <input className={cn(inputClass, "bg-slate-50")} type="number" step="0.0001" value={computedMtTotal ?? pack.mtTotal ?? 0} readOnly tabIndex={-1} />
-                      </FormRow>
-                      <FormRow label="Unloading location">
-                        {(() => {
-                          const unloadingOpts = [
-                            ...(pack.unloadingLocation && !terminalOptions.some((t) => (t.terminal_name ?? t.terminalName ?? t.name) === pack.unloadingLocation)
-                              ? [{ value: pack.unloadingLocation, label: pack.unloadingLocation }]
-                              : []),
-                            ...terminalOptions.map((t) => ({
-                              value: t.terminal_name ?? t.terminalName ?? t.name,
-                              label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
-                            })),
-                          ];
-                          return (
-                            <ClutchSelect
-                              quickAdd="terminal"
-                              placeholder="- Select location -"
-                              options={unloadingOpts}
-                              value={unloadingOpts.find((o) => o.value === (pack.unloadingLocation || "")) ?? null}
-                              onChange={(option) => set("unloadingLocation", option ? option.value : "")}
-                            />
-                          );
-                        })()}
-                      </FormRow>
-                      <FormRow label="Import directions received">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.importDirectionsReceived === null ? "" : pack.importDirectionsReceived ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("importDirectionsReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="Import direction code">
-                        <input className={inputClass} value={pack.importDirectionCode || ""} onChange={(e) => set("importDirectionCode", e.target.value)} placeholder="Direction code" />
-                      </FormRow>
-                      <FormRow label="EDO received">
-                        <ClutchSelect
-                          isClearable={false}
-                          options={YES_NO_OPTIONS}
-                          value={
-                            YES_NO_OPTIONS.find((o) =>
-                              o.value === (pack.edoReceived === null ? "" : pack.edoReceived ? "yes" : "no")
-                            ) ?? null
-                          }
-                          onChange={(option) => set("edoReceived", option?.value === "yes" ? true : option?.value === "no" ? false : null)}
-                        />
-                      </FormRow>
-                      <FormRow label="Date collected">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.dateCollected)}
-                          onChange={(e) => set("dateCollected", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Free days">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={pack.freeDays ?? ""}
-                          onChange={(e) => set("freeDays", e.target.value)}
-                          placeholder="Days"
-                        />
-                      </FormRow>
-                      <FormRow label="Dehire by date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.dehireByDate)}
-                          onChange={(e) => set("dehireByDate", e.target.value)}
-                        />
-                      </FormRow>
-                      <FormRow label="Final dehire date">
-                        <input
-                          className={inputClass}
-                          type="datetime-local"
-                          value={formatDateTimeInput(pack.finalDehireDate)}
-                          onChange={(e) => set("finalDehireDate", e.target.value)}
-                        />
-                      </FormRow>
-                  </div>
-                </section>
-              ) : null}
-            </div>
-
-            <section className={sectionClass} aria-label={isImportJob ? "Import vessel" : "Destination and shipping"}>
-                <div className={cn("gap-1", isImportJob && "rounded-md bg-emerald-50/60 p-2")}>
-                  <div className={shippingGridClass}>
-                    {!isImportJob ? (
-                      <>
-                        <FormRow label="Destination country">
-                          {(() => {
-                            const countrySelectOpts = countryOptions.map((c) => ({ value: c.name, label: c.name }));
-                            return (
-                              <ClutchSelect
-                                quickAdd="country"
-                                placeholder="- Select country -"
-                                options={countrySelectOpts}
-                                value={countrySelectOpts.find((o) => o.value === pack.destinationCountry) ?? null}
-                                onChange={(option) =>
-                                  setPack((prev) => ({
-                                    ...prev,
-                                    destinationCountry: option ? option.value : "",
-                                    destinationPort: "",
-                                  }))
-                                }
-                              />
-                            );
-                          })()}
-                        </FormRow>
-                        <FormRow label="Destination port">
-                          {(() => {
-                            const destPortOpts = [
-                              ...(pack.destinationPort && !destinationPortOptions.some((p) => p.name === pack.destinationPort)
-                                ? [{ value: pack.destinationPort, label: pack.destinationPort }]
-                                : []),
-                              ...destinationPortOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
-                            ];
-                            return (
-                              <ClutchSelect
-                                quickAdd="port"
-                                placeholder={pack.destinationCountry ? "- Select port -" : "- Select country first -"}
-                                options={destPortOpts}
-                                value={destPortOpts.find((o) => o.value === (pack.destinationPort || "")) ?? null}
-                                onChange={(option) => set("destinationPort", option ? option.value : "")}
-                              />
-                            );
-                          })()}
-                        </FormRow>
-                        {vesselDepartureField}
-                        {destinationCountryWarnings.length ? (
-                          <div className={cn(spanFullClass, "space-y-1.5")}>
-                            {destinationCountryWarnings.map((warning, index) => (
-                              <p
-                                key={`destination-country-warning-${index}`}
-                                className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800"
-                              >
-                                <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-                                <span>{warning.description}</span>
-                              </p>
-                            ))}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>
-                      {(() => {
-                        const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
-                        return (
-                          <ClutchSelect
-                            quickAdd="shippingLine"
-                            placeholder="- Select -"
-                            options={shippingLineSelectOpts}
-                            value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
-                            onChange={(option) => set("shippingLineId", option ? option.value : "")}
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    {!isImportJob ? (
-                      <>
-                        <FormRow label="Transshipment port">
-                          {(() => {
-                            const transshipmentPortOpts = [
-                              ...(pack.transshipmentPort && !portOptions.some((p) => p.name === pack.transshipmentPort)
-                                ? [{ value: pack.transshipmentPort, label: pack.transshipmentPort }]
-                                : []),
-                              ...portOptions.map((port) => ({ value: port.name, label: port.name + (port.code ? ` (${port.code})` : "") })),
-                            ];
-                            return (
-                              <ClutchSelect
-                                quickAdd="port"
-                                placeholder="- Select port -"
-                                options={transshipmentPortOpts}
-                                value={transshipmentPortOpts.find((o) => o.value === (pack.transshipmentPort || "")) ?? null}
-                                onChange={(option) => {
-                                  const name = option ? option.value : "";
-                                  const matched = portOptions.find((p) => p.name === name);
-                                  setPack((prev) => ({
-                                    ...prev,
-                                    transshipmentPort: name,
-                                    transshipmentPortCode: matched?.code ?? prev.transshipmentPortCode,
-                                  }));
-                                }}
-                              />
-                            );
-                          })()}
-                        </FormRow>
-                        <FormRow label="Transshipment port code">
-                          <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
-                        </FormRow>
-                      </>
-                    ) : null}
-                    {isImportJob ? (
-                      <FormRow label="Vessel">
-                        <input className={inputClass} value={pack.vesselName || ""} readOnly placeholder="Select a voyage below" />
-                      </FormRow>
-                    ) : null}
-                    {isImportJob ? vesselDepartureField : null}
-                    <FormRow label="Terminal (port of loading)">
-                      {(() => {
-                        const terminalSelectOpts = terminalOptions.map((t) => ({
-                          value: String(t.id),
-                          label: (t.terminal_name ?? t.terminalName ?? t.name) + ((t.terminal_code ?? t.terminalCode) ? ` (${t.terminal_code ?? t.terminalCode})` : ""),
-                        }));
-                        return (
-                          <ClutchSelect
-                            quickAdd="terminal"
-                            placeholder="- Select -"
-                            options={terminalSelectOpts}
-                            value={terminalSelectOpts.find((o) => String(o.value) === String(pack.terminalId ?? "")) ?? null}
-                            onChange={(option) => {
-                              const terminalId = option ? option.value : "";
-                              const matched = terminalId ? terminalOptions.find((t) => String(t.id) === terminalId) : null;
-                              setPack((prev) => ({
-                                ...prev,
-                                terminalId,
-                                portOfLoading:
-                                  (matched?.port_of_loading ?? matched?.portOfLoading) && !String(prev.portOfLoading ?? "").trim()
-                                    ? (matched.port_of_loading ?? matched.portOfLoading)
-                                    : prev.portOfLoading,
-                              }));
-                            }}
-                          />
-                        );
-                      })()}
-                    </FormRow>
-                    <FormRow label="Voyage number">
-                      <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
-                    </FormRow>
-                    <FormRow label={isImportJob ? "Lloyds number" : "Lloyd ID"}>
-                      <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder={isImportJob ? "Lloyds number" : "Lloyd ID"} />
-                    </FormRow>
-                    {isImportJob ? (
-                      <>
-                        <FormRow label="Estimated arrival date">
-                          <input
-                            className={cn(inputClass, "bg-slate-50")}
-                            type="datetime-local"
-                            value={formatDateTimeInput(vesselImportDates.vesselEta)}
-                            readOnly
-                            tabIndex={-1}
-                          />
-                        </FormRow>
-                        <FormRow label="First free date">
-                          <input
-                            className={cn(inputClass, "bg-slate-50")}
-                            type="datetime-local"
-                            value={formatDateTimeInput(vesselImportDates.firstFreeImportDate)}
-                            readOnly
-                            tabIndex={-1}
-                          />
-                        </FormRow>
-                        <FormRow label="Storage start date">
-                          <input
-                            className={cn(inputClass, "bg-slate-50")}
-                            type="datetime-local"
-                            value={formatDateTimeInput(vesselImportDates.importStorageStartDate)}
-                            readOnly
-                            tabIndex={-1}
-                          />
-                        </FormRow>
-                      </>
-                    ) : (
-                      <>
-                        <FormRow label="Cut-off">
-                          <input className={inputClass} type="date" value={pack.vesselCutoffDate || ""} onChange={(e) => set("vesselCutoffDate", e.target.value)} />
-                        </FormRow>
-                        <FormRow label="ETD">
-                          <input className={inputClass} type="date" value={pack.etd || ""} onChange={(e) => set("etd", e.target.value)} />
-                        </FormRow>
-                      </>
-                    )}
-                  </div>
-                  {selectedVessel ? (
-                    <p className="shrink-0 text-[10px] leading-snug text-slate-500">
-                      <span className="font-semibold text-slate-700">Vessel schedule:</span>{" "}
-                      {vesselDisplayName(selectedVessel)}{" "}
-                      {(selectedVessel.voyage_number ?? selectedVessel.voyageNumber) ? `(${selectedVessel.voyage_number ?? selectedVessel.voyageNumber})` : ""}
-                      {isImportJob && vesselImportDates.vesselEta
-                        ? ` · ETA ${formatDateDisplay(vesselImportDates.vesselEta)}`
-                        : (selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)
-                          ? ` · Cut-off ${formatDateDisplay(selectedVessel.vessel_cutoff_date ?? selectedVessel.vesselCutoffDate)}`
-                          : ""}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
+            <PackCollectedContainersTable
+              className="w-full"
+              containers={packContainers}
+              pack={pack}
+              packId={pack.id ?? editingRow?.id ?? editId ?? null}
+              containerParkOptions={containerParkOptions}
+              transporterOptions={transporterOptions}
+              onContainerUpdated={(containerId, patch) => {
+                setPack((prev) => ({
+                  ...prev,
+                  containers: (prev.containers ?? []).map((container) =>
+                    container.id === containerId ? { ...container, ...patch } : container,
+                  ),
+                }));
+              }}
+            />
 
             <div className={importPermitRfpRowClass}>
               {!isImportJob ? (

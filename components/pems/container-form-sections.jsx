@@ -243,6 +243,7 @@ export default function ContainerFormSections({
   isImportPack = false,
   packStatus = "",
   readOnly = false,
+  containerNumberRequired = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => {
@@ -253,8 +254,15 @@ export default function ContainerFormSections({
   const sealNoValue = getValue(container, names, "sealNo");
   const grossWeightValue = getValue(container, names, "grossWeight");
   const containerNoNormalized = normalizeContainerNumber(containerNoValue);
-  const containerNoError =
-    containerNoNormalized.length === 11 ? validateContainerNumber(containerNoValue) : null;
+  const containerNoError = (() => {
+    if (!containerNoNormalized) {
+      return containerNumberRequired ? "Container number is required." : null;
+    }
+    if (containerNoNormalized.length === 11) {
+      return validateContainerNumber(containerNoValue);
+    }
+    return "Container number must be 4 letters followed by 7 digits (e.g. MSKU1234567).";
+  })();
   const sealNoError = sealNoValue ? validateSealNumber(sealNoValue) : null;
   const grossWeightError = validateGrossWeight(grossWeightValue);
   const isoWeightLimitWarnings = useMemo(
@@ -497,7 +505,7 @@ export default function ContainerFormSections({
         <div className={cn(sectionHeaderClass, "border-blue-200 bg-blue-100/80 text-blue-900")}>Packing Order</div>
         <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
           <PemsInput
-            label="Container No"
+            label={containerNumberRequired ? "Container No *" : "Container No"}
             value={containerNoValue}
             onChange={(value) =>
               onChange?.(buildIdentityFieldPatch(container, names, "containerNo", sanitizeContainerNumberInput(value)))
@@ -506,6 +514,7 @@ export default function ContainerFormSections({
             error={containerNoError}
             inputClass={inputClass}
             readOnly={readOnly}
+            required={containerNumberRequired}
           />
           {duplicateLoading && duplicateCheckEnabled ? (
             <p className="md:col-span-2 xl:col-span-3 text-xs text-slate-500">
@@ -852,7 +861,7 @@ export default function ContainerFormSections({
   );
 }
 
-function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, min, max, inputClass, error, placeholder }) {
+function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, min, max, inputClass, error, placeholder, required = false }) {
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-slate-600">{label}</label>
@@ -871,6 +880,7 @@ function PemsInput({ label, value, onChange, type = "text", readOnly = false, st
         min={min}
         max={max}
         placeholder={placeholder}
+        required={required}
         aria-invalid={error ? "true" : undefined}
         {...numberInputProps(type)}
       />

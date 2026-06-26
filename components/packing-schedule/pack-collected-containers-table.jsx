@@ -14,9 +14,11 @@ import {
 import { canToggleOnSite } from "@/lib/packers-work-store";
 import { cn } from "@/lib/utils";
 
+/** Fixed viewport height for the pack-form collected containers grid. */
+const PACK_FORM_CONTAINERS_PANEL_HEIGHT = "h-[420px]";
+
 /**
  * Pack-scoped slice of the packing schedule containers grid (same Grid + columns as /packing-schedule/containers).
- * When `panelHeight` is set (xl layout), height matches the adjacent containers/releases panel.
  */
 export default function PackCollectedContainersTable({
   containers = [],
@@ -25,7 +27,6 @@ export default function PackCollectedContainersTable({
   containerParkOptions = [],
   transporterOptions = [],
   onContainerUpdated,
-  panelHeight = null,
   className,
 }) {
   const router = useRouter();
@@ -95,17 +96,17 @@ export default function PackCollectedContainersTable({
     [canOpenPackers, resolvedPackId, router],
   );
 
-  const panelStyle = panelHeight ? { height: panelHeight } : undefined;
-  const fillScrollArea = Boolean(panelHeight);
   const panelClassName = cn(
-    "flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm",
-    fillScrollArea && "h-full",
+    "flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm",
   );
 
   if (!rows.length) {
     return (
-      <section className={cn("min-w-0", className)} aria-label="Collected containers">
-        <div className={cn(panelClassName, "items-center justify-center")} style={panelStyle}>
+      <section
+        className={cn("min-w-0", PACK_FORM_CONTAINERS_PANEL_HEIGHT, className)}
+        aria-label="Collected containers"
+      >
+        <div className={cn(panelClassName, "items-center justify-center")}>
           <p className="px-3 py-8 text-center text-xs text-slate-400">No containers on this pack yet.</p>
         </div>
       </section>
@@ -113,18 +114,20 @@ export default function PackCollectedContainersTable({
   }
 
   return (
-    <section className={cn("min-w-0", className)} aria-label="Collected containers">
-      <div className={panelClassName} style={panelStyle}>
+    <section
+      className={cn("min-w-0", PACK_FORM_CONTAINERS_PANEL_HEIGHT, className)}
+      aria-label="Collected containers"
+    >
+      <div className={panelClassName}>
         <Grid
           className="flex min-h-0 flex-1 flex-col"
-          fillScrollArea={fillScrollArea}
+          fillScrollArea
           columns={gridColumns}
           rows={rows}
           getRowId={(row) => row.id}
           theme="light"
           density="standard"
           fileName="Packing Schedule Containers"
-          visibleRows={10}
           enablePagination={false}
           persistKey={resolvedPackId ? `pack-form-containers-${resolvedPackId}` : false}
           onRowClick={canOpenPackers ? openPackers : undefined}

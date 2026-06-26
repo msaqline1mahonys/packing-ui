@@ -3479,6 +3479,65 @@ function NewPackFormPageInner() {
     }
   }, []);
 
+  const vesselDepartureField = (
+    <FormRow label={isImportJob ? "Vessel search" : "Vessel departure"}>
+      <div className="flex items-center gap-1.5">
+        {(() => {
+          const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
+            const name = vesselDisplayName(vd);
+            const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
+            const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
+            const eta = vd.vessel_eta ?? vd.vesselEta ?? "";
+            const suffix = isImportJob
+              ? (eta ? ` - ETA ${formatDateDisplay(eta)}` : "")
+              : (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : "");
+            return {
+              value: String(vd.id),
+              label: name + (voyageNo ? ` (${voyageNo})` : "") + suffix,
+            };
+          });
+          return (
+            <ClutchSelect
+              quickAdd="vesselVoyage"
+              placeholder="- Select vessel -"
+              options={vesselSelectOpts}
+              value={vesselSelectOpts.find((o) => String(o.value) === String(pack.vesselDepartureId ?? "")) ?? null}
+              onChange={(option) => {
+                const nextId = option ? option.value : null;
+                const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
+                setPack((prev) =>
+                  applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob, terminalOptions),
+                );
+              }}
+            />
+          );
+        })()}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 whitespace-nowrap"
+          onClick={() => setQuickVesselOpen(true)}
+          title="Create a new vessel and voyage"
+        >
+          {isImportJob ? "Vessel search" : "+ Quick add"}
+        </Button>
+        {isImportJob && pack.vesselDepartureId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 whitespace-nowrap"
+            onClick={() => router.push("/shipping-details/vessel-voyage")}
+            title="Edit vessel details in Shipping Details"
+          >
+            Edit vessel
+          </Button>
+        ) : null}
+      </div>
+    </FormRow>
+  );
+
   return (
     <PackFormQuickAddProvider
       customHandlers={{
@@ -4473,6 +4532,7 @@ function NewPackFormPageInner() {
                             );
                           })()}
                         </FormRow>
+                        {vesselDepartureField}
                         {destinationCountryWarnings.length ? (
                           <div className={cn(spanFullClass, "space-y-1.5")}>
                             {destinationCountryWarnings.map((warning, index) => (
@@ -4541,62 +4601,7 @@ function NewPackFormPageInner() {
                         <input className={inputClass} value={pack.vesselName || ""} readOnly placeholder="Select a voyage below" />
                       </FormRow>
                     ) : null}
-                    <FormRow label={isImportJob ? "Vessel search" : "Vessel departure"}>
-                      <div className="flex items-center gap-1.5">
-                        {(() => {
-                          const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
-                            const name = vesselDisplayName(vd);
-                            const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
-                            const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
-                            const eta = vd.vessel_eta ?? vd.vesselEta ?? "";
-                            const suffix = isImportJob
-                              ? (eta ? ` - ETA ${formatDateDisplay(eta)}` : "")
-                              : (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : "");
-                            return {
-                              value: String(vd.id),
-                              label: name + (voyageNo ? ` (${voyageNo})` : "") + suffix,
-                            };
-                          });
-                          return (
-                            <ClutchSelect
-                              quickAdd="vesselVoyage"
-                              placeholder="- Select vessel -"
-                              options={vesselSelectOpts}
-                              value={vesselSelectOpts.find((o) => String(o.value) === String(pack.vesselDepartureId ?? "")) ?? null}
-                              onChange={(option) => {
-                                const nextId = option ? option.value : null;
-                                const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
-                                setPack((prev) =>
-                                  applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob, terminalOptions),
-                                );
-                              }}
-                            />
-                          );
-                        })()}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0 whitespace-nowrap"
-                          onClick={() => setQuickVesselOpen(true)}
-                          title="Create a new vessel and voyage"
-                        >
-                          {isImportJob ? "Vessel search" : "+ Quick add"}
-                        </Button>
-                        {isImportJob && pack.vesselDepartureId ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0 whitespace-nowrap"
-                            onClick={() => router.push("/shipping-details/vessel-voyage")}
-                            title="Edit vessel details in Shipping Details"
-                          >
-                            Edit vessel
-                          </Button>
-                        ) : null}
-                      </div>
-                    </FormRow>
+                    {isImportJob ? vesselDepartureField : null}
                     <FormRow label="Terminal (port of loading)">
                       {(() => {
                         const terminalSelectOpts = terminalOptions.map((t) => ({

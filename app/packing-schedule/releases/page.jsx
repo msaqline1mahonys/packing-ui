@@ -9,7 +9,7 @@ import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
 import {
   RELEASE_STATUSES,
   blankRelease,
-  computeReleaseExpiry,
+  computeDehireByAt,
   normalizeRelease,
 } from "@/lib/releases-store";
 import { deleteRelease, fetchReleases, saveRelease } from "@/lib/releases-api";
@@ -64,8 +64,8 @@ const columns = [
   { key: "containerCodeIsoCode", label: "Container Type" },
   { key: "releaseAvailableAtDisplay", label: "Available" },
   { key: "freeDays", label: "Free Days", numeric: true },
-  { key: "releaseExpiryAtDisplay", label: "Expiry" },
-  { key: "pickupByDisplay", label: "Pickup By" },
+  { key: "dehireByAtDisplay", label: "Dehire by" },
+  { key: "releaseExpiryAtDisplay", label: "Release expiry" },
   { key: "attachmentsSummary", label: "Attachments" },
 ];
 
@@ -80,8 +80,8 @@ const gridColumns = columns.map((col) => ({
 
 const DATE_FILTER_FIELDS = [
   { key: "releaseAvailableAt", label: "Available" },
-  { key: "releaseExpiryAt", label: "Expiry" },
-  { key: "pickupBy", label: "Pickup By" },
+  { key: "dehireByAt", label: "Dehire by" },
+  { key: "releaseExpiryAt", label: "Release expiry" },
 ];
 
 function lookupName(list, id) {
@@ -131,8 +131,8 @@ function decorate(row, containerParks, transporters) {
     pickedUpTotal: pickedUp === "" ? "" : pickedUp,
     remainingTotal: remaining === "" ? "" : remaining,
     releaseAvailableAtDisplay: formatDateTimeDisplay(row.releaseAvailableAt),
+    dehireByAtDisplay: formatDateTimeDisplay(row.dehireByAt),
     releaseExpiryAtDisplay: formatDateTimeDisplay(row.releaseExpiryAt),
-    pickupByDisplay: formatDateTimeDisplay(row.pickupBy),
     attachmentsSummary: attachmentCount
       ? `${attachmentCount} file${attachmentCount === 1 ? "" : "s"}`
       : "",
@@ -295,8 +295,8 @@ export default function ReleasesPage() {
     const payload = {
       ...draft,
       parks: cleanedParks,
-      releaseExpiryAt:
-        computeReleaseExpiry(draft.releaseAvailableAt, draft.freeDays) || draft.releaseExpiryAt || "",
+      dehireByAt:
+        computeDehireByAt(draft.releaseAvailableAt, draft.freeDays) || draft.dehireByAt || "",
     };
 
     const isAdd = modalMode === "add";
@@ -334,7 +334,7 @@ export default function ReleasesPage() {
     setDraft((prev) => {
       const next = { ...prev, [key]: value };
       if (key === "releaseAvailableAt" || key === "freeDays") {
-        next.releaseExpiryAt = computeReleaseExpiry(
+        next.dehireByAt = computeDehireByAt(
           key === "releaseAvailableAt" ? value : prev.releaseAvailableAt,
           key === "freeDays" ? value : prev.freeDays
         );
@@ -577,22 +577,22 @@ export default function ReleasesPage() {
             />
           </Field>
 
-          <Field label="Release Expiry (computed)">
+          <Field label="Dehire by (computed)">
             <input
               type="datetime-local"
               className={`${inputClass} bg-slate-50`}
-              value={draft.releaseExpiryAt}
+              value={draft.dehireByAt}
               readOnly
               placeholder="—"
             />
           </Field>
 
-          <Field label="Pickup By (Date & Time)">
+          <Field label="Release expiry (Date & Time)">
             <input
               type="datetime-local"
               className={inputClass}
-              value={draft.pickupBy}
-              onChange={(e) => setField("pickupBy", e.target.value)}
+              value={draft.releaseExpiryAt}
+              onChange={(e) => setField("releaseExpiryAt", e.target.value)}
             />
           </Field>
 
@@ -845,8 +845,8 @@ function ReleaseDetails({ release, containerParks, transporters }) {
       />
       <Detail label="Available" value={release.releaseAvailableAtDisplay} />
       <Detail label="Free Days" value={release.freeDays} />
-      <Detail label="Expiry" value={release.releaseExpiryAtDisplay} />
-      <Detail label="Pickup By" value={release.pickupByDisplay} />
+      <Detail label="Dehire by" value={release.dehireByAtDisplay} />
+      <Detail label="Release expiry" value={release.releaseExpiryAtDisplay} />
       <Detail label="Cap (containers)" value={release.containerCount} />
       <Detail label="Picked up (global)" value={release.pickedUpTotal ?? release.usage?.pickedUpTotal ?? "—"} />
       <Detail label="Remaining (global)" value={release.remainingTotal ?? release.usage?.remainingTotal ?? "—"} />

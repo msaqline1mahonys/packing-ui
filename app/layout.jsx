@@ -19,6 +19,11 @@ export const metadata = {
   description: "Operations ERP for scheduling, ticketing, transactions, and fumigation.",
 };
 
+// This is an authenticated, fully client-rendered ERP — there's no static/SEO
+// benefit to prerendering, and shared hooks use useSearchParams (which otherwise
+// requires a Suspense boundary on every page). Render all routes dynamically.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`h-full ${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>

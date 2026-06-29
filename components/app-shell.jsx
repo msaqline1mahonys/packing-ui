@@ -24,16 +24,14 @@ function isPrintRoute(pathname) {
   );
 }
 
-function MainPanel({ children, compactTop = false, tightPadding = false, contentKey = 0 }) {
+function MainPanel({ children, packingScheduleRoute = false, contentKey = 0 }) {
   return (
     <main
       className={cn(
         "relative min-h-dvh min-w-0 flex-1 overflow-x-hidden",
-        compactTop
-          ? "px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3"
-          : tightPadding
-            ? "pb-6 px-6 pt-2 md:pb-10 md:px-10 md:pt-3"
-            : "p-6 md:p-10"
+        packingScheduleRoute
+          ? "px-1 pb-6 pt-1 sm:px-2 md:pb-8 md:px-3 md:pt-2"
+          : "p-6 md:p-10"
       )}
     >
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
@@ -50,9 +48,7 @@ function AppShellInner({ children }) {
   const router = useRouter();
   const authUser = useAuthNavUser();
   const { dock, isVertical, verticalExpanded } = useNavDock();
-  const compactMainTop = pathname.startsWith("/packing-schedule/new-pack-form");
-  const tightMainPadding =
-    pathname.startsWith("/packing-schedule") && !compactMainTop;
+  const packingScheduleRoute = pathname.startsWith("/packing-schedule");
   const [contentKey, setContentKey] = useState(0);
 
   useEffect(() => {
@@ -82,13 +78,13 @@ function AppShellInner({ children }) {
         {top ? (
           <>
             <ErpNavbar user={authUser ?? undefined} />
-            <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
+            <MainPanel packingScheduleRoute={packingScheduleRoute} contentKey={contentKey}>
               {children}
             </MainPanel>
           </>
         ) : (
           <>
-            <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
+            <MainPanel packingScheduleRoute={packingScheduleRoute} contentKey={contentKey}>
               {children}
             </MainPanel>
             <ErpNavbar user={authUser ?? undefined} />
@@ -107,7 +103,7 @@ function AppShellInner({ children }) {
             verticalExpanded ? "pe-14 md:pe-[17.25rem]" : "pe-14 md:pe-[4.5rem]"
           )}
         >
-          <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
+          <MainPanel packingScheduleRoute={packingScheduleRoute} contentKey={contentKey}>
             {children}
           </MainPanel>
         </div>
@@ -126,7 +122,7 @@ function AppShellInner({ children }) {
           verticalExpanded ? "ps-14 md:ps-[17.25rem]" : "ps-14 md:ps-[4.5rem]"
         )}
       >
-        <MainPanel compactTop={compactMainTop} tightPadding={tightMainPadding} contentKey={contentKey}>
+        <MainPanel packingScheduleRoute={packingScheduleRoute} contentKey={contentKey}>
           {children}
         </MainPanel>
       </div>

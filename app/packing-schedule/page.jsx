@@ -829,8 +829,8 @@ export default function PackingSchedulePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="w-full min-w-0 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm xl:min-w-[32rem]">
+    <div className="w-full min-w-0 max-w-none space-y-3">
+      <section className="w-full min-w-0 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="shrink-0 text-base font-semibold tracking-tight text-slate-900">Packing Schedule</h1>
           <div className="h-6 w-px shrink-0 bg-slate-200" aria-hidden="true" />
@@ -938,8 +938,9 @@ export default function PackingSchedulePage() {
       </section>
 
       <div className={cn("grid gap-6 xl:items-start", selected ? "xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]" : "xl:grid-cols-1")}>
-        <div ref={tableRef} className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+        <div ref={tableRef} className="min-w-0 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
           <Grid
+            className="w-full"
             columns={gridColumns}
             rows={filtered}
             getRowId={(row) => row.id}

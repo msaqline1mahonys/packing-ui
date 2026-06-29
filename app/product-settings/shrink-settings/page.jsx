@@ -285,7 +285,8 @@ export default function ShrinkSettingsPage() {
     return (
         <div className="mx-auto w-full max-w-[96rem] space-y-6">
             <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Shrink Settings</h1>
+                <p className="text-xs text-slate-500">Product Settings / Shrink Settings</p>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">Shrink Settings</h1>
                 <p className="mt-1 text-xs text-slate-500">
                     Shrink is applied on incoming tickets. The effective percentage is resolved in order: <strong>Customer-commodity grade agreement &rarr; Commodity Grade &rarr; Commodity type &rarr; Default</strong>. The first value set wins.
                 </p>

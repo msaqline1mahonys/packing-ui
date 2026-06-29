@@ -223,16 +223,16 @@ export default function PackingScheduleContainersPage() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="w-full min-w-0 max-w-none space-y-3">
       <section className="rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
         <p className="text-[11px] text-slate-600">
           <span className="font-semibold text-slate-800">Total: {summary.total}</span>
           {" · "}
-          Draft: {summary.Draft}
+          Pending: {summary.Pending}
           {" · "}
-          In progress: {summary["In Progress"]}
+          Matched: {summary.Matched}
           {" · "}
-          ECI approved: {summary["ECI Approved"]}
+          Available to pack: {summary["Available to Pack"]}
           {" · "}
           ECI failed: {summary["ECI Failed"]}
           {" · "}

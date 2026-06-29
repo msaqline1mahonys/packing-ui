@@ -142,7 +142,7 @@ export default function PackingScheduleContainersPage() {
     return rows
       .filter((row) => {
         const isImport = String(row.importExport ?? "").toLowerCase() === "import";
-        return containerStage(row, isImport) !== "Completed";
+        return displayContainerStage(row) !== "Completed";
       })
       .filter((row) => {
         if (!selectedPackStatuses.length) return ACTIVE_PACK_STATUSES.includes(row.packStatus);

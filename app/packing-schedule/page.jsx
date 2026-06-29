@@ -16,7 +16,7 @@ import { acknowledgeVesselScheduleUpdate } from "@/lib/api/packing";
 import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
-import { countEcFailedContainers, countOnSiteContainers } from "@/lib/packers-work-store";
+import { countAvailableToPackContainers, countEcFailedContainers } from "@/lib/packers-work-store";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -34,7 +34,7 @@ const TABLE_COLUMNS = [
   { key: "vesselCutoffDate", label: "Cut-off" },
   { key: "emptyPark", label: "Empty park" },
   { key: "containersRequired", label: "Cnt", numeric: true },
-  { key: "onSiteContainers", label: "On site", numeric: true },
+  { key: "availableToPackContainers", label: "Available to Pack", numeric: true },
   { key: "releaseContainers", label: "Rel. ctrs" },
   { key: "mtTotal", label: "MT", numeric: true },
   { key: "actualPacked", label: "Actual MT", numeric: true },
@@ -298,9 +298,9 @@ function rowIsImport(row) {
   return String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
 }
 
-// Count of containers marked on_site (location tracking, not a lifecycle stage).
-function onSiteContainerCount(row) {
-  return countOnSiteContainers(rowContainers(row), rowIsImport(row));
+// Count of containers with lifecycle status "Available to Pack" (from DB).
+function availableToPackContainerCount(row) {
+  return countAvailableToPackContainers(rowContainers(row), rowIsImport(row));
 }
 
 function ecFailedContainerCount(row) {
@@ -623,20 +623,20 @@ export default function PackingSchedulePage() {
           },
         };
       }
-      if (column.key === "onSiteContainers") {
+      if (column.key === "availableToPackContainers") {
         return {
           ...base,
           type: "number",
-          valueGetter: (row) => onSiteContainerCount(row),
+          valueGetter: (row) => availableToPackContainerCount(row),
           renderCell: ({ row }) => {
             const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
-            const onSite = onSiteContainerCount(row);
+            const available = availableToPackContainerCount(row);
             return (
               <span
                 className="tabular-nums"
-                title={`${onSite} container${onSite === 1 ? "" : "s"} on site${required ? ` of ${required} required` : ""}`}
+                title={`${available} container${available === 1 ? "" : "s"} available to pack${required ? ` of ${required} required` : ""}`}
               >
-                {required ? `${onSite}/${required}` : String(onSite)}
+                {required ? `${available}/${required}` : String(available)}
               </span>
             );
           },
@@ -1045,8 +1045,8 @@ export default function PackingSchedulePage() {
                 })()}
               />
               <Field
-                label="On site to pack"
-                value={`${onSiteContainerCount(selected)}${
+                label="Available to Pack"
+                value={`${availableToPackContainerCount(selected)}${
                   selected.containers_required ?? selected.containersRequired
                     ? ` / ${selected.containers_required ?? selected.containersRequired}`
                     : ""

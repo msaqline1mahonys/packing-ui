@@ -132,8 +132,6 @@ const PRA_STATUS_OPTIONS = ["Pending", "Accepted", "Rejected", "Error"];
 const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
 const inputClass =
-  "w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
-const selectMatchInputClass =
   "h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
 
 const gridClass = "grid gap-x-2.5 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
@@ -3446,7 +3444,7 @@ function NewPackFormPageInner() {
   }, []);
 
   const vesselDepartureField = (
-    <FormRow label={isImportJob ? "Vessel search" : "Vessel departure"}>
+    <FormRow label={isImportJob ? "Vessel search" : "Vessel"}>
       <div className="flex items-center gap-1.5">
         {(() => {
           const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
@@ -3521,65 +3519,65 @@ function NewPackFormPageInner() {
       onEntityCreated={handleQuickAddEntityCreated}
     >
     <>
-      <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-0 sm:px-2 lg:px-3">
-        <div className="flex flex-wrap items-center justify-between gap-1">
-          <h1 className="text-base font-semibold leading-tight text-slate-900">
-            {mode === "edit"
-              ? `Edit Pack${pack.packNumber ? ` — ${pack.packNumber}` : pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.packNumber ? ` — ${editingRow.packNumber}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
-              : "Add Pack"}
-          </h1>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => setActiveTab("general")}
-            className={cn(
-              "rounded-md border px-2.5 py-1 text-xs font-semibold",
-              activeTab === "general"
-                ? "border-brand/45 bg-brand/15 text-brand-ink"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            General
-          </button>
-          {pack.fumigationRequired ? (
+      <div className="mx-auto w-full max-w-none space-y-1 px-1 pb-[6.5rem] pt-2 sm:px-2 lg:px-3">
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => setActiveTab("fumigation")}
+              onClick={() => setActiveTab("general")}
               className={cn(
                 "rounded-md border px-2.5 py-1 text-xs font-semibold",
-                activeTab === "fumigation"
+                activeTab === "general"
                   ? "border-brand/45 bg-brand/15 text-brand-ink"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               )}
             >
-              Fumigation
+              General
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setActiveTab("accounting")}
-            className={cn(
-              "rounded-md border px-2.5 py-1 text-xs font-semibold",
-              activeTab === "accounting"
-                ? "border-brand/45 bg-brand/15 text-brand-ink"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            Accounting
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("pems")}
-            className={cn(
-              "rounded-md border px-2.5 py-1 text-xs font-semibold",
-              activeTab === "pems"
-                ? "border-brand/45 bg-brand/15 text-brand-ink"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            PEMs
-          </button>
+            {pack.fumigationRequired ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab("fumigation")}
+                className={cn(
+                  "rounded-md border px-2.5 py-1 text-xs font-semibold",
+                  activeTab === "fumigation"
+                    ? "border-brand/45 bg-brand/15 text-brand-ink"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                Fumigation
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setActiveTab("accounting")}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs font-semibold",
+                activeTab === "accounting"
+                  ? "border-brand/45 bg-brand/15 text-brand-ink"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              Accounting
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("pems")}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs font-semibold",
+                activeTab === "pems"
+                  ? "border-brand/45 bg-brand/15 text-brand-ink"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              PEMs
+            </button>
+          </div>
+          <h1 className="shrink-0 text-base font-semibold leading-tight text-slate-900">
+            {mode === "edit"
+              ? `Edit Pack${pack.packNumber ? ` — ${pack.packNumber}` : pack.jobReference ? ` — ${pack.jobReference}` : editingRow?.packNumber ? ` — ${editingRow.packNumber}` : editingRow?.jobReference ? ` — ${editingRow.jobReference}` : ""}`
+              : "Add Pack"}
+          </h1>
         </div>
 
         {activeTab === "general" ? (
@@ -3703,7 +3701,7 @@ function NewPackFormPageInner() {
                 ) : null}
                 <FormRow label="Job reference">
                   <input
-                    className={selectMatchInputClass}
+                    className={inputClass}
                     value={pack.jobReference}
                     onChange={(e) => set("jobReference", e.target.value)}
                     placeholder="Job reference"
@@ -4214,7 +4212,7 @@ function NewPackFormPageInner() {
               <section className={cn(flushSectionClass, "min-h-0")} aria-label="Containers and quantity">
                 <div className={cn(innerPanelClass, "flex min-h-0 flex-1 flex-col")}>
                   <div className="shrink-0 space-y-2">
-                  <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-5">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     <FormRow label="Containers Required">
                       <div className="flex items-center gap-2">
                         <input
@@ -4283,7 +4281,7 @@ function NewPackFormPageInner() {
                         return (
                           <ClutchSelect
                             quickAdd="containerCode"
-                            placeholder="- Select container code -"
+                            placeholder="- Select -"
                             options={containerCodeSelectOpts}
                             value={containerCodeSelectOpts.find((o) => o.value === (pack.containerCode || "")) ?? null}
                             onChange={(option) => {

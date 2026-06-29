@@ -27,6 +27,7 @@ import {
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { validateInprogressPackSave } from "@/lib/pack-inprogress-validation";
 import { validatePackSampleEntries } from "@/lib/pack-sample-validation";
+import { cancelPackSample } from "@/lib/pack-samples-api";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
 import { PackFormQuickAddProvider } from "@/components/packing-schedule/pack-form-quick-add-provider";
@@ -618,7 +619,7 @@ function formatSampleEntrySummary(entry) {
   return parts.filter(Boolean);
 }
 
-function SampleEntrySummary({ entry, index, onActivate, onRemove }) {
+function SampleEntrySummary({ entry, index, onActivate, onRemove, isRemoving = false }) {
   const parts = formatSampleEntrySummary(entry);
 
   return (
@@ -650,8 +651,9 @@ function SampleEntrySummary({ entry, index, onActivate, onRemove }) {
       ) : null}
       <button
         type="button"
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Remove sample"
+        disabled={isRemoving}
         onClick={() => onRemove(index)}
       >
         <Trash2 className="size-3.5" />
@@ -660,7 +662,7 @@ function SampleEntrySummary({ entry, index, onActivate, onRemove }) {
   );
 }
 
-function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove }) {
+function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove, isRemoving = false }) {
   return (
     <div className="space-y-1 rounded-md border border-slate-200/80 bg-slate-50/40 p-1.5">
       <div className="grid grid-cols-2 gap-1">
@@ -735,8 +737,9 @@ function SampleEntryEditor({ entry, index, inputClass, onUpdate, onRemove }) {
           ) : null}
           <button
             type="button"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Remove sample ${index + 1}`}
+            disabled={isRemoving}
             onClick={() => onRemove(index)}
           >
             <Trash2 className="size-3.5" />
@@ -923,7 +926,9 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     invoiceNumber: (row.invoice_number ?? row.invoiceNumber) || "",
     transportInvoice: (row.transport_invoice ?? row.transportInvoice) || "",
     date: row.date || new Date().toISOString().slice(0, 10),
-    sampleEntries: Array.isArray(row.samples) ? row.samples.map((s) => ({
+    sampleEntries: Array.isArray(row.samples) ? row.samples
+      .filter((s) => String(s.status ?? "Pending").toLowerCase() !== "cancelled")
+      .map((s) => ({
       id: s.id ?? null,
       type: s.type ?? "Pre",
       sampleLocation: s.sample_location ?? s.sampleLocation ?? "",
@@ -933,7 +938,8 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
       trackingDetail: s.tracking_detail ?? s.trackingDetail ?? "",
       resultFileName: s.result_file_name ?? s.resultFileName ?? "",
       resultFileUrl: s.result_file_url ?? s.resultFileUrl ?? "",
-    })) : Array.isArray(row.sampleEntries) ? row.sampleEntries
+    })) : Array.isArray(row.sampleEntries)
+      ? row.sampleEntries.filter((s) => String(s?.status ?? "Pending").toLowerCase() !== "cancelled")
       : (row.sampleStatuses || []).map((status, index) => ({
         type: "Pre",
         sampleLocation: row.sampleLocations?.[index] || "",
@@ -2085,8 +2091,40 @@ function NewPackFormPageInner() {
   const [removeContainersError, setRemoveContainersError] = useState("");
   const [removeContainersSaving, setRemoveContainersSaving] = useState(false);
   const [pendingSaveAfterRemove, setPendingSaveAfterRemove] = useState(null);
+  const [cancellingSampleId, setCancellingSampleId] = useState(null);
 
   const set = (key, val) => setPack((prev) => ({ ...prev, [key]: val }));
+
+  const removeSampleEntry = useCallback(
+    async (removeIndex) => {
+      const entries = Array.isArray(pack.sampleEntries) ? pack.sampleEntries : [];
+      const entry = entries[removeIndex];
+      if (!entry) return;
+
+      if (pack.id && entry.id) {
+        setCancellingSampleId(entry.id);
+        setSaveError("");
+        try {
+          await cancelPackSample(entry.id);
+        } catch (err) {
+          setSaveError(err?.message || "Failed to cancel sample.");
+          setCancellingSampleId(null);
+          return;
+        } finally {
+          setCancellingSampleId(null);
+        }
+      }
+
+      setPack((prev) => {
+        const current = Array.isArray(prev.sampleEntries) ? prev.sampleEntries : [];
+        return {
+          ...prev,
+          sampleEntries: current.filter((_, idx) => idx !== removeIndex),
+        };
+      });
+    },
+    [pack.id, pack.sampleEntries]
+  );
 
   function openQuickAddRelease(targetIndex = null) {
     setQuickReleaseError("");
@@ -4544,10 +4582,8 @@ function NewPackFormPageInner() {
                                 entry={entry}
                                 index={index}
                                 onActivate={setActiveSampleIndex}
-                                onRemove={(removeIndex) => {
-                                  const next = sampleEntries.filter((_, idx) => idx !== removeIndex);
-                                  set("sampleEntries", next);
-                                }}
+                                onRemove={removeSampleEntry}
+                                isRemoving={Boolean(entry.id && cancellingSampleId === entry.id)}
                               />
                             );
                           }
@@ -4558,15 +4594,13 @@ function NewPackFormPageInner() {
                               entry={entry}
                               index={index}
                               inputClass={inputClass}
+                              isRemoving={Boolean(entry.id && cancellingSampleId === entry.id)}
                               onUpdate={(patch) => {
                                 const next = [...sampleEntries];
                                 next[index] = { ...next[index], ...patch };
                                 set("sampleEntries", next);
                               }}
-                              onRemove={(removeIndex) => {
-                                const next = sampleEntries.filter((_, idx) => idx !== removeIndex);
-                                set("sampleEntries", next);
-                              }}
+                              onRemove={removeSampleEntry}
                             />
                           );
                         })}

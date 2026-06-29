@@ -7,7 +7,7 @@ import { ExternalLink, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
-import { SAMPLE_STATUSES } from "@/lib/Data";
+import { ALL_SAMPLE_STATUSES } from "@/lib/Data";
 import {
   deletePackSampleResult,
   fetchPackSamples,
@@ -15,6 +15,7 @@ import {
   updatePackSample,
   uploadPackSampleResult,
 } from "@/lib/pack-samples-api";
+import { validatePackSampleUpdate } from "@/lib/pack-sample-validation";
 import { cn } from "@/lib/utils";
 
 const QUEUE_OPTIONS = [
@@ -24,7 +25,7 @@ const QUEUE_OPTIONS = [
   { key: "completed", label: "Completed" },
 ];
 
-const STATUS_OPTIONS = SAMPLE_STATUSES.map((status) => ({ value: status, label: status }));
+const STATUS_OPTIONS = ALL_SAMPLE_STATUSES.map((status) => ({ value: status, label: status }));
 
 function statusBadgeClass(status) {
   switch ((status || "").toLowerCase()) {
@@ -34,6 +35,8 @@ function statusBadgeClass(status) {
       return "bg-rose-50 text-rose-900 ring-1 ring-rose-200";
     case "sent":
       return "bg-sky-50 text-sky-900 ring-1 ring-sky-200";
+    case "cancelled":
+      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
     default:
       return "bg-amber-50 text-amber-900 ring-1 ring-amber-200";
   }
@@ -130,6 +133,7 @@ export default function PackSamplesPage() {
         renderCell: ({ value }) => formatDate(value),
       },
       { key: "trackingDetail", header: "Tracking", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "notes", header: "Notes", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "resultFileUrl",
         header: "Result",
@@ -159,6 +163,16 @@ export default function PackSamplesPage() {
 
   const saveSelected = async () => {
     if (!selected || isSaving) return;
+
+    const validation = validatePackSampleUpdate({
+      status: draft.status,
+      trackingDetail: draft.trackingDetail,
+    });
+    if (!validation.ok) {
+      setError(validation.message);
+      return;
+    }
+
     setIsSaving(true);
     setError("");
     try {
@@ -321,7 +335,7 @@ export default function PackSamplesPage() {
                   />
                 </Field>
 
-                <Field label="Tracking detail">
+                <Field label={draft.status === "Passed" ? "Tracking detail *" : "Tracking detail"}>
                   <input
                     className="h-8 w-full rounded-md border border-slate-200 px-2 text-xs text-slate-800"
                     value={draft.trackingDetail}

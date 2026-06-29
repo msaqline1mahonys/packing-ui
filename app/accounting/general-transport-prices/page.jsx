@@ -439,6 +439,7 @@ function Modal({ open, title, onClose, width, children }) {
   );
 }
 
+function BtnPrimary({ className, ...props }) {
   return (
     <button
       className={cn(

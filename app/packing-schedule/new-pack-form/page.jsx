@@ -79,7 +79,7 @@ import { useJobReferenceDuplicateCheck } from "@/lib/hooks/use-job-reference-dup
 import {
   RELEASE_STATUSES,
   blankRelease,
-  computeReleaseExpiry,
+  computeDehireByAt,
 } from "@/lib/releases-store";
 import { enrichReleaseFromCatalog, normalizeReleaseParks, saveRelease } from "@/lib/releases-api";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
@@ -2177,7 +2177,7 @@ function NewPackFormPageInner() {
     setQuickReleaseDraft((prev) => {
       const next = { ...prev, [key]: value };
       if (key === "releaseAvailableAt" || key === "freeDays") {
-        next.releaseExpiryAt = computeReleaseExpiry(
+        next.dehireByAt = computeDehireByAt(
           key === "releaseAvailableAt" ? value : prev.releaseAvailableAt,
           key === "freeDays" ? value : prev.freeDays,
         );
@@ -2248,9 +2248,9 @@ function NewPackFormPageInner() {
         ...quickReleaseDraft,
         releaseNumber: releaseRef,
         parks: cleanedParks,
-        releaseExpiryAt:
-          computeReleaseExpiry(quickReleaseDraft.releaseAvailableAt, quickReleaseDraft.freeDays) ||
-          quickReleaseDraft.releaseExpiryAt ||
+        dehireByAt:
+          computeDehireByAt(quickReleaseDraft.releaseAvailableAt, quickReleaseDraft.freeDays) ||
+          quickReleaseDraft.dehireByAt ||
           "",
       });
     } catch (err) {
@@ -4821,12 +4821,6 @@ function NewPackFormPageInner() {
                     onRemove={(id) => removeFile("packingInstructionFiles", id)}
                   />
                 </FormRow>
-                <FormRow label="Invoice number">
-                  <input className={inputClass} value={pack.invoiceNumber} onChange={(e) => set("invoiceNumber", e.target.value)} placeholder="Invoice number" />
-                </FormRow>
-                <FormRow label="Transport invoice">
-                  <input className={inputClass} value={pack.transportInvoice} onChange={(e) => set("transportInvoice", e.target.value)} placeholder="Transport invoice" />
-                </FormRow>
                 <FormRow label="Job notes">
                   <textarea className={`${inputClass} min-h-[3rem] resize-y`} value={pack.jobNotes} onChange={(e) => set("jobNotes", e.target.value)} placeholder="Notes..." />
                 </FormRow>
@@ -4876,12 +4870,34 @@ function NewPackFormPageInner() {
         ) : null}
 
             {activeTab === "accounting" ? (
-              <PackAccountingTab
-                packId={accountingPackId}
-                packStatus={pack.status}
-                refreshKey={accountingRefreshKey}
-                isActive={activeTab === "accounting"}
-              />
+              <div className="space-y-2">
+                <section className={sectionClass} aria-label="Invoice references">
+                  <div className="grid gap-2 xl:grid-cols-2">
+                    <FormRow label="Invoice number">
+                      <input
+                        className={inputClass}
+                        value={pack.invoiceNumber}
+                        onChange={(e) => set("invoiceNumber", e.target.value)}
+                        placeholder="Invoice number"
+                      />
+                    </FormRow>
+                    <FormRow label="Transport invoice">
+                      <input
+                        className={inputClass}
+                        value={pack.transportInvoice}
+                        onChange={(e) => set("transportInvoice", e.target.value)}
+                        placeholder="Transport invoice"
+                      />
+                    </FormRow>
+                  </div>
+                </section>
+                <PackAccountingTab
+                  packId={accountingPackId}
+                  packStatus={pack.status}
+                  refreshKey={accountingRefreshKey}
+                  isActive={activeTab === "accounting"}
+                />
+              </div>
             ) : null}
 
             {activeTab === "fumigation" && pack.fumigationRequired ? (
@@ -6211,22 +6227,22 @@ function ReleaseModal({
               />
             </div>
             <div className="space-y-1">
-              <label className={fieldLabel}>Release Expiry (computed)</label>
+              <label className={fieldLabel}>Dehire by (computed)</label>
               <input
                 type="datetime-local"
                 className={`${inputClass} bg-slate-50`}
-                value={draft.releaseExpiryAt}
+                value={draft.dehireByAt}
                 readOnly
                 placeholder=""
               />
             </div>
             <div className="space-y-1">
-              <label className={fieldLabel}>Pickup By</label>
+              <label className={fieldLabel}>Release expiry</label>
               <input
                 type="datetime-local"
                 className={inputClass}
-                value={draft.pickupBy}
-                onChange={(e) => onChangeField("pickupBy", e.target.value)}
+                value={draft.releaseExpiryAt}
+                onChange={(e) => onChangeField("releaseExpiryAt", e.target.value)}
               />
             </div>
             <div className="space-y-1">

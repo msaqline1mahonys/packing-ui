@@ -1,0 +1,53 @@
+name: CI / Deploy (frontend)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Non-blocking: surfaces lint issues without failing the pipeline.
+      - run: npm run lint
+        continue-on-error: true
+
+      # Build gate. NEXT_PUBLIC_API_URL is baked into the client bundle, so the CI
+      # build is just a smoke test — the authoritative build happens on the server
+      # (where the prod NEXT_PUBLIC_API_URL lives in packing-ui/.env).
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 over SSH (native / pm2)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /var/www/html/packing-ui
+            git pull --ff-only origin master
+            npm ci
+            # NEXT_PUBLIC_API_URL is read from /var/www/html/packing-ui/.env at build time.
+            npm run build
+            # Restart the pm2-managed UI (create it once: see DEPLOYMENT.md).
+            pm2 restart packing-ui --update-env
+            pm2 save

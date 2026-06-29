@@ -2,7 +2,7 @@ name: CI / Deploy (frontend)
 
 on:
   push:
-    branches: [master]
+    branches: [staging]
   workflow_dispatch:
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2 over SSH (native / pm2)
@@ -44,7 +44,7 @@ jobs:
           script: |
             set -euo pipefail
             cd /var/www/html/packing-ui
-            git pull --ff-only origin master
+            git pull --ff-only origin staging
             npm ci
             # NEXT_PUBLIC_API_URL is read from /var/www/html/packing-ui/.env at build time.
             npm run build

@@ -32,6 +32,7 @@ import {
 } from "@/lib/packers-work-store";
 import { resolvePackRfpRef } from "@/lib/pems-rfp-display";
 import { stageBadgeClass, isPackersContainerLockedAfterSignoff } from "@/lib/packing-container-ui";
+import { displayContainerStage } from "@/lib/container-status";
 import {
   attachPemsSubmissionSnapshot,
   GPPIR_RECORD_TYPE,
@@ -1511,7 +1512,7 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                 </div>
               ) : null}
               {filteredContainerRows.map((container) => {
-                const stage = containerStage(container, isImportJob);
+                const stage = displayContainerStage(container, isImportJob, containerStage);
                 return (
                   <button
                     key={container.id}
@@ -1599,10 +1600,10 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
                 <span
                   className={cn(
                     "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    stageBadgeClass(containerStage(selectedContainer, isImportJob))
+                    stageBadgeClass(displayContainerStage(selectedContainer, isImportJob, containerStage))
                   )}
                 >
-                  {containerStage(selectedContainer, isImportJob)}
+                  {displayContainerStage(selectedContainer, isImportJob, containerStage)}
                 </span>
                 <div className="ms-auto flex shrink-0 items-center gap-2">
                   {isDirty ? (

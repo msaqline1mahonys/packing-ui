@@ -7,7 +7,7 @@ import { ExternalLink, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import ClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
-import { SAMPLE_STATUSES } from "@/lib/Data";
+import { ALL_SAMPLE_STATUSES } from "@/lib/Data";
 import {
   deletePackSampleResult,
   fetchPackSamples,
@@ -15,6 +15,8 @@ import {
   updatePackSample,
   uploadPackSampleResult,
 } from "@/lib/pack-samples-api";
+import { validatePackSampleUpdate } from "@/lib/pack-sample-validation";
+import { formFieldErrorTextClass, formLabelErrorClass, inputClassName } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 
 const QUEUE_OPTIONS = [
@@ -24,7 +26,7 @@ const QUEUE_OPTIONS = [
   { key: "completed", label: "Completed" },
 ];
 
-const STATUS_OPTIONS = SAMPLE_STATUSES.map((status) => ({ value: status, label: status }));
+const STATUS_OPTIONS = ALL_SAMPLE_STATUSES.map((status) => ({ value: status, label: status }));
 
 function statusBadgeClass(status) {
   switch ((status || "").toLowerCase()) {
@@ -34,6 +36,8 @@ function statusBadgeClass(status) {
       return "bg-rose-50 text-rose-900 ring-1 ring-rose-200";
     case "sent":
       return "bg-sky-50 text-sky-900 ring-1 ring-sky-200";
+    case "cancelled":
+      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
     default:
       return "bg-amber-50 text-amber-900 ring-1 ring-amber-200";
   }
@@ -61,6 +65,7 @@ export default function PackSamplesPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const fileInputRef = useRef(null);
 
   const loadRows = useCallback(async () => {
@@ -89,6 +94,8 @@ export default function PackSamplesPage() {
   const handleSelectRow = (row) => {
     setSelectedId(row.id);
     setDraft(emptyDraft(row));
+    setFieldErrors({});
+    setError("");
   };
 
   const columns = useMemo(
@@ -130,6 +137,7 @@ export default function PackSamplesPage() {
         renderCell: ({ value }) => formatDate(value),
       },
       { key: "trackingDetail", header: "Tracking", type: "text", sortable: true, filterable: true, resizable: true },
+      { key: "notes", header: "Notes", type: "text", sortable: true, filterable: true, resizable: true },
       {
         key: "resultFileUrl",
         header: "Result",
@@ -159,8 +167,20 @@ export default function PackSamplesPage() {
 
   const saveSelected = async () => {
     if (!selected || isSaving) return;
+
+    const validation = validatePackSampleUpdate({
+      status: draft.status,
+      trackingDetail: draft.trackingDetail,
+      resultFileUrl: selected.resultFileUrl,
+    });
+    if (!validation.ok) {
+      setFieldErrors(validation.errors);
+      return;
+    }
+
     setIsSaving(true);
     setError("");
+    setFieldErrors({});
     try {
       const updated = await updatePackSample(selected.id, {
         status: draft.status,
@@ -170,8 +190,21 @@ export default function PackSamplesPage() {
       });
       setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
       setDraft(emptyDraft(updated));
+      setFieldErrors({});
     } catch (err) {
-      setError(err.message || "Failed to update sample.");
+      const message = err.message || "Failed to update sample.";
+      const nextErrors = {};
+      if (/tracking/i.test(message)) {
+        nextErrors.trackingDetail = message;
+      }
+      if (/result pdf|result file|result_file/i.test(message)) {
+        nextErrors.resultFile = message;
+      }
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors);
+      } else {
+        setError(message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -184,6 +217,7 @@ export default function PackSamplesPage() {
 
     setIsUploading(true);
     setError("");
+    setFieldErrors((prev) => ({ ...prev, resultFile: null }));
     try {
       const updated = await uploadPackSampleResult(selected.id, file);
       setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
@@ -308,7 +342,13 @@ export default function PackSamplesPage() {
                     isClearable={false}
                     options={STATUS_OPTIONS}
                     value={STATUS_OPTIONS.find((option) => option.value === draft.status) ?? null}
-                    onChange={(option) => setDraft((prev) => ({ ...prev, status: option?.value ?? "Pending" }))}
+                    onChange={(option) => {
+                      const nextStatus = option?.value ?? "Pending";
+                      setDraft((prev) => ({ ...prev, status: nextStatus }));
+                      if (nextStatus !== "Passed") {
+                        setFieldErrors((prev) => ({ ...prev, trackingDetail: null, resultFile: null }));
+                      }
+                    }}
                   />
                 </Field>
 
@@ -321,12 +361,21 @@ export default function PackSamplesPage() {
                   />
                 </Field>
 
-                <Field label="Tracking detail">
+                <Field
+                  label="Tracking detail"
+                  required={draft.status === "Passed"}
+                  hasError={Boolean(fieldErrors.trackingDetail)}
+                  error={fieldErrors.trackingDetail}
+                >
                   <input
-                    className="h-8 w-full rounded-md border border-slate-200 px-2 text-xs text-slate-800"
+                    className={inputClassName(Boolean(fieldErrors.trackingDetail), "h-8 rounded-md px-2 py-1.5 text-xs")}
                     value={draft.trackingDetail}
                     placeholder="Courier / consignment / lab ref"
-                    onChange={(event) => setDraft((prev) => ({ ...prev, trackingDetail: event.target.value }))}
+                    aria-invalid={Boolean(fieldErrors.trackingDetail)}
+                    onChange={(event) => {
+                      setFieldErrors((prev) => ({ ...prev, trackingDetail: null }));
+                      setDraft((prev) => ({ ...prev, trackingDetail: event.target.value }));
+                    }}
                   />
                 </Field>
 
@@ -343,10 +392,28 @@ export default function PackSamplesPage() {
                 </Button>
               </div>
 
-              <div className="space-y-2 border-t border-slate-100 pt-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Result PDF</p>
+              <div
+                className={cn(
+                  "space-y-2 border-t border-slate-100 pt-4",
+                  fieldErrors.resultFile && "rounded-md border border-red-400 bg-red-50/40 p-3"
+                )}
+              >
+                <p
+                  className={cn(
+                    "text-[11px] font-semibold uppercase tracking-wide",
+                    fieldErrors.resultFile ? formLabelErrorClass : "text-slate-500"
+                  )}
+                >
+                  Result PDF
+                  {draft.status === "Passed" ? <span className="text-red-500"> *</span> : null}
+                </p>
                 {selected.resultFileUrl ? (
-                  <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div
+                    className={cn(
+                      "flex items-center justify-between gap-2 rounded-md border bg-slate-50 px-3 py-2",
+                      fieldErrors.resultFile ? "border-red-400" : "border-slate-200"
+                    )}
+                  >
                     <a
                       href={selected.resultFileUrl}
                       target="_blank"
@@ -380,7 +447,10 @@ export default function PackSamplesPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full"
+                  className={cn(
+                    "w-full",
+                    fieldErrors.resultFile && "border-red-400 text-red-700 hover:border-red-500 hover:bg-red-50"
+                  )}
                   disabled={isUploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -396,6 +466,7 @@ export default function PackSamplesPage() {
                     </>
                   )}
                 </Button>
+                {fieldErrors.resultFile ? <p className={formFieldErrorTextClass}>{fieldErrors.resultFile}</p> : null}
               </div>
             </div>
           )}
@@ -405,11 +476,20 @@ export default function PackSamplesPage() {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, required = false, hasError = false, error = "", children }) {
   return (
     <div className="space-y-1">
-      <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+      <label
+        className={cn(
+          "block text-[11px] font-semibold uppercase tracking-wide",
+          hasError ? formLabelErrorClass : "text-slate-500"
+        )}
+      >
+        {label}
+        {required ? <span className="text-red-500"> *</span> : null}
+      </label>
       {children}
+      {error ? <p className={formFieldErrorTextClass}>{error}</p> : null}
     </div>
   );
 }

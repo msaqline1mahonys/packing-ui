@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import CustomDateRangePicker from "@/components/ui/custom-date-range-picker";
-import { getPackPraProgress, getPackProgress, getPackProgressLabel, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
+import { countAvailableToPackContainers, getPackPraProgress, getPackProgress, getPackProgressLabel, loadWorkDrafts, syncWorkDrafts } from "@/lib/packers-work-store";
 import { fetchPackRows } from "@/lib/pack-schedule-store";
 import { PACKERS_SCHEDULE_STATUSES } from "@/lib/packing-container-ui";
 import { isImportPack } from "@/lib/pack-import";
@@ -35,6 +35,7 @@ const TABLE_COLUMNS = [
   { key: "vesselCutoffDate", label: "Cut-off" },
   { key: "emptyPark", label: "Empty park" },
   { key: "containersRequired", label: "Cnt", numeric: true },
+  { key: "availableToPackContainers", label: "Available to Pack", numeric: true },
   { key: "mtTotal", label: "MT", numeric: true },
   { key: "progress", label: "Load", text: true },
   { key: "id", label: "ID", numeric: true },
@@ -80,6 +81,18 @@ function emptyParkRaw(row, parkIdToName) {
 function emptyParkDisplay(row, parkIdToName) {
   const s = emptyParkRaw(row, parkIdToName);
   return s || "";
+}
+
+function rowContainers(row) {
+  return Array.isArray(row.containers) ? row.containers : [];
+}
+
+function rowIsImport(row) {
+  return String(row.importExport ?? row.import_export ?? "").toLowerCase() === "import";
+}
+
+function availableToPackContainerCount(row) {
+  return countAvailableToPackContainers(rowContainers(row), rowIsImport(row));
 }
 
 function loadPackersQueueRows() {
@@ -204,6 +217,25 @@ export default function PackersScheduleClient() {
       }
       if (column.key === "containersRequired") {
         return { ...base, valueGetter: (row) => row.containers_required ?? row.containersRequired ?? null };
+      }
+      if (column.key === "availableToPackContainers") {
+        return {
+          ...base,
+          type: "number",
+          valueGetter: (row) => availableToPackContainerCount(row),
+          renderCell: ({ row }) => {
+            const required = Number(row.containers_required ?? row.containersRequired ?? 0) || 0;
+            const available = availableToPackContainerCount(row);
+            return (
+              <span
+                className="tabular-nums"
+                title={`${available} container${available === 1 ? "" : "s"} available to pack${required ? ` of ${required} required` : ""}`}
+              >
+                {required ? `${available}/${required}` : String(available)}
+              </span>
+            );
+          },
+        };
       }
       if (column.key === "mtTotal") {
         return { ...base, valueGetter: (row) => row.mt_total ?? row.mtTotal ?? null };
@@ -366,6 +398,14 @@ export default function PackersScheduleClient() {
               )}
               <Field label="Empty park" value={emptyParkDisplay(selected, parkIdToName)} />
               <Field label="Count" value={String(selected.containers_required ?? selected.containersRequired ?? "")} />
+              <Field
+                label="Available to Pack"
+                value={`${availableToPackContainerCount(selected)}${
+                  selected.containers_required ?? selected.containersRequired
+                    ? ` / ${selected.containers_required ?? selected.containersRequired}`
+                    : ""
+                }`}
+              />
               <Field label={`${getPackProgressLabel(selected)} progress`} value={getPackPraProgress(selected, workByPack).label} />
               <div className="pt-1">
                 <Button type="button" size="sm" className="w-full text-[12px]" onClick={openPack}>

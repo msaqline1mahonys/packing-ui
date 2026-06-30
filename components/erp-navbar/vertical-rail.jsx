@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import * as Avatar from "@radix-ui/react-avatar";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 
 import { notifyAuthSessionChanged } from "@/lib/auth-session";
 import { cn } from "@/lib/utils";
@@ -30,7 +30,7 @@ const CALM = cn(CALM_DURATION, CALM_EASE, "motion-reduce:transition-none");
 
 const SURFACE_TRANSITION = cn("transition-colors", CALM_DURATION, CALM_EASE, "motion-reduce:transition-none");
 
-const COLLAPSE_HOVER_DELAY_MS = 280;
+const RAIL_MENU_ID = "erp-vertical-rail-menu";
 
 function labelReveal(expanded) {
   return cn(
@@ -51,6 +51,7 @@ function NavMenu({
   expanded,
   branchActive,
   invertBar,
+  onNavigate,
 }) {
   const router = useRouter();
   const descendantActive =
@@ -101,6 +102,7 @@ function NavMenu({
         aria-controls={expanded ? panelId : undefined}
         onClick={() => {
           if (!expanded) {
+            onNavigate?.();
             navigateNavHref(router, pathname, parentHref, {
               siblingHrefs: items.map((item) => item.href),
             });
@@ -157,6 +159,7 @@ function NavMenu({
                   <NavRouteLink
                     href={item.href}
                     siblingHrefs={siblingHrefs}
+                    onClick={onNavigate}
                     className={cn(
                       SURFACE_TRANSITION,
                       "flex items-center gap-x-2 rounded-md px-2 py-1.5 md:py-2",
@@ -177,12 +180,13 @@ function NavMenu({
   );
 }
 
-function NavLinkRow({ href, icon, label, active, expanded, invertBar }) {
+function NavLinkRow({ href, icon, label, active, expanded, invertBar, onNavigate }) {
   return (
     <Link
       href={href}
       title={!expanded ? label : undefined}
       aria-label={label}
+      onClick={onNavigate}
       className={cn(
         SURFACE_TRANSITION,
         "flex min-h-9 cursor-pointer items-center rounded-lg px-2 py-1.5 text-sm font-medium outline-none ring-brand/35 md:min-h-10 md:py-2",
@@ -216,12 +220,13 @@ export function ErpVerticalRail({ edge }) {
   const { sites, site } = useSite();
   const { setVerticalExpanded } = useNavDock();
 
-  const [hoveredRail, setHoveredRail] = useState(false);
-  const [focusedWithin, setFocusedWithin] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [backdropActive, setBackdropActive] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const hoverLeaveTimerRef = useRef(null);
 
-  const expanded = hoveredRail || focusedWithin || accountMenuOpen;
+  const expanded = menuOpen;
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
     setVerticalExpanded(expanded);
@@ -229,80 +234,110 @@ export function ErpVerticalRail({ edge }) {
   }, [expanded, setVerticalExpanded]);
 
   useEffect(() => {
-    return () => {
-      if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
-    };
-  }, []);
-
-  const onRailEnter = () => {
-    if (hoverLeaveTimerRef.current) {
-      clearTimeout(hoverLeaveTimerRef.current);
-      hoverLeaveTimerRef.current = null;
+    if (!menuOpen) {
+      setBackdropActive(false);
+      return undefined;
     }
-    setHoveredRail(true);
-  };
+    const frame = requestAnimationFrame(() => setBackdropActive(true));
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen]);
 
-  const onRailLeave = () => {
-    hoverLeaveTimerRef.current = setTimeout(() => setHoveredRail(false), COLLAPSE_HOVER_DELAY_MS);
-  };
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
+  const toggleMenuButtonClass = cn(
+    SURFACE_TRANSITION,
+    "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-600 outline-none ring-brand/35 hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 md:size-10"
+  );
 
   return (
-    <nav
-      className={cn(
-        "relative z-40 flex h-dvh shrink-0 flex-col overflow-hidden border-slate-200/90 bg-gradient-to-b from-slate-50 via-white to-slate-50/95",
-        invertBar
-          ? "border-l shadow-[inset_1px_0_0_rgba(0,112,255,0.1)]"
-          : "border-r shadow-[inset_-1px_0_0_rgba(0,112,255,0.1)]",
-        "transition-[width]",
-        CALM_DURATION,
-        CALM_EASE,
-        "motion-reduce:transition-none",
-        expanded ? WIDTH_EXPANDED_CLASS : "w-14 md:w-[4.5rem]"
-      )}
-      aria-label="ERP modules"
-      onMouseEnter={onRailEnter}
-      onMouseLeave={onRailLeave}
-      onFocusCapture={() => setFocusedWithin(true)}
-      onBlurCapture={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) {
-          setFocusedWithin(false);
-        }
-      }}
-    >
-      <div className="relative flex min-h-11 shrink-0 items-center border-b border-slate-200/80 bg-white/60 px-2 py-0 backdrop-blur-sm md:min-h-[4.5rem]">
-        <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
-        <div
+    <>
+      {backdropActive ? (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
           className={cn(
-            "flex min-w-0 flex-1 items-center overflow-hidden transition-[gap]",
+            "fixed inset-0 z-[35] cursor-default bg-slate-900/20 motion-reduce:transition-none md:bg-transparent",
             CALM_DURATION,
-            CALM_EASE,
-            "motion-reduce:transition-none",
-            expanded ? "justify-start gap-2 px-1.5 md:gap-2 md:px-2 lg:gap-2.5 lg:px-2" : "justify-center gap-0"
+            CALM_EASE
           )}
-        >
-          <div className="grid size-7 shrink-0 place-content-center rounded-lg border border-brand/25 bg-gradient-to-br from-brand/[0.07] to-white shadow-sm shadow-[0_1px_10px_-3px_rgba(0,112,255,0.12)] md:size-8 lg:size-9">
-            <img src={ui.brandIconSrc} alt="Brand mark" className="size-4 object-contain md:size-[1.125rem] lg:size-5" />
-          </div>
+          onClick={() => setMenuOpen(false)}
+          tabIndex={-1}
+        />
+      ) : null}
+      <nav
+        id={RAIL_MENU_ID}
+        className={cn(
+          "relative z-40 flex h-dvh shrink-0 flex-col overflow-hidden border-slate-200/90 bg-gradient-to-b from-slate-50 via-white to-slate-50/95",
+          invertBar
+            ? "border-l shadow-[inset_1px_0_0_rgba(0,112,255,0.1)]"
+            : "border-r shadow-[inset_-1px_0_0_rgba(0,112,255,0.1)]",
+          "transition-[width]",
+          CALM_DURATION,
+          CALM_EASE,
+          "motion-reduce:transition-none",
+          expanded ? WIDTH_EXPANDED_CLASS : "w-14 md:w-[4.5rem]"
+        )}
+        aria-label="ERP modules"
+      >
+        <div className="relative flex min-h-11 shrink-0 items-center border-b border-slate-200/80 bg-white/60 px-2 py-0 backdrop-blur-sm md:min-h-[4.5rem]">
+          <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
           <div
             className={cn(
-              "min-w-0 overflow-hidden transition-[max-width,opacity]",
+              "flex min-w-0 flex-1 items-center overflow-hidden transition-[gap]",
               CALM_DURATION,
               CALM_EASE,
               "motion-reduce:transition-none",
-              expanded ? "max-w-[min(15rem,calc(100vw-10rem))] opacity-100" : "max-w-0 opacity-0"
+              expanded ? "justify-start gap-2 px-1.5 md:gap-2 md:px-2 lg:gap-2.5 lg:px-2" : "justify-center gap-0"
             )}
           >
-            <div className="min-w-0 leading-none md:leading-tight">
-              <span className="block truncate text-[13px] font-bold tracking-tight text-brand md:text-[15px] lg:text-base">{ui.brandTitle}</span>
-              <p className="truncate text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-900 md:text-[9px] md:tracking-[0.15em]">
-                {ui.brandSubtitle}
-              </p>
+            <div className="grid size-7 shrink-0 place-content-center rounded-lg border border-brand/25 bg-gradient-to-br from-brand/[0.07] to-white shadow-sm shadow-[0_1px_10px_-3px_rgba(0,112,255,0.12)] md:size-8 lg:size-9">
+              <img src={ui.brandIconSrc} alt="Brand mark" className="size-4 object-contain md:size-[1.125rem] lg:size-5" />
+            </div>
+            <div
+              className={cn(
+                "min-w-0 overflow-hidden transition-[max-width,opacity]",
+                CALM_DURATION,
+                CALM_EASE,
+                "motion-reduce:transition-none",
+                expanded ? "max-w-[min(15rem,calc(100vw-10rem))] opacity-100" : "max-w-0 opacity-0"
+              )}
+            >
+              <div className="min-w-0 leading-none md:leading-tight">
+                <span className="block truncate text-[13px] font-bold tracking-tight text-brand md:text-[15px] lg:text-base">
+                  {ui.brandTitle}
+                </span>
+                <p className="truncate text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-900 md:text-[9px] md:tracking-[0.15em]">
+                  {ui.brandSubtitle}
+                </p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2 md:py-3">
+        <div className={cn("mb-1 flex shrink-0 items-center px-2", expanded ? "justify-end" : "justify-center")}>
+          <button
+            type="button"
+            className={toggleMenuButtonClass}
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls={RAIL_MENU_ID}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? (
+              <X className="size-5" strokeWidth={2} aria-hidden />
+            ) : (
+              <Menu className="size-5" strokeWidth={2} aria-hidden />
+            )}
+          </button>
+        </div>
         <div className="mb-1 flex h-7 shrink-0 items-end px-2 md:mb-2 md:h-8">
           <p
             aria-hidden={!expanded}
@@ -334,6 +369,7 @@ export function ErpVerticalRail({ edge }) {
                     expanded={expanded}
                     branchActive={branchActive}
                     invertBar={invertBar}
+                    onNavigate={closeMenu}
                   />
                 </li>
               );
@@ -347,6 +383,7 @@ export function ErpVerticalRail({ edge }) {
                   active={pathnameMatchesHref(pathname, item.href)}
                   expanded={expanded}
                   invertBar={invertBar}
+                  onNavigate={closeMenu}
                 />
               </li>
             );
@@ -364,6 +401,7 @@ export function ErpVerticalRail({ edge }) {
                   active={pathnameMatchesHref(pathname, item.href)}
                   expanded={expanded}
                   invertBar={invertBar}
+                  onNavigate={closeMenu}
                 />
               </li>
             ))}
@@ -504,5 +542,6 @@ export function ErpVerticalRail({ edge }) {
         </DropdownMenu.Root>
       </div>
     </nav>
+    </>
   );
 }

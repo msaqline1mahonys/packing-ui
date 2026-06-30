@@ -13,7 +13,7 @@ function ErpNavbarDockPicker() {
   return <ErpVerticalRail edge={dock === "vertical-end" ? "end" : "start"} />;
 }
 
-/** Main ERP shell navbar (vertical hover-rail or horizontal bar). Requires `NavDockProvider` above. */
+/** Main ERP shell navbar (vertical hamburger rail or horizontal bar). Requires `NavDockProvider` above. */
 export function ErpNavbar(props) {
   return (
     <ErpNavUiProvider {...props}>

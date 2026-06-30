@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 
 const MORE_SETTINGS_ITEMS = [
   { label: "Site", href: "/more-settings/site" },
-  { label: "Integrations", href: "/more-settings/integrations" },
   { label: "Integration Settings", href: "/more-settings/integration-settings" },
 ];
 

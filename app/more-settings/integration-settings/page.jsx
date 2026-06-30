@@ -1,11 +1,15 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { ComtracIntegrationPanel } from "@/components/integrations/comtrac-integration-panel";
+import { readTenantIds } from "@/lib/api/integrations";
 import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
-import { readSiteOptions, SITES_UPDATED_EVENT } from "@/lib/site-data";
+import { readIntegrationSettingsSiteOptions } from "@/lib/integration-site-options";
+import { SITES_UPDATED_EVENT } from "@/lib/site-data";
 import {
   ensureSiteRowsHaveIntegrationScaffold,
   INTEGRATION_SETTINGS_UPDATED_EVENT,
@@ -17,12 +21,15 @@ import {
   upsertIntegrationSettings,
 } from "@/lib/integration-settings-store";
 
+const INTEGRATION_TAB_COMTRAC = "COMTRAC";
+
 const tabs = [
   { key: INTEGRATION_TYPES.PEMS, label: "PEMS" },
   { key: INTEGRATION_TYPES.CONTAINER_CHAIN, label: "ContainerChain" },
   { key: INTEGRATION_TYPES.CONTAINER_SPACE, label: "ContainerSpace" },
   { key: INTEGRATION_TYPES.PRA, label: "PRA" },
   { key: INTEGRATION_TYPES.SHARED, label: "Fumigation" },
+  { key: INTEGRATION_TAB_COMTRAC, label: "Comtrac Integration" },
 ];
 
 const inputClass =
@@ -85,8 +92,9 @@ function saveButtonClass(disabled) {
 }
 
 export default function IntegrationSettingsPage() {
-  const [siteOptions, setSiteOptions] = useState(() => readSiteOptions());
-  const [selectedSiteId, setSelectedSiteId] = useState(() => readSiteOptions()[0]?.id ?? "");
+  const searchParams = useSearchParams();
+  const [siteOptions, setSiteOptions] = useState(() => readIntegrationSettingsSiteOptions());
+  const [selectedSiteId, setSelectedSiteId] = useState(() => readIntegrationSettingsSiteOptions()[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState(INTEGRATION_TYPES.PEMS);
   const [settingsByType, setSettingsByType] = useState({});
   const [errors, setErrors] = useState({});
@@ -112,10 +120,19 @@ export default function IntegrationSettingsPage() {
     [siteOptions, selectedSiteId]
   );
 
+  const { organizationId } = readTenantIds(selectedSiteId);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "comtrac") {
+      setActiveTab(INTEGRATION_TAB_COMTRAC);
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     ensureSiteRowsHaveIntegrationScaffold();
     const refreshSites = () => {
-      const options = readSiteOptions();
+      const options = readIntegrationSettingsSiteOptions();
       setSiteOptions(options);
       if (!options.some((option) => option.id === selectedSiteId)) {
         setSelectedSiteId(options[0]?.id ?? "");
@@ -123,7 +140,11 @@ export default function IntegrationSettingsPage() {
     };
     refreshSites();
     window.addEventListener(SITES_UPDATED_EVENT, refreshSites);
-    return () => window.removeEventListener(SITES_UPDATED_EVENT, refreshSites);
+    window.addEventListener("auth-session-changed", refreshSites);
+    return () => {
+      window.removeEventListener(SITES_UPDATED_EVENT, refreshSites);
+      window.removeEventListener("auth-session-changed", refreshSites);
+    };
   }, [selectedSiteId]);
 
   useEffect(() => {
@@ -690,6 +711,9 @@ export default function IntegrationSettingsPage() {
               />
             </Panel>
           </div>
+        ) : null}
+        {activeTab === INTEGRATION_TAB_COMTRAC ? (
+          <ComtracIntegrationPanel siteId={selectedSiteId} organizationId={organizationId} />
         ) : null}
       </section>
     </div>

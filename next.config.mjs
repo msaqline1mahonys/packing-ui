@@ -16,6 +16,11 @@ const nextConfig = {
         hostname: "images.unsplash.com",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "packing-bucket.s3.ap-southeast-2.amazonaws.com",
+        pathname: "/**",
+      },
     ],
   },
 };

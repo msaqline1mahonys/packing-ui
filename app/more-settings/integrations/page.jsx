@@ -8,11 +8,13 @@ import {
   createIntegrationCredential,
   disableIntegrationCredential,
   fetchIntegrationCredentials,
+  fetchVesselIngestRuns,
   getApiBaseUrl,
   readTenantIds,
+  summarizeVesselIngestSync,
 } from "@/lib/api/integrations";
 import { readAuthPayload } from "@/lib/auth-session";
-import { INBOUND_INTEGRATIONS } from "@/lib/integrations-catalog";
+import { INBOUND_INTEGRATIONS, INBOUND_INTEGRATION_TYPES } from "@/lib/integrations-catalog";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -49,6 +51,75 @@ function formatDateTime(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
   return parsed.toLocaleString();
+}
+
+function formatRelativeTime(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const diffMs = Date.now() - parsed.getTime();
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function statusBadgeClass(status) {
+  if (status === "success") return "bg-emerald-100 text-emerald-700";
+  if (status === "partial") return "bg-amber-100 text-amber-700";
+  return "bg-red-100 text-red-700";
+}
+
+function formatSourceLabel(source) {
+  if (source === "integration_api") return "API integration";
+  if (source === "manual_upload") return "Manual upload";
+  return String(source || "Unknown").replaceAll("_", " ");
+}
+
+function SyncStatusCard({ title, run }) {
+  if (!run) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3">
+        <p className="text-xs font-semibold text-slate-700">{title}</p>
+        <p className="mt-1 text-sm text-slate-500">No sync recorded yet</p>
+      </div>
+    );
+  }
+
+  const when = run.finished_at || run.created_at;
+  const relative = formatRelativeTime(when);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-700">{title}</p>
+        <span
+          className={cn(
+            "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+            statusBadgeClass(run.status)
+          )}
+        >
+          {run.status}
+        </span>
+      </div>
+      <p className="mt-1 text-sm font-medium text-slate-900">{formatDateTime(when)}</p>
+      {relative ? <p className="text-xs text-slate-500">{relative}</p> : null}
+      <p className="mt-1 text-xs text-slate-500">
+        via {formatSourceLabel(run.source)}
+        {run.filename_vs || run.filename_vr ? (
+          <>
+            {" "}
+            · {run.filename_vs ? `VS: ${run.filename_vs}` : ""}
+            {run.filename_vs && run.filename_vr ? " · " : ""}
+            {run.filename_vr ? `VR: ${run.filename_vr}` : ""}
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
 }
 
 async function copyText(value) {
@@ -191,6 +262,10 @@ function IntegrationPanel({
   const [creating, setCreating] = useState(false);
   const [disablingId, setDisablingId] = useState("");
   const [revealedKey, setRevealedKey] = useState("");
+  const [syncSummary, setSyncSummary] = useState({ lastSchedule: null, lastRotation: null, lastAny: null });
+  const [syncLoading, setSyncLoading] = useState(false);
+
+  const showVesselSync = integration.type === INBOUND_INTEGRATION_TYPES.VESSEL_SCHEDULE;
 
   const headerExamples = useMemo(
     () =>
@@ -227,6 +302,26 @@ function IntegrationPanel({
   useEffect(() => {
     loadCredentials();
   }, [loadCredentials]);
+
+  const loadSyncStatus = useCallback(async () => {
+    if (!siteId || !showVesselSync) {
+      setSyncSummary({ lastSchedule: null, lastRotation: null, lastAny: null });
+      return;
+    }
+    setSyncLoading(true);
+    try {
+      const runs = await fetchVesselIngestRuns(siteId);
+      setSyncSummary(summarizeVesselIngestSync(runs));
+    } catch {
+      setSyncSummary({ lastSchedule: null, lastRotation: null, lastAny: null });
+    } finally {
+      setSyncLoading(false);
+    }
+  }, [showVesselSync, siteId]);
+
+  useEffect(() => {
+    loadSyncStatus();
+  }, [loadSyncStatus]);
 
   async function handleCreateKey() {
     if (!siteId) return;
@@ -279,6 +374,32 @@ function IntegrationPanel({
       <div className="space-y-5 px-4 py-4 md:px-5">
         {error ? (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+        ) : null}
+
+        {showVesselSync ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Last sync</p>
+              <button
+                type="button"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                onClick={loadSyncStatus}
+                disabled={syncLoading}
+              >
+                {syncLoading ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <SyncStatusCard title="Vessel schedule (VS)" run={syncSummary.lastSchedule} />
+              <SyncStatusCard title="Vessel rotation (VR)" run={syncSummary.lastRotation} />
+            </div>
+            {syncSummary.lastAny ? (
+              <p className="text-xs text-slate-500">
+                Most recent ingest of any type: {formatDateTime(syncSummary.lastAny.finished_at || syncSummary.lastAny.created_at)}
+                {syncSummary.lastAny.source === "integration_api" ? " (API)" : ""}
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">

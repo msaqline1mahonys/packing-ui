@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
 import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
 
+import { isSignedIn } from "@/lib/auth-session";
 import { useDisableNumberInputScroll } from "@/lib/number-input";
 import { SITE_CHANGED_EVENT } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,12 @@ function AppShellInner({ children }) {
   const { dock, isVertical, verticalExpanded } = useNavDock();
   const packingScheduleRoute = pathname.startsWith("/packing-schedule");
   const [contentKey, setContentKey] = useState(0);
+  const [authReady, setAuthReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
+  const isAuthRoute = AUTH_ROUTES.some((r) => pathname.startsWith(r));
+  const isPrint = isPrintRoute(pathname);
+  const isPublicRoute = isAuthRoute || isPrint;
 
   useEffect(() => {
     const onSiteChanged = () => setContentKey((key) => key + 1);
@@ -58,17 +65,22 @@ function AppShellInner({ children }) {
   }, []);
 
   useEffect(() => {
-    const isAuthRoute = AUTH_ROUTES.some((r) => pathname.startsWith(r));
-    const isAuthenticated = localStorage.getItem("isAuthenticated") === "true";
+    const sessionActive = isSignedIn();
+    setSignedIn(sessionActive);
+    setAuthReady(true);
 
-    if (!isAuthenticated && !isAuthRoute) {
-      router.push("/login");
+    if (!sessionActive && !isPublicRoute) {
+      router.replace("/login");
     }
-  }, [pathname, router]);
+  }, [pathname, router, isPublicRoute]);
 
   /* Auth and print pages bypass the ERP shell entirely */
-  if (AUTH_ROUTES.some((r) => pathname.startsWith(r)) || isPrintRoute(pathname)) {
+  if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  if (!authReady || !signedIn) {
+    return null;
   }
 
   if (!isVertical) {

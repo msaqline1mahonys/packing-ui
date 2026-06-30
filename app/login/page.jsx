@@ -10,7 +10,7 @@ import {
   authInputClass,
   authLabelClass,
 } from "@/components/auth-layout";
-import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import { isSignedIn, notifyAuthSessionChanged } from "@/lib/auth-session";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -31,8 +31,8 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") === "true") {
-      router.push("/");
+    if (isSignedIn()) {
+      router.replace("/");
     }
   }, [router]);
 

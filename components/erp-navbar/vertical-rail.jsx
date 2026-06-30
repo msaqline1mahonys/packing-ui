@@ -7,7 +7,7 @@ import * as Avatar from "@radix-ui/react-avatar";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 
-import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import { clearAuthSession } from "@/lib/auth-session";
 import { cn } from "@/lib/utils";
 
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -525,11 +525,8 @@ export function ErpVerticalRail({ edge }) {
                 <button
                   type="button"
                   onClick={() => {
-                    localStorage.removeItem("isAuthenticated");
-                    localStorage.removeItem("authToken");
-                    localStorage.removeItem("authPayload");
-                    notifyAuthSessionChanged();
-                    router.push("/login");
+                    clearAuthSession();
+                    router.replace("/login");
                   }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left outline-none transition-colors hover:bg-red-50 hover:text-red-800"
                 >

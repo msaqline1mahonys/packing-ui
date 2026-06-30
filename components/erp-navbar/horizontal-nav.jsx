@@ -8,7 +8,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { notifyAuthSessionChanged } from "@/lib/auth-session";
+import { clearAuthSession } from "@/lib/auth-session";
 
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
@@ -152,11 +152,8 @@ export function ErpHorizontalNav({ edge }) {
                 <button
                   type="button"
                   onClick={() => {
-                    localStorage.removeItem("isAuthenticated");
-                    localStorage.removeItem("authToken");
-                    localStorage.removeItem("authPayload");
-                    notifyAuthSessionChanged();
-                    router.push("/login");
+                    clearAuthSession();
+                    router.replace("/login");
                   }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left outline-none hover:bg-red-50 hover:text-red-800"
                 >

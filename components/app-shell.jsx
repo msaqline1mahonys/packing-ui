@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ErpNavbar, NavDockProvider, SiteProvider, useNavDock } from "@/components/erp-navbar";
 import { useAuthNavUser } from "@/components/erp-navbar/use-auth-nav-user";
 
-import { isSignedIn } from "@/lib/auth-session";
+import {
+  AUTH_SESSION_EXPIRED_EVENT,
+  isSignedIn,
+  redirectToLogin,
+  validateAuthSession,
+} from "@/lib/auth-session";
 import { useDisableNumberInputScroll } from "@/lib/number-input";
 import { SITE_CHANGED_EVENT } from "@/lib/site-switch";
 import { cn } from "@/lib/utils";
@@ -53,6 +58,7 @@ function AppShellInner({ children }) {
   const [contentKey, setContentKey] = useState(0);
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const hasValidatedSessionRef = useRef(false);
 
   const isAuthRoute = AUTH_ROUTES.some((r) => pathname.startsWith(r));
   const isPrint = isPrintRoute(pathname);
@@ -65,14 +71,58 @@ function AppShellInner({ children }) {
   }, []);
 
   useEffect(() => {
-    const sessionActive = isSignedIn();
-    setSignedIn(sessionActive);
-    setAuthReady(true);
+    let cancelled = false;
 
-    if (!sessionActive && !isPublicRoute) {
-      router.replace("/login");
+    async function checkAuth() {
+      if (isPublicRoute) {
+        setAuthReady(true);
+        return;
+      }
+
+      if (!isSignedIn()) {
+        if (!cancelled) {
+          setSignedIn(false);
+          setAuthReady(true);
+          router.replace("/login");
+        }
+        return;
+      }
+
+      if (!hasValidatedSessionRef.current) {
+        hasValidatedSessionRef.current = true;
+        const valid = await validateAuthSession();
+        if (cancelled) return;
+
+        if (!valid) {
+          setSignedIn(false);
+          setAuthReady(true);
+          redirectToLogin();
+          return;
+        }
+      }
+
+      setSignedIn(true);
+      setAuthReady(true);
     }
+
+    checkAuth();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, router, isPublicRoute]);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      hasValidatedSessionRef.current = false;
+      setSignedIn(false);
+      setAuthReady(true);
+      router.replace("/login");
+    };
+
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired);
+  }, [router]);
 
   /* Auth and print pages bypass the ERP shell entirely */
   if (isPublicRoute) {

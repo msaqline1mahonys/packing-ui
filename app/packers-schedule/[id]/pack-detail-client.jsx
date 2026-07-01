@@ -59,6 +59,7 @@ import {
   createContainerReplacement,
   updatePack,
 } from "@/lib/api/packing";
+import { fetchWeighbridgesList, readWeighbridge } from "@/lib/api/reference-data";
 import { resolvePackLocationName } from "@/lib/pack-container-prefill";
 import { buildContainerApiRecord } from "@/lib/pack-container-payload";
 import { fetchPack } from "@/lib/pack-schedule-store";
@@ -748,6 +749,53 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
       queueMicrotask(() => {
         void saveContainerRecord(nextContainer);
       });
+    }
+  }
+
+  const [weighbridges, setWeighbridges] = useState([]);
+  useEffect(() => {
+    let active = true;
+    fetchWeighbridgesList()
+      .then((rows) => {
+        if (active) setWeighbridges(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Resolve the container's scale via its packer (container weighbridges link to a packer).
+  const containerWeighbridge = useMemo(() => {
+    if (!selectedContainer) return null;
+    const scales = weighbridges.filter((w) => (w?.type ?? "container") === "container");
+    const packerName = String(selectedContainer.packer ?? selectedContainer.packerName ?? "").trim().toLowerCase();
+    const packerId = String(selectedContainer.packerId ?? selectedContainer.packer_id ?? "");
+    return (
+      scales.find((w) => {
+        const wPackerId = String(w?.packer_id ?? w?.packerId ?? "");
+        const wPackerName = String(w?.packer?.name ?? "").trim().toLowerCase();
+        return (packerId && wPackerId && wPackerId === packerId) || (packerName && wPackerName && wPackerName === packerName);
+      }) ?? null
+    );
+  }, [weighbridges, selectedContainer]);
+
+  async function getContainerWeight(measurement) {
+    if (!containerWeighbridge) {
+      showContainerValidationError("No weighbridge is linked to this container's packer.");
+      return;
+    }
+    try {
+      const data = await readWeighbridge(containerWeighbridge.id, {
+        measurement,
+        source_type: "pack_container",
+        source_id: selectedContainer?.id,
+      });
+      const weight = Number(data?.weight);
+      if (!Number.isFinite(weight)) throw new Error("No weight returned from the weighbridge.");
+      updateSelectedContainer({ [measurement === "tare" ? "tare" : "grossWeight"]: weight });
+    } catch (err) {
+      showContainerValidationError(err?.message || "Unable to read weight from the weighbridge.");
     }
   }
 
@@ -1743,6 +1791,8 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
               isImportPack={isImportJob}
               packStatus={packRow?.status}
               readOnly={containerFieldsLocked}
+              onGetWeight={getContainerWeight}
+              weighbridgeLinked={Boolean(containerWeighbridge)}
             />
 
             {!isImportJob && packCommodityTypeId ? (

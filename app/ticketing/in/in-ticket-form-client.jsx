@@ -28,6 +28,7 @@ import {
 } from "@/lib/ticketing-api";
 import { DEMO_TESTS } from "@/lib/demo-in-ticket-data";
 import { fetchLocationUtilization, fetchTransactions } from "@/lib/transactions-api";
+import { fetchWeighbridgesList, readWeighbridge } from "@/lib/api/reference-data";
 import SeasonSelect from "@/components/ticketing/season-select";
 import {
   displayFromStorageKg,
@@ -98,6 +99,7 @@ function buildBlankTicket(direction) {
     cmoId: null,
     truck: null,
     truckId: null,
+    weighbridgeId: null,
     customerId: null,
     commodityTypeId: null,
     commodityId: null,
@@ -188,6 +190,7 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [weighbridges, setWeighbridges] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [commodityTypes, setCommodityTypes] = useState([]);
   const [commodities, setCommodities] = useState([]);
@@ -420,11 +423,13 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
       setLoading(true);
       setError("");
       try {
-        const [formData, utilData] = await Promise.all([
+        const [formData, utilData, wbData] = await Promise.all([
           fetchTicketFormData(cmoDirection),
           fetchLocationUtilization().catch(() => []),
+          fetchWeighbridgesList().catch(() => []),
         ]);
         if (cancelled) return;
+        setWeighbridges(Array.isArray(wbData) ? wbData : []);
         setCmos(formData.cmos);
         setCustomers(formData.customers);
         setCommodityTypes(formData.commodityTypes);
@@ -495,6 +500,51 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
 
   const grossTotal = useMemo(() => (ticket.grossWeights || []).reduce((a, b) => a + b, 0), [ticket.grossWeights]);
   const tareTotal = useMemo(() => (ticket.tareWeights || []).reduce((a, b) => a + b, 0), [ticket.tareWeights]);
+
+  // Truck tickets pull from the site's default truck weighbridge, or a per-ticket override.
+  const defaultTruckWeighbridge = useMemo(
+    () => weighbridges.find((w) => w?.type === "truck" && (w?.is_default ?? w?.isDefault)) ?? null,
+    [weighbridges]
+  );
+
+  const truckWeighbridgeOptions = useMemo(
+    () =>
+      weighbridges
+        .filter((w) => w?.type === "truck")
+        .map((w) => ({
+          value: w.id,
+          label: (w?.is_default ?? w?.isDefault) ? `${w.name} (default)` : w.name,
+        })),
+    [weighbridges]
+  );
+
+  // Override wins; otherwise fall back to the site default.
+  const activeTruckWeighbridge = useMemo(() => {
+    if (ticket.weighbridgeId) {
+      return weighbridges.find((w) => String(w.id) === String(ticket.weighbridgeId)) ?? null;
+    }
+    return defaultTruckWeighbridge;
+  }, [ticket.weighbridgeId, weighbridges, defaultTruckWeighbridge]);
+
+  async function readTruckWeight(measurement) {
+    if (!activeTruckWeighbridge) {
+      setError("No truck weighbridge is set for this site. Set one in Reference Data → Weighbridge.");
+      return null;
+    }
+    try {
+      const data = await readWeighbridge(activeTruckWeighbridge.id, {
+        measurement,
+        source_type: "ticket",
+        source_id: ticket?.id || null,
+      });
+      const weight = Number(data?.weight);
+      if (!Number.isFinite(weight)) throw new Error("No weight returned from the weighbridge.");
+      return weight;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to read weight from the weighbridge.");
+      return null;
+    }
+  }
   const netTotal = grossTotal - tareTotal;
 
   const requiresCommodityConfirmation = useMemo(
@@ -973,6 +1023,19 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
               date={ticket.date}
               detailPathBase={detailPathBase}
             />
+            {truckWeighbridgeOptions.length > 0 ? (
+              <div className="mb-3 max-w-xs">
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-600">Truck Weighbridge</label>
+                <ClutchSelect
+                  options={truckWeighbridgeOptions}
+                  value={truckWeighbridgeOptions.find((o) => String(o.value) === String(activeTruckWeighbridge?.id ?? "")) ?? null}
+                  onChange={(option) => setTicket((prev) => ({ ...prev, weighbridgeId: option ? option.value : null }))}
+                  isDisabled={isCompleted}
+                  isClearable
+                  placeholder="Site default"
+                />
+              </div>
+            ) : null}
             <div className="grid gap-3 xl:grid-cols-2">
               {isIncoming ? (
                 <>
@@ -993,6 +1056,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
                     onRemove={(i) => removeWeight("grossWeights", i)}
+                    onGetWeight={readTruckWeight}
+                    weighbridgeReady={Boolean(activeTruckWeighbridge)}
                   />
                   <WeightSection
                     label="Tare Weight"
@@ -1011,6 +1076,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
                     onRemove={(i) => removeWeight("tareWeights", i)}
+                    onGetWeight={readTruckWeight}
+                    weighbridgeReady={Boolean(activeTruckWeighbridge)}
                   />
                 </>
               ) : (
@@ -1032,6 +1099,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("tareWeights", i, v)}
                     onRemove={(i) => removeWeight("tareWeights", i)}
+                    onGetWeight={readTruckWeight}
+                    weighbridgeReady={Boolean(activeTruckWeighbridge)}
                   />
                   <WeightSection
                     label="Gross Weight"
@@ -1050,6 +1119,8 @@ export default function InTicketFormClient({ mode, ticketId: routeTicketId, dire
                     }}
                     onUpdateDateTime={(i, v) => updateWeightDateTime("grossWeights", i, v)}
                     onRemove={(i) => removeWeight("grossWeights", i)}
+                    onGetWeight={readTruckWeight}
+                    weighbridgeReady={Boolean(activeTruckWeighbridge)}
                   />
                 </>
               )}
@@ -1886,6 +1957,8 @@ function WeightSection({
   onUpdate,
   onUpdateDateTime,
   onRemove,
+  onGetWeight,
+  weighbridgeReady = false,
 }) {
   const displayWeights = weights.length === 0 ? [0] : weights;
   const displayDateTimes = dateTimes || [];
@@ -1893,6 +1966,33 @@ function WeightSection({
   const totalFormatted = formatWeightFromStorageKg(total, unitType);
   const isGross = label.toLowerCase().includes("gross");
   const hasTotal = total > 0;
+  const [weightBusy, setWeightBusy] = useState(false);
+
+  async function fillFromWeighbridge() {
+    if (!onGetWeight || weightBusy) return;
+    setWeightBusy(true);
+    try {
+      const tons = await onGetWeight(isGross ? "gross" : "tare");
+      if (Number.isFinite(Number(tons))) {
+        onUpdate(0, storageKgFromDisplay(String(tons), unitType));
+        onUpdateDateTime?.(0, nowDatetimeLocal());
+      }
+    } finally {
+      setWeightBusy(false);
+    }
+  }
+
+  const getWeightButton =
+    onGetWeight && weighbridgeReady && !disabled ? (
+      <button
+        type="button"
+        onClick={fillFromWeighbridge}
+        disabled={weightBusy}
+        className="rounded-md border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+      >
+        {weightBusy ? "Reading…" : "Get weight"}
+      </button>
+    ) : null;
 
   return (
     <div className={cn("mt-3", hasError && "rounded-lg ring-2 ring-red-200 p-1")}>
@@ -1927,8 +2027,9 @@ function WeightSection({
           </span>
         </div>
       ) : (
-        <div className="mb-2">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <span className={cn("text-xs font-bold uppercase tracking-wide", hasError ? "text-red-600" : "text-slate-600")}>{label}</span>
+          {getWeightButton}
         </div>
       )}
       <div className="flex flex-wrap items-start gap-2.5">

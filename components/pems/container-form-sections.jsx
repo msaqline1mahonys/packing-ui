@@ -244,12 +244,35 @@ export default function ContainerFormSections({
   packStatus = "",
   readOnly = false,
   containerNumberRequired = false,
+  onGetWeight = null,
+  weighbridgeLinked = false,
 }) {
   const names = { ...defaultFieldNames, ...(fieldNames || {}) };
   const setField = (key, value) => {
     if (readOnly) return;
     onChange?.({ [names[key] || key]: value });
   };
+  const [weightBusy, setWeightBusy] = useState("");
+  const handleGetWeight = async (measurement, field) => {
+    if (!onGetWeight || weightBusy) return;
+    setWeightBusy(field);
+    try {
+      await onGetWeight(measurement);
+    } finally {
+      setWeightBusy("");
+    }
+  };
+  const getWeightAction = (measurement, field) =>
+    onGetWeight && weighbridgeLinked && !readOnly ? (
+      <button
+        type="button"
+        onClick={() => handleGetWeight(measurement, field)}
+        disabled={Boolean(weightBusy)}
+        className="rounded-md border border-brand/30 bg-brand/5 px-2 py-0.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand/10 disabled:opacity-50"
+      >
+        {weightBusy === field ? "Reading…" : "Get weight"}
+      </button>
+    ) : null;
   const containerNoValue = getValue(container, names, "containerNo");
   const sealNoValue = getValue(container, names, "sealNo");
   const grossWeightValue = getValue(container, names, "grossWeight");
@@ -591,6 +614,7 @@ export default function ContainerFormSections({
                 inputClass={inputClass}
                 error={grossWeightError}
                 readOnly={readOnly}
+                action={getWeightAction("gross", "grossWeight")}
               />
               <PemsInput
                 label="Container Tare"
@@ -601,11 +625,29 @@ export default function ContainerFormSections({
                 inputClass={inputClass}
                 readOnly={readOnly}
               />
-              <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
+              <PemsInput
+                label="Tare"
+                value={getValue(container, names, "tare")}
+                onChange={(value) => setField("tare", value)}
+                type="number"
+                step="0.01"
+                inputClass={inputClass}
+                readOnly={readOnly}
+                action={getWeightAction("tare", "tare")}
+              />
             </>
           ) : (
             <>
-              <PemsInput label="Tare" value={getValue(container, names, "tare")} onChange={(value) => setField("tare", value)} type="number" step="0.01" inputClass={inputClass} readOnly={readOnly} />
+              <PemsInput
+                label="Tare"
+                value={getValue(container, names, "tare")}
+                onChange={(value) => setField("tare", value)}
+                type="number"
+                step="0.01"
+                inputClass={inputClass}
+                readOnly={readOnly}
+                action={getWeightAction("tare", "tare")}
+              />
               <PemsInput
                 label="Container Tare"
                 value={getValue(container, names, "containerTareWeight")}
@@ -625,6 +667,7 @@ export default function ContainerFormSections({
                 inputClass={inputClass}
                 error={grossWeightError}
                 readOnly={readOnly}
+                action={getWeightAction("gross", "grossWeight")}
               />
               <PemsInput label="Nett" value={getValue(container, names, "nettWeight")} readOnly inputClass={inputClass} />
             </>
@@ -861,10 +904,13 @@ export default function ContainerFormSections({
   );
 }
 
-function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, min, max, inputClass, error, placeholder, required = false }) {
+function PemsInput({ label, value, onChange, type = "text", readOnly = false, step, min, max, inputClass, error, placeholder, required = false, action = null }) {
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium text-slate-600">{label}</label>
+      <div className="flex min-h-5 items-center justify-between gap-2">
+        <label className="block text-sm font-medium text-slate-600">{label}</label>
+        {action}
+      </div>
       <input
         className={cn(
           inputClass,

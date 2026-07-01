@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Grid } from "@/components/clutch-table";
 import { Button } from "@/components/ui/button";
 import ClutchFormField from "@/components/form/clutch-form-field";
+import PackFormClutchSelect from "@/components/packing-schedule/pack-form-clutch-select";
+import { PackFormQuickAddProvider } from "@/components/packing-schedule/pack-form-quick-add-provider";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { useAutoOpenAddModal } from "@/lib/hooks/use-auto-open-add-modal";
 import { buildRequiredFieldErrorsFromRules, clearFieldError } from "@/lib/form-validation";
@@ -433,15 +435,26 @@ export default function CommodityPage() {
 
   const modalError = modalMode ? error : "";
 
-  const commodityTypeField = useMemo(
-    () => ({
-      key: "commodityTypeId",
-      label: "Commodity Type",
-      type: "select",
-      required: true,
-      options: commodityTypes.map((ct) => ({ value: String(ct.id), label: ct.name })),
-    }),
+  const handleQuickAddEntityCreated = useCallback((entityKey, created) => {
+    if (entityKey !== "commodityType" || !created?.id) return;
+    const id = String(created.id);
+    const name = created.name ?? "";
+    setCommodityTypes((prev) => {
+      if (prev.some((ct) => String(ct.id) === id)) return prev;
+      return [{ id: created.id, name }, ...prev];
+    });
+    setDraft((prev) => ({ ...prev, commodityTypeId: id }));
+    setFieldErrors((prev) => clearFieldError(prev, "commodityTypeId"));
+  }, []);
+
+  const commodityTypeSelectOptions = useMemo(
+    () => commodityTypes.map((ct) => ({ value: String(ct.id), label: ct.name })),
     [commodityTypes]
+  );
+
+  const commodityTypeQuickAddLookups = useMemo(
+    () => ({ commodityTypes: commodityTypeSelectOptions }),
+    [commodityTypeSelectOptions]
   );
 
   const commodityCodeField = useMemo(
@@ -560,17 +573,33 @@ export default function CommodityPage() {
         {modalError ? (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{modalError}</div>
         ) : null}
+        <PackFormQuickAddProvider
+          lookupOptions={commodityTypeQuickAddLookups}
+          onEntityCreated={handleQuickAddEntityCreated}
+        >
         <div className="grid gap-3 sm:grid-cols-2">
-          <ClutchFormField
-            field={commodityTypeField}
-            value={draft.commodityTypeId}
-            disabled={isSaving}
-            hasError={fieldErrors.commodityTypeId}
-            onChange={(value) => {
-              setFieldErrors((prev) => clearFieldError(prev, "commodityTypeId"));
-              setDraft((prev) => ({ ...prev, commodityTypeId: value }));
-            }}
-          />
+          <div className="space-y-1">
+            <label className={cn(formLabelClass, fieldErrors.commodityTypeId && formLabelErrorClass)}>
+              Commodity Type
+              <span className="text-red-500"> *</span>
+            </label>
+            <PackFormClutchSelect
+              quickAdd="commodityType"
+              placeholder="Select..."
+              options={commodityTypeSelectOptions}
+              value={
+                commodityTypeSelectOptions.find(
+                  (o) => String(o.value) === String(draft.commodityTypeId ?? "")
+                ) ?? null
+              }
+              isDisabled={isSaving}
+              error={fieldErrors.commodityTypeId ? "Required" : undefined}
+              onChange={(option) => {
+                setFieldErrors((prev) => clearFieldError(prev, "commodityTypeId"));
+                setDraft((prev) => ({ ...prev, commodityTypeId: option ? option.value : "" }));
+              }}
+            />
+          </div>
           <ClutchFormField
             field={commodityCodeField}
             value={draft.commodityCode}
@@ -793,6 +822,7 @@ export default function CommodityPage() {
             {isSaving ? "Saving…" : modalMode === "edit" ? "Save changes" : "Create"}
           </Button>
         </div>
+        </PackFormQuickAddProvider>
       </Modal>
 
       {isMobile && showGoToTop ? (

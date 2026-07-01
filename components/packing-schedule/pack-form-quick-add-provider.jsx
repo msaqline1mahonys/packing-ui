@@ -6,7 +6,7 @@ import ClutchSelect, { toOptions } from "@/components/custom/ClutchSelect";
 import { Button } from "@/components/ui/button";
 import { useInvalidateReferenceData } from "@/lib/hooks/use-reference-data-queries";
 import { registerPackFormQuickAdd } from "@/lib/pack-form-quick-add";
-import { PACK_FORM_QUICK_ADD_CONFIG, getQuickAddLabel } from "@/lib/pack-form-quick-add-config";
+import { PACK_FORM_QUICK_ADD_CONFIG, getQuickAddLabel, quickAddCreatedOption } from "@/lib/pack-form-quick-add-config";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 
@@ -23,25 +23,46 @@ export function usePackFormQuickAdd() {
   return ctx;
 }
 
-/** Optional hook for components that may render outside the pack form. */
 export function usePackFormQuickAddOptional() {
   return useContext(PackFormQuickAddContext);
 }
 
-function resolveFieldOptions(field, lookupOptions) {
+function resolveFieldOptions(field, lookupOptions, createdOptions) {
+  let options = [];
   if (field.optionsKey && lookupOptions?.[field.optionsKey]) {
-    return lookupOptions[field.optionsKey];
+    options = lookupOptions[field.optionsKey];
+  } else if (Array.isArray(field.options)) {
+    options = field.options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt } : opt));
   }
-  if (Array.isArray(field.options)) {
-    return field.options.map((opt) =>
-      typeof opt === "string" ? { value: opt, label: opt } : opt,
-    );
+  if (field.optionsKey && createdOptions[field.optionsKey]?.length) {
+    const seen = new Set(options.map((opt) => String(opt.value)));
+    const extra = createdOptions[field.optionsKey].filter((opt) => !seen.has(String(opt.value)));
+    options = [...extra, ...options];
   }
-  return [];
+  return options;
 }
 
-function QuickAddFieldInput({ field, value, onChange, disabled, lookupOptions }) {
-  const options = resolveFieldOptions(field, lookupOptions);
+function parentFieldPatch(parentEntityKey, childEntityKey, created) {
+  const parentConfig = PACK_FORM_QUICK_ADD_CONFIG[parentEntityKey];
+  const field = parentConfig?.fields?.find((f) => f.quickAdd === childEntityKey);
+  const option = quickAddCreatedOption(childEntityKey, created);
+  if (!field || !option) return null;
+  return { field, option };
+}
+
+function QuickAddFieldInput({ field, value, onChange, disabled, lookupOptions, createdOptions, openQuickAdd }) {
+  const options = resolveFieldOptions(field, lookupOptions, createdOptions);
+  const selectOptions = toOptions(options);
+  const addNewProps =
+    field.quickAdd && openQuickAdd
+      ? {
+          addNew: {
+            label: getQuickAddLabel(field.quickAdd),
+            onAddNew: () => openQuickAdd(field.quickAdd),
+          },
+        }
+      : {};
+
   return (
     <div className={cn("space-y-1", field.wide && "sm:col-span-2")}>
       <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
@@ -51,10 +72,11 @@ function QuickAddFieldInput({ field, value, onChange, disabled, lookupOptions })
       {field.type === "select" ? (
         <ClutchSelect
           placeholder="Select..."
-          options={toOptions(options)}
-          value={toOptions(options).find((o) => String(o.value) === String(value ?? "")) ?? null}
+          options={selectOptions}
+          value={selectOptions.find((o) => String(o.value) === String(value ?? "")) ?? null}
           isDisabled={disabled}
           onChange={(option) => onChange(option ? option.value : "")}
+          {...addNewProps}
         />
       ) : (
         <input
@@ -71,45 +93,19 @@ function QuickAddFieldInput({ field, value, onChange, disabled, lookupOptions })
   );
 }
 
-function PackFormQuickAddDialog({ entityKey, lookupOptions, context, onClose, onSaved }) {
-  const config = PACK_FORM_QUICK_ADD_CONFIG[entityKey];
-  const invalidateReferenceData = useInvalidateReferenceData();
-  const [draft, setDraft] = useState(() => config?.initialValues?.(context) ?? {});
-  const [error, setError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    if (!config) return;
-    setDraft(config.initialValues(context));
-    setError("");
-    setIsSaving(false);
-  }, [entityKey, config, context]);
-
+function PackFormQuickAddDialog({
+  entry,
+  lookupOptions,
+  createdOptions,
+  openQuickAdd,
+  onClose,
+  onFieldChange,
+  onSave,
+  isSaving,
+  error,
+}) {
+  const config = PACK_FORM_QUICK_ADD_CONFIG[entry.entityKey];
   if (!config) return null;
-
-  const setField = (key, value) => setDraft((prev) => ({ ...prev, [key]: value }));
-
-  async function handleSave() {
-    const validationError = config.validate?.(draft);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setIsSaving(true);
-    setError("");
-    try {
-      const created = await config.save(draft, context);
-      if (config.invalidateKey) {
-        await invalidateReferenceData(config.invalidateKey);
-      }
-      onSaved?.(created);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -142,10 +138,12 @@ function PackFormQuickAddDialog({ entityKey, lookupOptions, context, onClose, on
               <QuickAddFieldInput
                 key={field.key}
                 field={field}
-                value={draft[field.key]}
+                value={entry.draft[field.key]}
                 disabled={isSaving}
                 lookupOptions={lookupOptions}
-                onChange={(value) => setField(field.key, value)}
+                createdOptions={createdOptions}
+                openQuickAdd={openQuickAdd}
+                onChange={(value) => onFieldChange(field.key, value)}
               />
             ))}
           </div>
@@ -153,7 +151,7 @@ function PackFormQuickAddDialog({ entityKey, lookupOptions, context, onClose, on
             <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>
-            <Button type="button" size="sm" onClick={handleSave} disabled={isSaving}>
+            <Button type="button" size="sm" onClick={onSave} disabled={isSaving}>
               {isSaving ? "Saving…" : "Create"}
             </Button>
           </div>
@@ -167,11 +165,19 @@ export function PackFormQuickAddProvider({
   children,
   customHandlers = {},
   lookupOptions = {},
-  context = {},
+  context: contextProp,
   onEntityCreated,
 }) {
-  const [activeEntity, setActiveEntity] = useState(null);
-  const [onCreatedRef, setOnCreatedRef] = useState(null);
+  const invalidateReferenceData = useInvalidateReferenceData();
+  const [stack, setStack] = useState([]);
+  const [createdOptions, setCreatedOptions] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const context = useMemo(
+    () => ({ defaultSiteId: contextProp?.defaultSiteId ?? "" }),
+    [contextProp?.defaultSiteId],
+  );
 
   const openQuickAdd = useCallback(
     (entityKey, { onCreated } = {}) => {
@@ -179,44 +185,114 @@ export function PackFormQuickAddProvider({
         customHandlers[entityKey]({ onCreated });
         return;
       }
-      if (!PACK_FORM_QUICK_ADD_CONFIG[entityKey]) return;
-      setOnCreatedRef(() => onCreated ?? null);
-      setActiveEntity(entityKey);
+      const config = PACK_FORM_QUICK_ADD_CONFIG[entityKey];
+      if (!config) return;
+      setError("");
+      setStack((prev) => [
+        ...prev,
+        { entityKey, draft: config.initialValues(context), onCreated: onCreated ?? null },
+      ]);
     },
-    [customHandlers],
+    [customHandlers, context],
   );
 
   const closeQuickAdd = useCallback(() => {
-    setActiveEntity(null);
-    setOnCreatedRef(null);
+    setError("");
+    setStack((prev) => prev.slice(0, -1));
   }, []);
 
-  const value = useMemo(
-    () => ({
-      openQuickAdd,
-      getQuickAddLabel,
-    }),
-    [openQuickAdd],
-  );
+  const updateField = useCallback((key, value) => {
+    setStack((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const top = next[next.length - 1];
+      next[next.length - 1] = { ...top, draft: { ...top.draft, [key]: value } };
+      return next;
+    });
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    const top = stack[stack.length - 1];
+    const config = top ? PACK_FORM_QUICK_ADD_CONFIG[top.entityKey] : null;
+    if (!top || !config) return;
+
+    const validationError = config.validate?.(top.draft);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const created = await config.save(top.draft, context);
+      const option = quickAddCreatedOption(top.entityKey, created);
+      top.onCreated?.(created);
+      onEntityCreated?.(top.entityKey, created);
+
+      const parent = stack.length > 1 ? stack[stack.length - 2] : null;
+      const patch = parent ? parentFieldPatch(parent.entityKey, top.entityKey, created) : null;
+      if (patch?.field?.optionsKey && patch.option) {
+        const optionsKey = patch.field.optionsKey;
+        setCreatedOptions((prev) => ({
+          ...prev,
+          [optionsKey]: [
+            ...(prev[optionsKey] || []).filter((opt) => String(opt.value) !== String(patch.option.value)),
+            patch.option,
+          ],
+        }));
+      }
+
+      setStack((prev) => {
+        if (prev.length <= 1) return [];
+        const next = prev.slice(0, -1);
+        const parent = next[next.length - 1];
+        const patch = parentFieldPatch(parent.entityKey, top.entityKey, created);
+        if (!patch) return next;
+        next[next.length - 1] = {
+          ...parent,
+          draft: { ...parent.draft, [patch.field.key]: patch.option.value },
+        };
+        return next;
+      });
+
+      if (config.invalidateKey) {
+        await invalidateReferenceData(config.invalidateKey);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [stack, context, onEntityCreated, invalidateReferenceData]);
+
+  const value = useMemo(() => ({ openQuickAdd, getQuickAddLabel }), [openQuickAdd]);
 
   useEffect(() => {
     registerPackFormQuickAdd(openQuickAdd);
     return () => registerPackFormQuickAdd(null);
   }, [openQuickAdd]);
 
+  useEffect(() => {
+    if (stack.length === 0) setCreatedOptions({});
+  }, [stack.length]);
+
+  const top = stack[stack.length - 1] ?? null;
+
   return (
     <PackFormQuickAddContext.Provider value={value}>
       {children}
-      {activeEntity ? (
+      {top ? (
         <PackFormQuickAddDialog
-          entityKey={activeEntity}
+          entry={top}
           lookupOptions={lookupOptions}
-          context={context}
+          createdOptions={createdOptions}
+          openQuickAdd={openQuickAdd}
           onClose={closeQuickAdd}
-          onSaved={(created) => {
-            onEntityCreated?.(activeEntity, created);
-            onCreatedRef?.(created);
-          }}
+          onFieldChange={updateField}
+          onSave={handleSave}
+          isSaving={isSaving}
+          error={error}
         />
       ) : null}
     </PackFormQuickAddContext.Provider>

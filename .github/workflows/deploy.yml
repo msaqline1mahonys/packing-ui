@@ -46,8 +46,13 @@ jobs:
             cd /var/www/html/packing-ui
             git pull --ff-only origin staging
             npm ci
+            # Stop serving before replacing the build output — otherwise users can
+            # get HTML from a new build while /_next/static chunks 404/500.
+            pm2 stop packing-ui || true
+            rm -rf .next
             # NEXT_PUBLIC_API_URL is read from /var/www/html/packing-ui/.env at build time.
             npm run build
-            # Restart the pm2-managed UI (create it once: see DEPLOYMENT.md).
-            pm2 restart packing-ui --update-env
+            test -f .next/BUILD_ID
+            test -d .next/static/chunks
+            pm2 start packing-ui --update-env || PORT=3010 pm2 start npm --name packing-ui -- start
             pm2 save

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 const MORE_SETTINGS_ITEMS = [
   { label: "Site", href: "/more-settings/site" },
   { label: "Integration Settings", href: "/more-settings/integration-settings" },
+  { label: "PRA Log", href: "/more-settings/pra-log" },
 ];
 
 function MoreSettingsTabs() {

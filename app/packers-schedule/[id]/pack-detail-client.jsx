@@ -73,6 +73,7 @@ import { readSiteRows } from "@/lib/site-data";
 import { cn } from "@/lib/utils";
 import { numberInputProps } from "@/lib/number-input";
 import { createPraActionHandlers } from "@/components/pems/container-form-actions";
+import { submitPraBulk, cancelPra } from "@/lib/pra/api";
 import ContainerFormSections from "@/components/pems/container-form-sections";
 import PackerSelectModal from "@/components/packers-schedule/packer-select-modal";
 import { PackSamplesFormStrip } from "@/components/packers-schedule/pack-samples-compact";
@@ -802,10 +803,12 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
   const selectedContainerActions = useMemo(() => {
     if (!selectedContainer) return null;
     return createPraActionHandlers({
+      packId: packRow?.id,
       container: selectedContainer,
       applyPatch: updateSelectedContainer,
       fallbackPacker: packerNames[0] || "",
       onBlocked: showContainerValidationError,
+      onError: showContainerValidationError,
       isImport: isImportPack(packRow),
       packStatus: packRow?.status,
     });
@@ -829,34 +832,64 @@ export default function PackDetailClient({ packId, initialContainerId = null }) 
     });
   }
 
-  function runBulkAction(action) {
-    updateSelectedPack((current) => {
-      if (action === "pra-all") {
-        return {
+  async function runBulkAction(action) {
+    if (!packRow?.id) {
+      showContainerValidationError("Pack is not ready for PRA actions.");
+      return;
+    }
+    if (action === "pra-all") {
+      try {
+        const data = await submitPraBulk(packRow.id);
+        const results = Array.isArray(data?.results) ? data.results : [];
+        updateSelectedPack((current) => ({
           ...current,
-          containers: current.containers.map((container) => ({
-            ...container,
-            praSubmitted: true,
-            praLastStatus: "Accepted",
-            praLastSubmittedTime: new Date().toLocaleString(),
-            praLastError: "ERA0100-Message received without error",
-          })),
-        };
+          containers: current.containers.map((container) => {
+            const match = results.find((row) => row.container_id === container.id && row.success);
+            if (!match?.data?.container) return container;
+            const patch = match.data.container;
+            return {
+              ...container,
+              praSubmitted: Boolean(patch.pra_submitted ?? patch.praSubmitted),
+              praLastStatus: patch.pra_last_status ?? patch.praLastStatus ?? container.praLastStatus,
+              praLastSubmittedTime: patch.pra_last_submitted_at ?? patch.praLastSubmittedTime ?? "",
+              praLastError: patch.pra_last_error ?? patch.praLastError ?? "",
+            };
+          }),
+        }));
+        const failed = results.filter((row) => !row.success);
+        if (failed.length) {
+          showContainerValidationError(`PRA failed for ${failed.length} container(s).`);
+        }
+      } catch (err) {
+        showContainerValidationError(err?.message || "Bulk PRA submission failed.");
       }
-      if (action === "cancel-pra") {
-        return {
+      return;
+    }
+    if (action === "cancel-pra") {
+      const targets = (selectedPackDraft?.containers || []).filter((container) => container.praSubmitted);
+      if (!targets.length) return;
+      try {
+        const patches = await Promise.all(
+          targets.map(async (container) => {
+            try {
+              const result = await cancelPra(packRow.id, container.id);
+              return { id: container.id, patch: result.containerPatch || {} };
+            } catch {
+              return null;
+            }
+          })
+        );
+        updateSelectedPack((current) => ({
           ...current,
-          containers: current.containers.map((container) => ({
-            ...container,
-            praSubmitted: false,
-            praLastStatus: "Pending",
-            praLastSubmittedTime: "",
-            praLastError: "",
-          })),
-        };
+          containers: current.containers.map((container) => {
+            const match = patches.find((row) => row?.id === container.id);
+            return match?.patch ? { ...container, ...match.patch } : container;
+          }),
+        }));
+      } catch (err) {
+        showContainerValidationError(err?.message || "Bulk PRA cancellation failed.");
       }
-      return current;
-    });
+    }
   }
 
   function setPackCheck(checkKey, value) {

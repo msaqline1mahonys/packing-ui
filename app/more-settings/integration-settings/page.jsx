@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ComtracIntegrationPanel } from "@/components/integrations/comtrac-integration-panel";
+import { fetchIntegrationSettings, patchIntegrationSettings } from "@/lib/api/integration-settings";
 import { readTenantIds } from "@/lib/api/integrations";
 import { inputClassName, formLabelErrorClass } from "@/lib/form-styles";
 import { cn } from "@/lib/utils";
@@ -39,14 +40,46 @@ const pemsAuthFields = ["active", "userId", "vendorToken", "tokenExpiryDate"];
 const pemsUrlFields = ["ecrUrl", "gppirUrl", "resubmissionUrl", "fileAttachmentUrl"];
 const containerChainFields = ["active", "containerChainId", "containerChainPassword"];
 const containerSpaceFields = ["active", "containerSpaceId", "containerSpacePassword"];
-const praFields = ["active", "praInformation", "daffSiteId"];
+const praFields = [
+  "active",
+  "praInformation",
+  "daffSiteId",
+  "middlewareBaseUrl",
+  "middlewareApiKey",
+  "praStopRegisteredUsername",
+  "praWeightCertParty",
+  "praWeightCertPartyStreet",
+  "praWeightCertPartyCity",
+  "praWeightCertPartyCountry",
+  "returnEmail",
+  "email",
+  "indicator",
+];
+
+const PRA_DEFAULTS = {
+  active: false,
+  praInformation: "",
+  daffSiteId: "",
+  middlewareBaseUrl: "",
+  middlewareApiKey: "",
+  praStopRegisteredUsername: "MTSTR",
+  praWeightCertParty: "Mahonys Transport Services",
+  praWeightCertPartyStreet: "1-9 MARRINER STREET",
+  praWeightCertPartyCity: "COLAC EAST",
+  praWeightCertPartyCountry: "AUSTRALIA",
+  returnEmail: "prareceivals@mahonystransport.com.au",
+  email: "prareceivals@mahonystransport.com.au",
+  indicator: "ROAD",
+};
 const sharedFields = ["fumigationProviderName", "fumigationProviderLicense"];
 
-function getDraftFromSettings(settings = {}, fields = []) {
-  const draft = {};
+function getDraftFromSettings(settings = {}, fields = [], defaults = {}) {
+  const draft = { ...defaults };
   for (const key of fields) {
     const value = settings[key];
-    draft[key] = typeof value === "string" || typeof value === "boolean" ? value : "";
+    if (typeof value === "string" || typeof value === "boolean") {
+      draft[key] = value;
+    }
   }
   return draft;
 }
@@ -100,7 +133,9 @@ export default function IntegrationSettingsPage() {
   const [errors, setErrors] = useState({});
   const [showPemsToken, setShowPemsToken] = useState(false);
   const [showContainerChainPassword, setShowContainerChainPassword] = useState(false);
-  const [showContainerSpacePassword, setShowContainerSpacePassword] = useState(false);
+  const [showPraApiKey, setShowPraApiKey] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaveError, setSettingsSaveError] = useState("");
 
   const [pemsAuthDraft, setPemsAuthDraft] = useState({});
   const [pemsUrlDraft, setPemsUrlDraft] = useState({});
@@ -148,16 +183,33 @@ export default function IntegrationSettingsPage() {
   }, [selectedSiteId]);
 
   useEffect(() => {
-    const refreshSettings = () => {
+    let cancelled = false;
+    async function refreshSettings() {
       if (!selectedSiteId) {
         setSettingsByType({});
         return;
       }
-      setSettingsByType(readSiteIntegrationSettings(selectedSiteId));
-    };
+      setSettingsLoading(true);
+      setSettingsSaveError("");
+      try {
+        const remote = await fetchIntegrationSettings(selectedSiteId);
+        if (!cancelled) {
+          setSettingsByType(remote);
+        }
+      } catch {
+        if (!cancelled) {
+          setSettingsByType(readSiteIntegrationSettings(selectedSiteId));
+        }
+      } finally {
+        if (!cancelled) setSettingsLoading(false);
+      }
+    }
     refreshSettings();
     window.addEventListener(INTEGRATION_SETTINGS_UPDATED_EVENT, refreshSettings);
-    return () => window.removeEventListener(INTEGRATION_SETTINGS_UPDATED_EVENT, refreshSettings);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(INTEGRATION_SETTINGS_UPDATED_EVENT, refreshSettings);
+    };
   }, [selectedSiteId]);
 
   useEffect(() => {
@@ -169,7 +221,7 @@ export default function IntegrationSettingsPage() {
     setContainerSpaceDraft(
       getDraftFromSettings(settingsByType[INTEGRATION_TYPES.CONTAINER_SPACE], containerSpaceFields)
     );
-    setPraDraft(getDraftFromSettings(settingsByType[INTEGRATION_TYPES.PRA], praFields));
+    setPraDraft(getDraftFromSettings(settingsByType[INTEGRATION_TYPES.PRA], praFields, PRA_DEFAULTS));
     setSharedDraft(getDraftFromSettings(settingsByType[INTEGRATION_TYPES.SHARED], sharedFields));
     setErrors({});
   }, [settingsByType]);
@@ -271,13 +323,55 @@ export default function IntegrationSettingsPage() {
     });
   }
 
-  function savePra() {
+  async function savePra() {
     clearPanelErrors("pra");
-    upsertIntegrationSettings(selectedSiteId, INTEGRATION_TYPES.PRA, {
+    setSettingsSaveError("");
+    if (praDraft.active) {
+      if (!String(praDraft.middlewareBaseUrl ?? "").trim()) {
+        setFieldError("pra-middlewareBaseUrl", "PRA API URL is required when PRA is active.");
+        return;
+      }
+      if (!isValidUrl(String(praDraft.middlewareBaseUrl ?? "").trim())) {
+        setFieldError("pra-middlewareBaseUrl", "Please enter a valid PRA API URL.");
+        return;
+      }
+      if (!String(praDraft.praStopRegisteredUsername ?? "").trim()) {
+        setFieldError("pra-praStopRegisteredUsername", "1-Stop registered username is required.");
+        return;
+      }
+      for (const [key, label] of [
+        ["returnEmail", "Return email"],
+        ["email", "Email"],
+      ]) {
+        const value = String(praDraft[key] ?? "").trim();
+        if (!value) {
+          setFieldError(`pra-${key}`, `${label} is required when PRA is active.`);
+          return;
+        }
+      }
+    }
+    const payload = {
       active: Boolean(praDraft.active),
       praInformation: String(praDraft.praInformation ?? "").trim(),
       daffSiteId: String(praDraft.daffSiteId ?? "").trim(),
-    });
+      middlewareBaseUrl: String(praDraft.middlewareBaseUrl ?? "").trim(),
+      middlewareApiKey: String(praDraft.middlewareApiKey ?? "").trim(),
+      praStopRegisteredUsername: String(praDraft.praStopRegisteredUsername ?? "").trim(),
+      praWeightCertParty: String(praDraft.praWeightCertParty ?? "").trim(),
+      praWeightCertPartyStreet: String(praDraft.praWeightCertPartyStreet ?? "").trim(),
+      praWeightCertPartyCity: String(praDraft.praWeightCertPartyCity ?? "").trim(),
+      praWeightCertPartyCountry: String(praDraft.praWeightCertPartyCountry ?? "").trim(),
+      returnEmail: String(praDraft.returnEmail ?? "").trim(),
+      email: String(praDraft.email ?? "").trim(),
+      indicator: String(praDraft.indicator ?? "").trim() || "ROAD",
+    };
+    try {
+      const saved = await patchIntegrationSettings(selectedSiteId, INTEGRATION_TYPES.PRA, payload);
+      upsertIntegrationSettings(selectedSiteId, INTEGRATION_TYPES.PRA, saved);
+      setSettingsByType((prev) => ({ ...prev, [INTEGRATION_TYPES.PRA]: saved }));
+    } catch (err) {
+      setSettingsSaveError(err?.message || "Failed to save PRA settings.");
+    }
   }
 
   function saveSharedDefaults() {
@@ -653,11 +747,79 @@ export default function IntegrationSettingsPage() {
               notConfigured={!panelIsConfigured(praDraft, praFields)}
               action={<Button type="button" size="sm" variant="secondary" disabled>Test Connection</Button>}
             >
+              {settingsLoading ? <p className="text-xs text-slate-500">Loading settings…</p> : null}
+              {settingsSaveError ? <p className="text-xs text-rose-600">{settingsSaveError}</p> : null}
               <ToggleRow
                 checked={Boolean(praDraft.active)}
                 onChange={(value) => setPraDraft((prev) => ({ ...prev, active: value }))}
                 label="Integration active"
               />
+              <LabeledInput
+                label="1-Stop registered username"
+                value={praDraft.praStopRegisteredUsername ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, praStopRegisteredUsername: value }))}
+                error={errors["pra-praStopRegisteredUsername"]}
+              />
+              <LabeledInput
+                label="Weight cert party"
+                value={praDraft.praWeightCertParty ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, praWeightCertParty: value }))}
+              />
+              <LabeledInput
+                label="Weight cert party street"
+                value={praDraft.praWeightCertPartyStreet ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, praWeightCertPartyStreet: value }))}
+              />
+              <LabeledInput
+                label="Weight cert party city"
+                value={praDraft.praWeightCertPartyCity ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, praWeightCertPartyCity: value }))}
+              />
+              <LabeledInput
+                label="Weight cert party country"
+                value={praDraft.praWeightCertPartyCountry ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, praWeightCertPartyCountry: value }))}
+              />
+              <LabeledInput
+                label="Return email"
+                value={praDraft.returnEmail ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, returnEmail: value }))}
+                error={errors["pra-returnEmail"]}
+              />
+              <LabeledInput
+                label="Email"
+                value={praDraft.email ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, email: value }))}
+                error={errors["pra-email"]}
+              />
+              <LabeledInput
+                label="Indicator"
+                value={praDraft.indicator ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, indicator: value }))}
+              />
+              <LabeledInput
+                label="PRA API URL (GET)"
+                value={praDraft.middlewareBaseUrl ?? ""}
+                onChange={(value) => setPraDraft((prev) => ({ ...prev, middlewareBaseUrl: value }))}
+                error={errors["pra-middlewareBaseUrl"]}
+              />
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                  Middleware API key
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className={inputClass}
+                    type={showPraApiKey ? "text" : "password"}
+                    value={praDraft.middlewareApiKey ?? ""}
+                    onChange={(event) => setPraDraft((prev) => ({ ...prev, middlewareApiKey: event.target.value }))}
+                    placeholder="API key for middleware gateway"
+                  />
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setShowPraApiKey((prev) => !prev)}>
+                    {showPraApiKey ? "Hide" : "Show"}
+                  </Button>
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                   PRA Information
@@ -676,7 +838,7 @@ export default function IntegrationSettingsPage() {
               />
               <PanelActions
                 onCancel={() =>
-                  setPraDraft(getDraftFromSettings(settingsByType[INTEGRATION_TYPES.PRA], praFields))
+                  setPraDraft(getDraftFromSettings(settingsByType[INTEGRATION_TYPES.PRA], praFields, PRA_DEFAULTS))
                 }
                 onSave={savePra}
               />

@@ -3132,10 +3132,12 @@ function NewPackFormPageInner() {
   const selectedEditContainerActions = useMemo(() => {
     if (!selectedEditContainer) return null;
     return createPraActionHandlers({
+      packId: pack.id,
       container: selectedEditContainer,
       applyPatch: (patch) => updatePackContainer(selectedEditContainer.id, patch),
       fallbackPacker: packerNames[0] || "",
       packStatus: pack.status,
+      onError: (message) => setError(message),
     });
   }, [selectedEditContainer, packerNames]);
   const stagedPemsContainers = packContainers.filter((container) => (pemsDraft.stagedContainerIds || []).includes(container.id));

@@ -30,6 +30,7 @@ import { validatePackSampleEntries } from "@/lib/pack-sample-validation";
 import { cancelPackSample } from "@/lib/pack-samples-api";
 import { commodityOptionLabel } from "@/lib/commodity-display";
 import QuickAddVesselModal from "@/components/packing-schedule/quick-add-vessel-modal";
+import VesselVoyageSelect from "@/components/packing-schedule/vessel-voyage-select";
 import { PackFormQuickAddProvider } from "@/components/packing-schedule/pack-form-quick-add-provider";
 import {
   loadCertificateTemplates,
@@ -2053,6 +2054,7 @@ function NewPackFormPageInner() {
     [containerParkOptions, transporterOptions, containerCodeOptions, queryLookups.isLoading]
   );
   const [pack, setPack] = useState(() => blankPack(currentSite));
+  const [resolvedSelectedVoyage, setResolvedSelectedVoyage] = useState(null);
   const packerSelectOptions = useMemo(
     () => packAssignedPackerOptions(pack, queryLookups.referencePackers ?? queryLookups.packers ?? []),
     [pack, queryLookups.referencePackers, queryLookups.packers]
@@ -2950,8 +2952,11 @@ function NewPackFormPageInner() {
 
   const selectedVessel = useMemo(() => {
     if (!pack.vesselDepartureId) return null;
+    if (resolvedSelectedVoyage && String(resolvedSelectedVoyage.id) === String(pack.vesselDepartureId)) {
+      return resolvedSelectedVoyage;
+    }
     return vesselVoyageOptions.find((v) => String(v.id) === String(pack.vesselDepartureId)) || null;
-  }, [pack.vesselDepartureId, vesselVoyageOptions]);
+  }, [pack.vesselDepartureId, vesselVoyageOptions, resolvedSelectedVoyage]);
   const isImportJob = pack.importExport === "Import";
   const showImportBulkSection = pack.packType === "bulk" || isImportJob;
   const vesselImportDates = useMemo(() => vesselImportScheduleFields(selectedVessel), [selectedVessel]);
@@ -3484,36 +3489,22 @@ function NewPackFormPageInner() {
   const vesselDepartureField = (
     <FormRow label={isImportJob ? "Vessel search" : "Vessel"}>
       <div className="flex items-center gap-1.5">
-        {(() => {
-          const vesselSelectOpts = vesselVoyageOptions.map((vd) => {
-            const name = vesselDisplayName(vd);
-            const voyageNo = vd.voyage_number ?? vd.voyageNumber ?? "";
-            const cutoff = vd.vessel_cutoff_date ?? vd.vesselCutoffDate ?? "";
-            const eta = vd.vessel_eta ?? vd.vesselEta ?? "";
-            const suffix = isImportJob
-              ? (eta ? ` - ETA ${formatDateDisplay(eta)}` : "")
-              : (cutoff ? ` - Cut-off ${formatDateDisplay(cutoff)}` : "");
-            return {
-              value: String(vd.id),
-              label: name + (voyageNo ? ` (${voyageNo})` : "") + suffix,
-            };
-          });
-          return (
-            <ClutchSelect
-              quickAdd="vesselVoyage"
-              placeholder="- Select vessel -"
-              options={vesselSelectOpts}
-              value={vesselSelectOpts.find((o) => String(o.value) === String(pack.vesselDepartureId ?? "")) ?? null}
-              onChange={(option) => {
-                const nextId = option ? option.value : null;
-                const voyage = nextId ? vesselVoyageOptions.find((vd) => String(vd.id) === nextId) : null;
-                setPack((prev) =>
-                  applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob, terminalOptions),
-                );
-              }}
-            />
-          );
-        })()}
+        <VesselVoyageSelect
+          className="min-w-0 flex-1"
+          quickAdd="vesselVoyage"
+          placeholder="- Select vessel -"
+          isImportJob={isImportJob}
+          value={pack.vesselDepartureId ?? ""}
+          fallbackVoyage={selectedVessel}
+          onVoyageChange={setResolvedSelectedVoyage}
+          onChange={(option) => {
+            const nextId = option ? option.value : null;
+            const voyage = option?.voyage ?? null;
+            setPack((prev) =>
+              applySelectedVoyageToPack({ ...prev, vesselDepartureId: nextId }, voyage, isImportJob, terminalOptions),
+            );
+          }}
+        />
         <Button
           type="button"
           variant="outline"

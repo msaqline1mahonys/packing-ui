@@ -32,7 +32,7 @@ const inputClass =
 
 const config = {
   title: "Vessel Voyage",
-  subtitle: "One row per voyage. Auto-updates when the vessel schedule CSV is ingested.",
+  subtitle: "One row per ship + voyage + terminal + load port + operator. 1-Stop schedules repeat the same voyage for each combination.",
   columns: [
     { key: "vesselName", label: "Vessel" },
     { key: "lloydsNumber", label: "Lloyds" },
@@ -259,7 +259,7 @@ export default function VesselVoyagePage() {
     setError("");
     try {
       const [voyagePayload, vesselsPayload, shippingPayload, terminalsPayload, portsPayload] = await Promise.all([
-        apiRequest(`${VOYAGES_ENDPOINT}?per_page=200`),
+        apiRequest(`${VOYAGES_ENDPOINT}?per_page=1000`),
         apiRequest(`${VESSELS_ENDPOINT}?per_page=500`),
         apiRequest(`${SHIPPING_LINES_ENDPOINT}?per_page=500`),
         apiRequest(`${TERMINALS_ENDPOINT}?per_page=500`),

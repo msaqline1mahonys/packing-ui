@@ -17,6 +17,7 @@ import {
   SAMPLE_STATUSES,
 } from "@/lib/Data";
 import { BulkContainerImportDialog } from "@/components/packing-schedule/bulk-container-import-dialog";
+import { MultiSelectCombobox } from "@/components/reports/multi-select-combobox";
 import PackCollectedContainersTable from "@/components/packing-schedule/pack-collected-containers-table";
 import RemovePackContainersDialog from "@/components/packing-schedule/remove-pack-containers-dialog";
 import {
@@ -24,6 +25,13 @@ import {
   countContainersForReleaseLine,
   prefillParkTransporterFromRelease,
 } from "@/lib/container-bulk-import";
+import { isMatchboxPark } from "@/lib/container-status";
+import {
+  PACK_SOURCE_TAG_OPTIONS,
+  normalizePackSourceTags,
+  withAutoMatchboxImportTag,
+  withAutoReleaseTag,
+} from "@/lib/pack-source-tags";
 import { applyContainerRemovals, validateContainersRequiredChange } from "@/lib/pack-container-sync";
 import { validateInprogressPackSave } from "@/lib/pack-inprogress-validation";
 import { validatePackSampleEntries } from "@/lib/pack-sample-validation";
@@ -134,6 +142,10 @@ const PRA_TEMPLATE_OPTIONS = ["Original", "Resubmit", "Correction"];
 
 const inputClass =
   "h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 outline-none ring-brand/15 focus:border-brand/35 focus:ring-2";
+const readOnlyInputClass = cn(
+  inputClass,
+  "border-slate-200 bg-slate-100 text-slate-500 placeholder:text-slate-400",
+);
 
 const gridClass = "grid gap-x-2.5 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
 const gridClassDense = "grid gap-x-2 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
@@ -583,6 +595,7 @@ const blankPack = (siteId) => ({
   collectFromIds: [],
   releaseIds: [],
   releaseDetails: [],
+  containerSourceTags: [],
   emptyContainerParkIds: [],
   transporterIds: [],
   assignedPackerIds: [],
@@ -855,6 +868,7 @@ function rowToPack(row, siteId, customerOpts, commodityOpts) {
     dehireByDate: formatDateTimeInput(row.dehire_by_date ?? row.dehireByDate) || "",
     finalDehireDate: formatDateTimeInput(row.final_dehire_date ?? row.finalDehireDate) || "",
     importPackNotes: (row.import_pack_notes ?? row.importPackNotes) || "",
+    containerSourceTags: normalizePackSourceTags(row.container_source_tags ?? row.containerSourceTags),
     sampleRequired: Boolean(row.sample_required ?? row.sampleRequired),
     quantityPerContainer: (row.quantity_per_container ?? row.quantityPerContainer) ?? "",
     maxQtyPerContainer: (row.max_qty_per_container ?? row.maxQtyPerContainer) ?? "",
@@ -1071,6 +1085,7 @@ function packToScheduleRow(pack, existingRow, { includeContainers = true } = {})
     dehireByDate: pack.dehireByDate || null,
     finalDehireDate: pack.finalDehireDate || null,
     importPackNotes: pack.importPackNotes || "",
+    containerSourceTags: normalizePackSourceTags(pack.containerSourceTags),
     sampleRequired: Boolean(pack.sampleRequired),
     daffPermission: pack.daffPermission || "N/A",
     edn: pack.edn || "",
@@ -2157,15 +2172,19 @@ function NewPackFormPageInner() {
       const list = getLinkedReleases(prev).filter(
         (row) => String(row.releaseId) !== String(normalized.releaseId)
       );
-      return { ...prev, releaseDetails: [...list, normalized] };
+      return { ...prev, releaseDetails: [...list, normalized], containerSourceTags: withAutoReleaseTag(prev.containerSourceTags, true) };
     });
   }
 
   function unlinkRelease(releaseId) {
-    setPack((prev) => ({
-      ...prev,
-      releaseDetails: getLinkedReleases(prev).filter((row) => String(row.releaseId) !== String(releaseId)),
-    }));
+    setPack((prev) => {
+      const nextDetails = getLinkedReleases(prev).filter((row) => String(row.releaseId) !== String(releaseId));
+      return {
+        ...prev,
+        releaseDetails: nextDetails,
+        containerSourceTags: withAutoReleaseTag(prev.containerSourceTags, nextDetails.length > 0),
+      };
+    });
     closeQuickAddRelease();
   }
 
@@ -2768,7 +2787,15 @@ function NewPackFormPageInner() {
   }
 
   async function applyBulkContainerImport(updatedContainers, appliedRows, logistics) {
-    const nextPack = { ...pack, containers: updatedContainers };
+    const parkId = logistics?.emptyContainerParkId ?? logistics?.empty_container_park_id ?? null;
+    const sourceTags = withAutoMatchboxImportTag(
+      pack.containerSourceTags,
+      isMatchboxPark(parkId, {
+        containerParkOptions,
+        releasePark: logistics?.releasePark ?? logistics?.release_park ?? "",
+      })
+    );
+    const nextPack = { ...pack, containers: updatedContainers, containerSourceTags: sourceTags };
 
     const packId = nextPack.id ?? editingRow?.id;
     if (!packId) {
@@ -3937,38 +3964,6 @@ function NewPackFormPageInner() {
                         );
                       })()}
                     </FormRow>
-                    {vesselDepartureField}
-                    {destinationCountryWarnings.length ? (
-                      <div className={cn(spanFullClass, "space-y-1.5")}>
-                        {destinationCountryWarnings.map((warning, index) => (
-                          <p
-                            key={`destination-country-warning-${index}`}
-                            className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800"
-                          >
-                            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-                            <span>{warning.description}</span>
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-                <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>
-                  {(() => {
-                    const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
-                    return (
-                      <ClutchSelect
-                        quickAdd="shippingLine"
-                        placeholder="- Select -"
-                        options={shippingLineSelectOpts}
-                        value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
-                        onChange={(option) => set("shippingLineId", option ? option.value : "")}
-                      />
-                    );
-                  })()}
-                </FormRow>
-                {!isImportJob ? (
-                  <>
                     <FormRow label="Transshipment port">
                       {(() => {
                         const transshipmentPortOpts = [
@@ -3996,8 +3991,40 @@ function NewPackFormPageInner() {
                         );
                       })()}
                     </FormRow>
+                    {destinationCountryWarnings.length ? (
+                      <div className={cn(spanFullClass, "space-y-1.5")}>
+                        {destinationCountryWarnings.map((warning, index) => (
+                          <p
+                            key={`destination-country-warning-${index}`}
+                            className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800"
+                          >
+                            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                            <span>{warning.description}</span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                {!isImportJob ? vesselDepartureField : null}
+                <FormRow label={isImportJob ? "Shipping operator" : "Shipping line"}>
+                  {(() => {
+                    const shippingLineSelectOpts = shippingLineOptions.map((l) => ({ value: String(l.id), label: `${l.name} (${l.code})` }));
+                    return (
+                      <ClutchSelect
+                        quickAdd="shippingLine"
+                        placeholder="- Select -"
+                        options={shippingLineSelectOpts}
+                        value={shippingLineSelectOpts.find((o) => String(o.value) === String(pack.shippingLineId)) ?? null}
+                        onChange={(option) => set("shippingLineId", option ? option.value : "")}
+                      />
+                    );
+                  })()}
+                </FormRow>
+                {!isImportJob ? (
+                  <>
                     <FormRow label="Transshipment port code">
-                      <input className={inputClass} value={pack.transshipmentPortCode} onChange={(e) => set("transshipmentPortCode", e.target.value)} placeholder="Code" />
+                      <input className={readOnlyInputClass} value={pack.transshipmentPortCode} readOnly disabled placeholder="Code" />
                     </FormRow>
                   </>
                 ) : null}
@@ -4039,7 +4066,7 @@ function NewPackFormPageInner() {
                   <input className={inputClass} value={pack.voyageNumber || ""} onChange={(e) => set("voyageNumber", e.target.value)} placeholder="Voyage number" />
                 </FormRow>
                 <FormRow label={isImportJob ? "Lloyds number" : "Lloyd ID"}>
-                  <input className={inputClass} value={pack.lloydId || ""} onChange={(e) => set("lloydId", e.target.value)} placeholder={isImportJob ? "Lloyds number" : "Lloyd ID"} />
+                  <input className={readOnlyInputClass} value={pack.lloydId || ""} readOnly disabled placeholder={isImportJob ? "Lloyds number" : "Lloyd ID"} />
                 </FormRow>
                 {isImportJob ? (
                   <>
@@ -4397,6 +4424,17 @@ function NewPackFormPageInner() {
                     <p className="text-[10px] text-slate-500">
                       Link reference releases to this pack. Park and transporter are set per container or via bulk import.
                     </p>
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Container Sources</p>
+                      <MultiSelectCombobox
+                        options={PACK_SOURCE_TAG_OPTIONS}
+                        value={normalizePackSourceTags(pack.containerSourceTags)}
+                        onChange={(tags) => setPack((prev) => ({ ...prev, containerSourceTags: tags }))}
+                        placeholder="Select source tags..."
+                        searchPlaceholder="Search tags..."
+                        maxChips={4}
+                      />
+                    </div>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                       Linked releases ({releaseRows.length})
                     </p>

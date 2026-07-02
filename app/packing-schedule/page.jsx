@@ -17,6 +17,7 @@ import { hasPendingVesselScheduleUpdate } from "@/lib/pack-vessel-sync";
 import { usePolling } from "@/lib/use-polling";
 import { totalNettWeight, countPackedContainers } from "@/lib/packers-container-validation";
 import { countAvailableToPackContainers, countEcFailedContainers } from "@/lib/packers-work-store";
+import { PACK_SOURCE_TAGS, formatPackSourceTags, normalizePackSourceTags, packHasSelectedSourceTag } from "@/lib/pack-source-tags";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -33,6 +34,7 @@ const TABLE_COLUMNS = [
   { key: "etd", label: "ETD", date: true },
   { key: "vesselCutoffDate", label: "Cut-off" },
   { key: "emptyPark", label: "Empty park" },
+  { key: "containerSources", label: "Container source" },
   { key: "containersRequired", label: "Cnt", numeric: true },
   { key: "availableToPackContainers", label: "Available to Pack", numeric: true },
   { key: "releaseContainers", label: "Rel. ctrs" },
@@ -329,6 +331,7 @@ export default function PackingSchedulePage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(() => [...PACK_STATUSES]);
+  const [selectedSourceTags, setSelectedSourceTags] = useState(() => [...PACK_SOURCE_TAGS]);
   const [selectedId, setSelectedId] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const tableRef = useRef(null);
@@ -386,6 +389,7 @@ export default function PackingSchedulePage() {
   const filtered = useMemo(() => {
     return rows.filter((p) => selectedStatuses.length === 0 || selectedStatuses.includes(p.status))
       .filter((p) => importExportFilter === "all" || (p.import_export ?? p.importExport) === importExportFilter)
+      .filter((p) => packHasSelectedSourceTag(p, selectedSourceTags))
       .filter((p) => {
         if (dateFilterMode === "all") return true;
         const rowDate = getDateOnlyValue(p[dateFilterField]);
@@ -401,7 +405,7 @@ export default function PackingSchedulePage() {
         if (dateTo && rowDate > dateTo) return false;
         return true;
       });
-  }, [rows, importExportFilter, selectedStatuses, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
+  }, [rows, importExportFilter, selectedStatuses, selectedSourceTags, dateFilterMode, dateFilterField, specificDate, dateFrom, dateTo]);
 
   const selected = useMemo(() => rows.find((p) => p.id === selectedId) || null, [rows, selectedId]);
   const pendingVesselUpdateCount = useMemo(
@@ -616,6 +620,28 @@ export default function PackingSchedulePage() {
                     className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
                   >
                     {item.name}: {item.count}
+                  </span>
+                ))}
+              </span>
+            );
+          },
+        };
+      }
+      if (column.key === "containerSources") {
+        return {
+          ...base,
+          valueGetter: (row) => formatPackSourceTags(row.containerSourceTags ?? row.container_source_tags),
+          renderCell: ({ row }) => {
+            const tags = normalizePackSourceTags(row.containerSourceTags ?? row.container_source_tags);
+            if (!tags.length) return "";
+            return (
+              <span className="inline-flex flex-wrap gap-1">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700"
+                  >
+                    {tag}
                   </span>
                 ))}
               </span>
@@ -841,6 +867,17 @@ export default function PackingSchedulePage() {
             options={IE_FILTER_OPTIONS}
             value={IE_FILTER_OPTIONS.find((o) => String(o.value) === String(importExportFilter)) ?? null}
             onChange={(option) => setImportExportFilter(option ? option.value : "all")}
+          />
+          <div className="h-6 w-px shrink-0 bg-slate-200" aria-hidden="true" />
+          <StatusFilterBar
+            compact
+            embedded
+            expand={false}
+            showBulkActions={false}
+            label="Sources"
+            statuses={PACK_SOURCE_TAGS}
+            selectedStatuses={selectedSourceTags}
+            onSelectedStatusesChange={setSelectedSourceTags}
           />
           <div className="ms-auto flex min-w-0 flex-wrap items-center gap-2">
             <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 p-0.5">

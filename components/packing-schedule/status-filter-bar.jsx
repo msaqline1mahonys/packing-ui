@@ -9,6 +9,8 @@ export function StatusFilterBar({
   onSelectedStatusesChange,
   compact = false,
   embedded = false,
+  expand = true,
+  showBulkActions = true,
 }) {
   const allSelected = selectedStatuses.length === statuses.length;
   const noneSelected = selectedStatuses.length === 0;
@@ -27,11 +29,12 @@ export function StatusFilterBar({
         className={cn(
           "flex flex-wrap items-center gap-x-2 gap-y-1.5",
           !embedded && "mt-2 border-t border-slate-100 pt-2",
-          embedded && "min-w-0 flex-1",
+          embedded && expand && "min-w-0 flex-1",
+          embedded && !expand && "min-w-0",
         )}
       >
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className={cn("flex min-w-0 flex-wrap items-center gap-1.5", expand && "flex-1")}>
           {statuses.map((status) => {
             const selected = selectedStatuses.includes(status);
             return (
@@ -51,25 +54,27 @@ export function StatusFilterBar({
             );
           })}
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-[10px] font-medium">
-          <button
-            type="button"
-            disabled={allSelected}
-            onClick={() => onSelectedStatusesChange([...statuses])}
-            className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            Select All
-          </button>
-          <span className="text-slate-300">|</span>
-          <button
-            type="button"
-            disabled={noneSelected}
-            onClick={() => onSelectedStatusesChange([])}
-            className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            Deselect All
-          </button>
-        </div>
+        {showBulkActions ? (
+          <div className="flex shrink-0 items-center gap-2 text-[10px] font-medium">
+            <button
+              type="button"
+              disabled={allSelected}
+              onClick={() => onSelectedStatusesChange([...statuses])}
+              className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              Select All
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              disabled={noneSelected}
+              onClick={() => onSelectedStatusesChange([])}
+              className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              Deselect All
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -100,25 +105,27 @@ export function StatusFilterBar({
             })}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium">
-          <button
-            type="button"
-            disabled={allSelected}
-            onClick={() => onSelectedStatusesChange([...statuses])}
-            className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            Select All
-          </button>
-          <span className="text-slate-300">|</span>
-          <button
-            type="button"
-            disabled={noneSelected}
-            onClick={() => onSelectedStatusesChange([])}
-            className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            Deselect All
-          </button>
-        </div>
+        {showBulkActions ? (
+          <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium">
+            <button
+              type="button"
+              disabled={allSelected}
+              onClick={() => onSelectedStatusesChange([...statuses])}
+              className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              Select All
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              disabled={noneSelected}
+              onClick={() => onSelectedStatusesChange([])}
+              className="cursor-pointer text-brand hover:text-brand/80 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              Deselect All
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

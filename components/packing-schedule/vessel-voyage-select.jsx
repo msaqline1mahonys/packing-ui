@@ -8,13 +8,12 @@ import { buildVesselVoyageSelectOption } from "@/lib/vessel-voyage-select";
 
 /**
  * Server-side searchable vessel voyage picker for the pack form.
- * Options include terminal, operator, and port so duplicate vessel+voyage rows are distinguishable.
+ * Each option shows: ship name · voyage · operator · terminal code.
  */
 export default function VesselVoyageSelect({
   value,
   onChange,
   onVoyageChange,
-  isImportJob = false,
   fallbackVoyage = null,
   quickAdd = "vesselVoyage",
   placeholder = "- Select vessel -",
@@ -46,9 +45,7 @@ export default function VesselVoyageSelect({
         });
         if (requestId !== requestIdRef.current) return;
 
-        const nextOptions = rows
-          .map((row) => buildVesselVoyageSelectOption(row, { isImportJob }))
-          .filter(Boolean);
+        const nextOptions = rows.map((row) => buildVesselVoyageSelectOption(row)).filter(Boolean);
 
         setOptions((prev) => {
           const selected = prev.find((row) => value && String(row.value) === String(value));
@@ -63,7 +60,7 @@ export default function VesselVoyageSelect({
         if (requestId === requestIdRef.current) setIsLoading(false);
       }
     },
-    [isImportJob, value],
+    [value],
   );
 
   useEffect(() => {
@@ -80,12 +77,12 @@ export default function VesselVoyageSelect({
       return;
     }
     if (resolvedValueRef.current && String(resolvedValueRef.current.id) === String(value)) {
-      mergeOption(buildVesselVoyageSelectOption(resolvedValueRef.current, { isImportJob }));
+      mergeOption(buildVesselVoyageSelectOption(resolvedValueRef.current));
       return;
     }
     if (fallbackVoyage && String(fallbackVoyage.id) === String(value)) {
       resolvedValueRef.current = fallbackVoyage;
-      mergeOption(buildVesselVoyageSelectOption(fallbackVoyage, { isImportJob }));
+      mergeOption(buildVesselVoyageSelectOption(fallbackVoyage));
       onVoyageChange?.(fallbackVoyage);
       return;
     }
@@ -95,7 +92,7 @@ export default function VesselVoyageSelect({
       .then((voyage) => {
         if (cancelled || !voyage) return;
         resolvedValueRef.current = voyage;
-        mergeOption(buildVesselVoyageSelectOption(voyage, { isImportJob }));
+        mergeOption(buildVesselVoyageSelectOption(voyage));
         onVoyageChange?.(voyage);
       })
       .catch(() => {});
@@ -103,7 +100,7 @@ export default function VesselVoyageSelect({
     return () => {
       cancelled = true;
     };
-  }, [value, fallbackVoyage, isImportJob, mergeOption, onVoyageChange]);
+  }, [value, fallbackVoyage, mergeOption, onVoyageChange]);
 
   const selectedOption = useMemo(() => {
     if (!value) return null;

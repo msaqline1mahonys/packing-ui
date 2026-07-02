@@ -3493,7 +3493,6 @@ function NewPackFormPageInner() {
           className="min-w-0 flex-1"
           quickAdd="vesselVoyage"
           placeholder="- Select vessel -"
-          isImportJob={isImportJob}
           value={pack.vesselDepartureId ?? ""}
           fallbackVoyage={selectedVessel}
           onVoyageChange={setResolvedSelectedVoyage}

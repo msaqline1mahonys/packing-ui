@@ -115,7 +115,7 @@ function toDisplayRow(row) {
     isDefaultLabel: type === "truck" ? (isDefault ? "Yes" : "No") : "—",
     method: row?.method ?? "POST",
     status: row.status ?? "Active",
-    maskedUrl: row?.masked_url ?? row?.maskedUrl ?? "",
+    connectorConfigured: Boolean(row?.masked_url ?? row?.maskedUrl),
   };
 }
 
@@ -445,7 +445,10 @@ export default function WeighbridgePage() {
                     highlight={column === config.columns[0]}
                   />
                 ))}
-                <DetailItem label="Connector URL" value={selected.maskedUrl || "Not set"} />
+                <DetailItem
+                  label="Connector URL"
+                  value={selected.connectorConfigured ? "Configured" : "Not set"}
+                />
               </dl>
             )}
           </aside>
@@ -493,7 +496,7 @@ export default function WeighbridgePage() {
           </label>
           <input
             suppressHydrationWarning
-            type="text"
+            type="password"
             className={cn(
               "w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-brand/15 placeholder:text-slate-400 focus:ring-2",
               fieldErrors.url ? "border-red-400 focus:border-red-400" : "border-slate-200/95 focus:border-brand/35"
@@ -508,8 +511,10 @@ export default function WeighbridgePage() {
               setFieldErrors((prev) => clearFieldError(prev, "url"));
             }}
           />
-          {modalMode === "edit" && selected?.maskedUrl ? (
-            <p className="text-[11px] text-slate-500">Current: {selected.maskedUrl}</p>
+          {modalMode === "edit" && selected?.connectorConfigured ? (
+            <p className="text-[11px] text-slate-500">
+              A connector URL is already saved. Leave blank to keep it, or paste a new URL to replace it.
+            </p>
           ) : (
             <p className="text-[11px] text-slate-500">Stored encrypted; only ever sent to the server.</p>
           )}

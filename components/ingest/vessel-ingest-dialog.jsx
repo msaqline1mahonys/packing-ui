@@ -19,6 +19,11 @@ async function readApiJson(res) {
     throw new Error("Empty response from server.");
   }
   if (trimmed.startsWith("<")) {
+    if (/504 gateway time-out|502 bad gateway|503 service unavailable/i.test(trimmed)) {
+      throw new Error(
+        "The ingest timed out at the load balancer before the API could respond. Try again after deploying the latest API build, or split VS and VR into separate uploads."
+      );
+    }
     if (/unable to create a temporary file/i.test(trimmed)) {
       throw new Error(
         "The API server could not save the uploaded file. Restart it with `php scripts/serve.php` (or `composer dev`) so uploads use storage/app/upload-tmp."
@@ -107,6 +112,11 @@ export function VesselIngestDialog({ open, onClose, onIngestComplete }) {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         body: fd,
       });
+      if (res.status === 504 || res.status === 502 || res.status === 503) {
+        throw new Error(
+          "The ingest timed out before the API could finish. Deploy the latest API build and try again, or upload VS and VR in separate requests."
+        );
+      }
       const json = await readApiJson(res);
       if (!res.ok || json?.success === false) {
         throw new Error(json?.message || "Ingest failed.");
@@ -115,7 +125,12 @@ export function VesselIngestDialog({ open, onClose, onIngestComplete }) {
       onIngestComplete?.();
       loadHistory();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ingest failed.");
+      const message = err instanceof Error ? err.message : "Ingest failed.";
+      setError(
+        message === "Failed to fetch"
+          ? "The upload timed out or lost connection to the API. Large schedule files can take a minute — deploy the latest API build and try again."
+          : message,
+      );
     } finally {
       setSubmitting(false);
     }

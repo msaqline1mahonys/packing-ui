@@ -32,7 +32,7 @@ const inputClass =
 
 const config = {
   title: "Vessel Voyage",
-  subtitle: "One row per voyage. Auto-updates when the vessel schedule CSV is ingested.",
+  subtitle: "One row per ship + voyage + terminal + load port + operator. 1-Stop schedules repeat the same voyage for each combination.",
   columns: [
     { key: "vesselName", label: "Vessel" },
     { key: "lloydsNumber", label: "Lloyds" },
@@ -245,6 +245,8 @@ export default function VesselVoyagePage() {
   const [dateField, setDateField] = useState("vesselEtd");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [voyageTotal, setVoyageTotal] = useState(null);
 
   useEffect(() => {
     const query = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -254,12 +256,20 @@ export default function VesselVoyagePage() {
     return () => query.removeEventListener("change", handleMedia);
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (search = "") => {
     setIsLoading(true);
     setError("");
     try {
+      const trimmedSearch = search.trim();
+      const voyageParams = new URLSearchParams({
+        per_page: trimmedSearch ? "500" : "1000",
+      });
+      if (trimmedSearch) {
+        voyageParams.set("search", trimmedSearch);
+      }
+
       const [voyagePayload, vesselsPayload, shippingPayload, terminalsPayload, portsPayload] = await Promise.all([
-        apiRequest(`${VOYAGES_ENDPOINT}?per_page=200`),
+        apiRequest(`${VOYAGES_ENDPOINT}?${voyageParams}`),
         apiRequest(`${VESSELS_ENDPOINT}?per_page=500`),
         apiRequest(`${SHIPPING_LINES_ENDPOINT}?per_page=500`),
         apiRequest(`${TERMINALS_ENDPOINT}?per_page=500`),
@@ -272,6 +282,7 @@ export default function VesselVoyagePage() {
       const portRows = Array.isArray(portsPayload?.data) ? portsPayload.data : portsPayload || [];
 
       setRows(voyageRows.map(fromApiVoyage));
+      setVoyageTotal(typeof voyagePayload?.total === "number" ? voyagePayload.total : voyageRows.length);
       setVesselOptions(vesselRows.map((v) => ({
         value: v.id,
         label: `${v.vessel_name}${v.lloyds_number ? ` (${v.lloyds_number})` : ""}`,
@@ -296,15 +307,16 @@ export default function VesselVoyagePage() {
   }, []);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      loadData();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [loadData]);
+    const delayMs = searchQuery.trim() ? 300 : 0;
+    const timer = window.setTimeout(() => {
+      loadData(searchQuery);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, loadData]);
 
   // Live refresh: poll every 60s (paused when the tab is hidden or while an
   // add/edit modal is open so in-progress edits aren't disrupted).
-  usePolling(loadData, { intervalMs: 60000, isBusy: () => modalMode != null });
+  usePolling(() => loadData(searchQuery), { intervalMs: 60000, isBusy: () => modalMode != null });
 
   const hasDateFilter = Boolean(dateFrom || dateTo);
   const filteredRows = useMemo(() => {
@@ -475,7 +487,11 @@ export default function VesselVoyagePage() {
             <Button type="button" variant="outline" size="sm" onClick={clearDateFilter}>Clear</Button>
           ) : null}
           <span className="ml-auto text-xs text-slate-500">
-            {hasDateFilter ? `${filteredRows.length} of ${rows.length} voyage(s)` : `${rows.length} voyage(s)`}
+            {hasDateFilter
+              ? `${filteredRows.length} of ${rows.length} voyage(s)`
+              : searchQuery.trim()
+                ? `${rows.length} matching "${searchQuery.trim()}"${voyageTotal != null && voyageTotal > rows.length ? ` (${voyageTotal} total — refine search)` : ""}`
+                : `${rows.length} recent voyage(s) — search by vessel name to find older sailings`}
           </span>
         </div>
       </div>
@@ -490,7 +506,9 @@ export default function VesselVoyagePage() {
           fileName={config.title}
           visibleRows={15}
           loading={isLoading}
-          emptyMessage={isLoading ? "Loading voyages..." : hasDateFilter ? "No voyages match the selected date range." : "No voyages found."}
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          emptyMessage={isLoading ? "Loading voyages..." : hasDateFilter ? "No voyages match the selected date range." : searchQuery.trim() ? "No voyages match your search." : "No voyages found."}
           onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
           onPersistedRowActivate={(row) => setSelectedId(row.id)}
           toolbarActions={
@@ -500,7 +518,7 @@ export default function VesselVoyagePage() {
               <Button type="button" variant="destructive" size="sm" disabled={!selected || isLoading || isDeleting} onClick={removeSelected}>
                 {isDeleting ? "Deleting..." : "Delete"}
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={loadData} disabled={isLoading}>Refresh</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => loadData(searchQuery)} disabled={isLoading}>Refresh</Button>
             </div>
           }
         />

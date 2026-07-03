@@ -75,6 +75,7 @@ export default function ClutchSelect({
   menuPortal = true,
   compact = false,
   inputId: inputIdProp,
+  onInputChange: onInputChangeProp,
   ...rest
 }) {
   const {
@@ -185,6 +186,7 @@ export default function ClutchSelect({
           // Keep our own copy of the search text for the Add New callback,
           // but don't fight react-select's internal input handling.
           if (meta.action === "input-change") setInputValue(v);
+          onInputChangeProp?.(v, meta);
           return v;
         }}
         filterOption={computedFilterOption}

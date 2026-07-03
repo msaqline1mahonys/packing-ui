@@ -324,6 +324,8 @@ export function ComtracIntegrationPanel({ siteId, organizationId }) {
         <p className="text-sm text-slate-600">
           Receive Comtrac carrier <strong>VS</strong> (vessel schedule) and <strong>VR</strong> (vessel rotation) files
           via API — e.g. from Power Automate when emails arrive. Schedule and rotation may be sent in separate requests.
+          VS creates one voyage per ship + voyage + terminal + load port + operator. VR rows are discharge ports and do not
+          create additional voyages.
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <CopyField label="Organization ID" value={organizationId} />
